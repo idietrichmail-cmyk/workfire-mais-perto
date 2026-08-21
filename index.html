@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Work Fire mais perto de você</title>
+<meta name="theme-color" content="#0f172a" />
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; }
+  .font-serif { font-family: Georgia, "Times New Roman", serif; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body class="bg-slate-100 text-slate-900">
+
+<!-- ===================== CARREGANDO ===================== -->
+<div id="tela-carregando" class="tela min-h-screen bg-slate-950 flex items-center justify-center">
+  <p class="text-slate-400 text-sm">Carregando…</p>
+</div>
+
+<!-- ===================== LOGIN INSTRUTOR ===================== -->
+<div id="tela-login" class="tela hidden min-h-screen bg-slate-950 flex items-center justify-center p-6">
+  <div class="w-full max-w-sm bg-white rounded-[2rem] shadow-2xl overflow-hidden border border-slate-800">
+    <div class="bg-slate-900 px-6 pt-9 pb-10 text-center">
+      <div class="w-12 h-12 rounded-full bg-amber-500 mx-auto flex items-center justify-center mb-3 text-xl">📅</div>
+      <h1 class="font-serif text-xl text-white">Agenda do Instrutor</h1>
+      <p class="text-slate-400 text-xs mt-1">Acesse com o e-mail cadastrado</p>
+    </div>
+    <div class="px-6 py-6 space-y-4">
+      <div id="login-erro" class="hidden bg-rose-50 text-rose-600 text-xs rounded-md px-3 py-2"></div>
+      <div>
+        <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">E-mail</label>
+        <input id="login-email" type="email" autocapitalize="none"
+          class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+          placeholder="seuemail@email.com" />
+      </div>
+      <div>
+        <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Senha</label>
+        <input id="login-senha" type="password"
+          class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+          placeholder="Sua senha" />
+      </div>
+      <button id="btn-login" class="w-full bg-amber-500 hover:bg-amber-600 text-slate-900 text-sm font-semibold py-2.5 rounded-md">Entrar</button>
+      <button id="btn-ir-primeiro-acesso" class="w-full text-center text-[11px] text-slate-500 hover:text-slate-800 pt-1">Primeiro acesso? Criar minha senha</button>
+      <div class="flex items-center gap-1.5 justify-center text-[11px] text-slate-400 pt-1">🛡️ Você só tem acesso à sua própria agenda</div>
+      <button id="btn-ir-admin" class="w-full text-center text-[11px] text-slate-400 hover:text-slate-700 pt-2">← Voltar para o Work Fire</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== PRIMEIRO ACESSO (INSTRUTOR) ===================== -->
+<div id="tela-primeiro-acesso" class="tela hidden min-h-screen bg-slate-950 flex items-center justify-center p-6">
+  <div class="w-full max-w-sm bg-white rounded-[2rem] shadow-2xl overflow-hidden border border-slate-800">
+    <div class="bg-slate-900 px-6 pt-9 pb-10 text-center">
+      <div class="w-12 h-12 rounded-full bg-amber-500 mx-auto flex items-center justify-center mb-3 text-xl">🔑</div>
+      <h1 class="font-serif text-xl text-white">Criar minha senha</h1>
+      <p class="text-slate-400 text-xs mt-1">Use o e-mail que o administrador cadastrou para você</p>
+    </div>
+    <div class="px-6 py-6 space-y-4">
+      <div id="pa-erro" class="hidden bg-rose-50 text-rose-600 text-xs rounded-md px-3 py-2"></div>
+      <div>
+        <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">E-mail cadastrado</label>
+        <input id="pa-email" type="email" autocapitalize="none" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" placeholder="seuemail@email.com" />
+      </div>
+      <div>
+        <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Criar senha</label>
+        <input id="pa-senha" type="password" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" placeholder="Mínimo 6 caracteres" />
+      </div>
+      <div>
+        <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Confirmar senha</label>
+        <input id="pa-confirmar" type="password" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
+      </div>
+      <button id="btn-criar-senha" class="w-full bg-amber-500 hover:bg-amber-600 text-slate-900 text-sm font-semibold py-2.5 rounded-md">Criar senha e entrar</button>
+      <button id="btn-voltar-login-1" class="w-full text-center text-[11px] text-slate-400 hover:text-slate-700 pt-1">← Voltar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== ACESSO À ÁREA DE TRABALHO (USUÁRIOS DO SISTEMA) ===================== -->
+<div id="tela-acesso-admin" class="tela hidden min-h-screen bg-slate-950 flex items-center justify-center p-6">
+  <div class="w-full max-w-sm bg-white rounded-[2rem] shadow-2xl overflow-hidden border border-slate-800">
+    <div class="bg-slate-900 px-6 pt-9 pb-10 text-center">
+      <div class="w-12 h-12 rounded-full bg-teal-600 mx-auto flex items-center justify-center mb-3 text-xl">🔥</div>
+      <h1 class="font-serif text-xl text-white">Work Fire mais perto de você</h1>
+      <p class="text-slate-400 text-xs mt-1">Entre com seu e-mail e senha</p>
+    </div>
+    <div class="px-6 py-6 space-y-4">
+      <div id="admin-login-erro" class="hidden bg-rose-50 text-rose-600 text-xs rounded-md px-3 py-2"></div>
+      <div>
+        <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">E-mail</label>
+        <input id="admin-login-email" type="email" autocapitalize="none" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+      </div>
+      <div>
+        <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Senha</label>
+        <input id="admin-login-senha" type="password" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+      </div>
+      <button id="btn-entrar-admin" class="w-full bg-teal-700 hover:bg-teal-800 text-white text-sm font-semibold py-2.5 rounded-md">Entrar</button>
+      <button id="btn-ir-primeiro-acesso-sistema" class="w-full text-center text-[11px] text-slate-500 hover:text-slate-800 pt-1">Primeiro acesso? Criar minha senha</button>
+      <button id="btn-ir-trocar-senha" class="w-full text-center text-[11px] text-slate-400 hover:text-slate-700">Trocar minha senha</button>
+      <button id="btn-voltar-login-2" class="w-full text-center text-[11px] text-slate-400 hover:text-slate-700 pt-1">Sou instrutor, quero acessar minha agenda pessoal</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== PRIMEIRO ACESSO (USUÁRIO DO SISTEMA) ===================== -->
+<div id="tela-primeiro-acesso-sistema" class="tela hidden min-h-screen bg-slate-950 flex items-center justify-center p-6">
+  <div class="w-full max-w-sm bg-white rounded-[2rem] shadow-2xl overflow-hidden border border-slate-800">
+    <div class="bg-slate-900 px-6 pt-9 pb-10 text-center">
+      <div class="w-12 h-12 rounded-full bg-teal-600 mx-auto flex items-center justify-center mb-3 text-xl">🔑</div>
+      <h1 class="font-serif text-xl text-white">Criar minha senha</h1>
+      <p class="text-slate-400 text-xs mt-1">Use o e-mail que o administrador cadastrou para você</p>
+    </div>
+    <div class="px-6 py-6 space-y-4">
+      <div id="pas-erro" class="hidden bg-rose-50 text-rose-600 text-xs rounded-md px-3 py-2"></div>
+      <div>
+        <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">E-mail cadastrado</label>
+        <input id="pas-email" type="email" autocapitalize="none" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" placeholder="seuemail@email.com" />
+      </div>
+      <div>
+        <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Criar senha</label>
+        <input id="pas-senha" type="password" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" placeholder="Mínimo 6 caracteres" />
+      </div>
+      <div>
+        <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Confirmar senha</label>
+        <input id="pas-confirmar" type="password" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+      </div>
+      <button id="btn-criar-senha-sistema" class="w-full bg-teal-700 hover:bg-teal-800 text-white text-sm font-semibold py-2.5 rounded-md">Criar senha e entrar</button>
+      <button id="btn-voltar-acesso-admin" class="w-full text-center text-[11px] text-slate-400 hover:text-slate-700 pt-1">← Voltar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== TROCAR SENHA (ADMIN OU INSTRUTOR, LOGADO) ===================== -->
+<div id="tela-trocar-senha" class="tela hidden min-h-screen bg-slate-950 flex items-center justify-center p-6">
+  <div class="w-full max-w-sm bg-white rounded-[2rem] shadow-2xl overflow-hidden border border-slate-800">
+    <div class="bg-slate-900 px-6 pt-9 pb-10 text-center">
+      <div class="w-12 h-12 rounded-full bg-teal-600 mx-auto flex items-center justify-center mb-3 text-xl">🔑</div>
+      <h1 class="font-serif text-xl text-white">Trocar senha</h1>
+      <p class="text-slate-400 text-xs mt-1">Confirme sua senha atual para definir uma nova</p>
+    </div>
+    <div class="px-6 py-6 space-y-4">
+      <div id="ts-erro" class="hidden bg-rose-50 text-rose-600 text-xs rounded-md px-3 py-2"></div>
+      <div>
+        <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">E-mail</label>
+        <input id="ts-email" type="email" autocapitalize="none" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+      </div>
+      <div>
+        <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Senha atual</label>
+        <input id="ts-senha-atual" type="password" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+      </div>
+      <div>
+        <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Nova senha</label>
+        <input id="ts-senha-nova" type="password" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+      </div>
+      <button id="btn-salvar-nova-senha" class="w-full bg-teal-700 hover:bg-teal-800 text-white text-sm font-semibold py-2.5 rounded-md">Salvar nova senha</button>
+      <button id="btn-cancelar-troca" class="w-full text-center text-[11px] text-slate-400 hover:text-slate-700">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== APP DO INSTRUTOR ===================== -->
+<div id="tela-instrutor" class="tela hidden min-h-screen bg-slate-950 flex items-center justify-center p-6">
+  <div class="w-full max-w-sm bg-slate-50 rounded-[2rem] shadow-2xl overflow-hidden border border-slate-800 min-h-[640px] flex flex-col">
+    <div class="bg-slate-900 px-5 pt-6 pb-5 flex items-center justify-between">
+      <div>
+        <p class="text-slate-400 text-[11px]">Olá,</p>
+        <p id="inst-nome" class="font-serif text-lg text-white leading-tight"></p>
+        <p id="inst-especialidade" class="text-amber-400 text-xs mt-0.5"></p>
+      </div>
+      <button id="btn-sair-instrutor" class="text-slate-400 hover:text-white p-2">🚪</button>
+    </div>
+    <div class="flex-1 px-5 py-5 overflow-y-auto">
+      <p class="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">Minha disponibilidade</p>
+      <p class="text-[11px] text-slate-400 mb-3">Toque nos dias em que você está disponível para dar treinamento.</p>
+      <div class="bg-white border border-slate-200 rounded-xl p-3">
+        <div class="flex items-center justify-between mb-2">
+          <button id="inst-mes-anterior" class="p-1 rounded-md hover:bg-slate-100 text-slate-500">‹</button>
+          <p id="inst-mes-label" class="font-serif text-sm text-slate-800"></p>
+          <button id="inst-mes-proximo" class="p-1 rounded-md hover:bg-slate-100 text-slate-500">›</button>
+        </div>
+        <div id="inst-dias-semana" class="grid grid-cols-7 gap-1 mb-1"></div>
+        <div id="inst-grade-dias" class="grid grid-cols-7 gap-1"></div>
+      </div>
+
+      <div class="flex flex-wrap gap-x-3 gap-y-1 mt-3 text-[10px] text-slate-500">
+        <span class="inline-flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm bg-teal-600 inline-block"></span>Disponível</span>
+        <span class="inline-flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm bg-slate-300 inline-block"></span>Bloqueado</span>
+        <span class="inline-flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm bg-blue-600 inline-block"></span>Agendado</span>
+        <span class="inline-flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm bg-amber-400 inline-block"></span>Aguardando confirmação</span>
+      </div>
+
+      <div class="grid grid-cols-2 gap-2 mt-3">
+        <button id="inst-bloquear-mes" class="text-xs font-medium text-slate-600 border border-slate-300 rounded-md py-2 hover:bg-white">🔒 Bloquear mês</button>
+        <button id="inst-disponibilizar-mes" class="text-xs font-medium text-teal-700 border border-teal-200 bg-teal-50 rounded-md py-2 hover:bg-teal-100">🔓 Disponibilizar mês</button>
+      </div>
+      <p class="text-[10px] text-slate-400 mt-1.5">Dias agendados ou aguardando confirmação não são alterados por esses botões.</p>
+      <div class="mt-4 bg-teal-50 text-teal-700 text-xs rounded-lg px-3 py-2 flex items-center gap-2">
+        📌 <span id="inst-contagem-dias"></span>
+      </div>
+      <div id="inst-alerta-aguardando" class="hidden mt-2 bg-amber-50 text-amber-700 text-xs rounded-lg px-3 py-2 flex items-center gap-2">
+        ⏳ <span></span>
+      </div>
+
+      <div id="inst-doc-bloco" class="hidden mt-5">
+        <p class="text-xs font-medium text-slate-500 uppercase tracking-wide mb-2">Documento de identificação</p>
+        <button id="inst-doc-abrir" class="relative w-full block rounded-xl overflow-hidden border border-slate-200">
+          <img id="inst-doc-img" class="w-full h-32 object-cover" />
+          <span class="absolute bottom-1.5 right-1.5 bg-slate-900/80 text-white text-[10px] rounded-full px-2 py-1">🔍 Ampliar</span>
+        </button>
+        <p class="text-[11px] text-slate-400 mt-1 text-center">Toque para exibir e se identificar</p>
+      </div>
+
+      <div class="mt-5">
+        <p class="text-xs font-medium text-slate-500 uppercase tracking-wide mb-2">Meus dados</p>
+        <div id="inst-dados" class="bg-white border border-slate-200 rounded-xl p-3 text-xs text-slate-600 space-y-1.5"></div>
+      </div>
+
+      <button id="btn-inst-trocar-senha" class="mt-5 w-full text-center text-[11px] text-slate-400 hover:text-slate-700">Trocar minha senha</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal documento ampliado -->
+<div id="modal-doc" class="hidden fixed inset-0 z-50 bg-slate-950/95 flex flex-col items-center justify-center p-6">
+  <img id="modal-doc-img" class="max-w-sm w-full rounded-lg shadow-2xl" />
+  <p id="modal-doc-nome" class="text-white text-center text-sm font-serif mt-4"></p>
+  <p class="text-slate-400 text-xs mt-1">Toque em qualquer lugar para fechar</p>
+</div>
+
+<!-- ===================== PAINEL ADMINISTRATIVO ===================== -->
+<div id="tela-admin" class="tela hidden min-h-screen bg-slate-100 text-slate-900">
+  <div class="flex">
+    <aside class="hidden md:flex w-60 shrink-0 flex-col bg-slate-900 text-slate-300 min-h-screen px-4 py-6 overflow-y-auto">
+      <div class="flex items-center gap-2 px-2 mb-8">
+        <span class="text-amber-500 text-xl">🔥</span>
+        <span class="font-serif text-lg text-white tracking-wide">Work Fire</span>
+      </div>
+      <nav id="admin-nav" class="flex flex-col gap-1 text-sm"></nav>
+    </aside>
+
+    <main class="flex-1 px-5 md:px-10 py-8 max-w-6xl">
+      <select id="admin-nav-mobile" class="md:hidden w-full mb-5 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium"></select>
+
+      <header class="mb-8 flex items-start justify-between gap-4">
+        <div>
+          <p id="admin-eyebrow" class="text-xs uppercase tracking-[0.2em] text-amber-600 font-medium mb-1">Work Fire mais perto de você</p>
+          <h1 id="admin-titulo-pagina" class="font-serif text-3xl md:text-4xl text-slate-900">Cadastro do Instrutor</h1>
+          <p id="admin-descricao-pagina" class="text-slate-500 mt-2 max-w-xl">Registre os instrutores que poderão ser alocados na agenda de turmas e treinamentos.</p>
+        </div>
+        <div class="hidden sm:flex flex-col gap-2 shrink-0">
+          <button id="btn-ver-instrutor" class="inline-flex items-center gap-2 text-xs font-medium text-slate-600 border border-slate-300 rounded-md px-3 py-2 hover:bg-white">📱 Ver tela do instrutor</button>
+          <button id="btn-admin-trocar-senha" class="inline-flex items-center gap-2 text-xs font-medium text-slate-500 hover:text-slate-800 px-3">🔑 Trocar minha senha</button>
+          <button id="btn-admin-sair" class="inline-flex items-center gap-2 text-xs font-medium text-rose-500 hover:text-rose-700 px-3">🚪 Sair</button>
+        </div>
+      </header>
+
+      <!-- ---------- CADASTRO: INSTRUTORES ---------- -->
+      <section id="secao-instrutores" class="hidden">
+        <div class="grid grid-cols-3 gap-3 mb-8 max-w-lg">
+          <div class="bg-white rounded-lg border border-slate-200 px-4 py-3">
+            <p id="stat-total" class="text-2xl font-serif text-slate-900">0</p>
+            <p class="text-xs text-slate-500 mt-0.5">Cadastrados</p>
+          </div>
+          <div class="bg-white rounded-lg border border-slate-200 px-4 py-3">
+            <p id="stat-ativos" class="text-2xl font-serif text-teal-700">0</p>
+            <p class="text-xs text-slate-500 mt-0.5">Ativos</p>
+          </div>
+          <div class="bg-white rounded-lg border border-slate-200 px-4 py-3">
+            <p id="stat-especialidades" class="text-2xl font-serif text-slate-900">0</p>
+            <p class="text-xs text-slate-500 mt-0.5">Especialidades</p>
+          </div>
+        </div>
+
+        <div class="flex flex-col sm:flex-row gap-3 sm:items-center justify-between mb-5">
+          <div class="flex items-center gap-3 flex-1">
+            <input id="admin-busca" placeholder="Buscar por nome ou especialidade" class="flex-1 max-w-xs text-sm rounded-md border border-slate-300 bg-white px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-500" />
+            <select id="admin-filtro-status" class="text-sm rounded-md border border-slate-300 bg-white px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-500">
+              <option>Todos</option><option>Ativo</option><option>Inativo</option>
+            </select>
+          </div>
+          <button id="btn-novo-instrutor" class="inline-flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium px-4 py-2 rounded-md">+ Novo instrutor</button>
+        </div>
+
+        <div id="admin-lista" class="grid sm:grid-cols-2 xl:grid-cols-3 gap-4"></div>
+      </section>
+
+      <!-- ---------- CADASTROS SIMPLES (Empresas / Centros / Tipos / Usuários) ---------- -->
+      <section id="secao-crud" class="hidden">
+        <div class="flex flex-col sm:flex-row gap-3 sm:items-center justify-between mb-5">
+          <input id="crud-busca" placeholder="Buscar" class="flex-1 max-w-xs text-sm rounded-md border border-slate-300 bg-white px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-500" />
+          <button id="btn-crud-novo" class="inline-flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium px-4 py-2 rounded-md">+ Novo</button>
+        </div>
+        <div id="crud-lista" class="grid sm:grid-cols-2 xl:grid-cols-3 gap-4"></div>
+      </section>
+
+      <!-- ---------- OPERAÇÃO: AGENDAR TREINAMENTO ---------- -->
+      <section id="secao-agendamentos" class="hidden">
+        <div class="flex flex-col sm:flex-row gap-3 sm:items-center justify-between mb-5">
+          <input id="ag-busca" placeholder="Buscar por instrutor, tipo ou empresa" class="flex-1 max-w-xs text-sm rounded-md border border-slate-300 bg-white px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-500" />
+          <button id="btn-ag-novo" class="inline-flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium px-4 py-2 rounded-md">+ Agendar treinamento</button>
+        </div>
+        <div id="ag-lista" class="grid sm:grid-cols-2 xl:grid-cols-3 gap-4"></div>
+      </section>
+
+      <!-- ---------- OPERAÇÃO: ORÇAMENTOS ---------- -->
+      <section id="secao-orcamentos" class="hidden">
+        <div class="flex flex-col sm:flex-row gap-3 sm:items-center justify-between mb-5">
+          <input id="orc-busca" placeholder="Buscar por número ou empresa" class="flex-1 max-w-xs text-sm rounded-md border border-slate-300 bg-white px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-500" />
+          <button id="btn-orc-novo" class="inline-flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium px-4 py-2 rounded-md">+ Novo orçamento</button>
+        </div>
+        <div id="orc-lista" class="grid sm:grid-cols-2 xl:grid-cols-3 gap-4"></div>
+      </section>
+
+      <!-- ---------- OPERAÇÃO: TURMAS POR ORÇAMENTO ---------- -->
+      <section id="secao-turmas" class="hidden">
+        <div class="mb-5 bg-white border border-slate-200 rounded-xl p-4">
+          <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Selecione o orçamento</label>
+          <select id="turma-orcamento-select" class="mt-1 w-full max-w-md rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">
+            <option value="">— Selecione —</option>
+          </select>
+          <div id="turma-orcamento-info" class="hidden mt-3 text-xs text-slate-500 space-y-1"></div>
+        </div>
+        <div id="turma-conteudo" class="hidden">
+          <div class="flex items-center justify-between mb-4">
+            <p class="text-sm font-medium text-slate-700">Turmas deste orçamento</p>
+            <button id="btn-turma-novo" class="inline-flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium px-4 py-2 rounded-md">+ Nova turma</button>
+          </div>
+          <div id="turma-lista" class="grid sm:grid-cols-2 xl:grid-cols-3 gap-4"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Painel lateral de cadastro -->
+  <div id="painel-form" class="hidden fixed inset-0 z-50 flex justify-end">
+    <div id="painel-overlay" class="absolute inset-0 bg-slate-900/40"></div>
+    <div class="relative w-full max-w-md bg-white h-full shadow-xl px-6 py-6 overflow-y-auto">
+      <div class="flex items-center justify-between mb-6">
+        <h2 id="painel-titulo" class="font-serif text-xl text-slate-900">Novo instrutor</h2>
+        <button id="btn-fechar-painel" class="text-slate-400 hover:text-slate-700 text-xl">×</button>
+      </div>
+      <div id="form-erro" class="hidden bg-rose-50 text-rose-600 text-sm rounded-md px-3 py-2 mb-4"></div>
+      <div class="space-y-4">
+        <div>
+          <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Nome completo</label>
+          <input id="f-nome" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" placeholder="Ex: Ana Beatriz Souza" />
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">CPF</label>
+            <input id="f-cpf" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-amber-500" placeholder="000.000.000-00" />
+          </div>
+          <div>
+            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Status</label>
+            <select id="f-status" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">
+              <option>Ativo</option><option>Inativo</option>
+            </select>
+          </div>
+        </div>
+        <div>
+          <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">E-mail</label>
+          <input id="f-email" type="email" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" placeholder="instrutor@email.com" />
+          <p class="text-[11px] text-slate-400 mt-1">Este e-mail é o login do instrutor no app. Ele mesmo cria a senha no primeiro acesso.</p>
+        </div>
+        <div>
+          <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Telefone</label>
+          <input id="f-telefone" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" placeholder="(00) 00000-0000" />
+        </div>
+        <div>
+          <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Documento de identificação</label>
+          <div id="f-doc-preview" class="hidden mt-1 relative">
+            <img id="f-doc-img" class="w-full h-32 object-cover rounded-md border border-slate-200" />
+            <button id="f-doc-remover" class="absolute top-1.5 right-1.5 bg-white/90 rounded-full p-1 text-slate-500 hover:text-rose-600 text-xs px-2">×</button>
+          </div>
+          <label id="f-doc-upload-label" class="mt-1 flex flex-col items-center justify-center gap-1 border border-dashed border-slate-300 rounded-md py-4 text-slate-400 hover:border-amber-400 hover:text-amber-600 cursor-pointer text-xs">
+            ⬆️ Enviar foto do RG, CNH ou crachá
+            <input id="f-doc-input" type="file" accept="image/*" class="hidden" />
+          </label>
+        </div>
+        <div>
+          <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Especialidade</label>
+          <input id="f-especialidade" list="especialidades" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" placeholder="Ex: Segurança do Trabalho" />
+          <datalist id="especialidades">
+            <option value="Segurança do Trabalho"></option><option value="Primeiros Socorros"></option>
+            <option value="Logística"></option><option value="Operação de Empilhadeira"></option>
+            <option value="Liderança"></option><option value="Qualidade"></option><option value="Tecnologia"></option>
+          </datalist>
+        </div>
+        <div>
+          <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Carga horária disponível (h/mês)</label>
+          <input id="f-carga" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" placeholder="Ex: 40" />
+        </div>
+        <div>
+          <div class="flex items-center justify-between mb-2">
+            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Dias / agenda</label>
+            <span id="f-dias-contagem" class="text-[11px] text-amber-700 font-medium">0 disponíveis</span>
+          </div>
+          <div class="border border-slate-200 rounded-lg p-3 bg-slate-50">
+            <div class="flex items-center justify-between mb-2">
+              <button id="f-mes-anterior" type="button" class="p-1 rounded-md hover:bg-white text-slate-500">‹</button>
+              <p id="f-mes-label" class="font-serif text-sm text-slate-800"></p>
+              <button id="f-mes-proximo" type="button" class="p-1 rounded-md hover:bg-white text-slate-500">›</button>
+            </div>
+            <div id="f-dias-semana" class="grid grid-cols-7 gap-1 mb-1"></div>
+            <div id="f-grade-dias" class="grid grid-cols-7 gap-1"></div>
+          </div>
+          <div class="flex flex-wrap gap-x-3 gap-y-1 mt-2 text-[10px] text-slate-500">
+            <span class="inline-flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm bg-teal-600 inline-block"></span>Disponível</span>
+            <span class="inline-flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm bg-slate-300 inline-block"></span>Bloqueado</span>
+            <span class="inline-flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm bg-blue-600 inline-block"></span>Agendado</span>
+            <span class="inline-flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm bg-amber-400 inline-block"></span>Aguardando</span>
+          </div>
+          <div class="grid grid-cols-2 gap-2 mt-2">
+            <button id="f-bloquear-mes" type="button" class="text-xs font-medium text-slate-600 border border-slate-300 rounded-md py-2 hover:bg-white">🔒 Bloquear mês</button>
+            <button id="f-disponibilizar-mes" type="button" class="text-xs font-medium text-teal-700 border border-teal-200 bg-teal-50 rounded-md py-2 hover:bg-teal-100">🔓 Disponibilizar mês</button>
+          </div>
+          <p class="text-[10px] text-slate-400 mt-1">Dias agendados ou aguardando confirmação não são alterados por esses botões.</p>
+        </div>
+        <div>
+          <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Observações</label>
+          <textarea id="f-observacoes" rows="3" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" placeholder="Restrições de horário, certificações, etc."></textarea>
+        </div>
+      </div>
+      <div class="flex gap-3 mt-6">
+        <button id="btn-salvar-instrutor" class="flex-1 bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium py-2.5 rounded-md">Cadastrar instrutor</button>
+        <button id="btn-cancelar-painel" class="px-4 text-sm font-medium text-slate-500 hover:text-slate-800">Cancelar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Painel genérico: Empresas / Centros de Treinamento / Tipos de Treinamento / Usuários do Sistema -->
+  <div id="painel-crud" class="hidden fixed inset-0 z-50 flex justify-end">
+    <div id="painel-crud-overlay" class="absolute inset-0 bg-slate-900/40"></div>
+    <div class="relative w-full max-w-md bg-white h-full shadow-xl px-6 py-6 overflow-y-auto">
+      <div class="flex items-center justify-between mb-6">
+        <h2 id="painel-crud-titulo" class="font-serif text-xl text-slate-900">Novo</h2>
+        <button id="btn-fechar-painel-crud" class="text-slate-400 hover:text-slate-700 text-xl">×</button>
+      </div>
+      <div id="crud-form-erro" class="hidden bg-rose-50 text-rose-600 text-sm rounded-md px-3 py-2 mb-4"></div>
+      <div id="crud-campos" class="space-y-4"></div>
+      <div id="crud-permissoes-bloco" class="hidden mt-5">
+        <p class="text-xs font-medium text-slate-500 uppercase tracking-wide mb-2">Permissões de acesso</p>
+        <p id="crud-permissoes-admin-nota" class="hidden text-xs text-teal-700 bg-teal-50 rounded-md px-3 py-2 mb-2">Administrador tem acesso total a todos os cadastros e operações.</p>
+        <div id="crud-permissoes-tabela" class="border border-slate-200 rounded-lg divide-y divide-slate-100 text-xs"></div>
+      </div>
+      <div class="flex gap-3 mt-6">
+        <button id="btn-salvar-crud" class="flex-1 bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium py-2.5 rounded-md">Salvar</button>
+        <button id="btn-cancelar-painel-crud" class="px-4 text-sm font-medium text-slate-500 hover:text-slate-800">Cancelar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Painel: Orçamento -->
+  <div id="painel-orcamento" class="hidden fixed inset-0 z-50 flex justify-end">
+    <div id="painel-orcamento-overlay" class="absolute inset-0 bg-slate-900/40"></div>
+    <div class="relative w-full max-w-lg bg-white h-full shadow-xl px-6 py-6 overflow-y-auto">
+      <div class="flex items-center justify-between mb-6">
+        <h2 id="painel-orcamento-titulo" class="font-serif text-xl text-slate-900">Novo orçamento</h2>
+        <button id="btn-fechar-painel-orcamento" class="text-slate-400 hover:text-slate-700 text-xl">×</button>
+      </div>
+      <div id="orc-form-erro" class="hidden bg-rose-50 text-rose-600 text-sm rounded-md px-3 py-2 mb-4"></div>
+      <div class="space-y-4">
+        <div>
+          <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Empresa</label>
+          <select id="orc-empresa" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"></select>
+        </div>
+        <div class="grid grid-cols-3 gap-3">
+          <div>
+            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Data</label>
+            <input id="orc-data" type="date" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
+          </div>
+          <div>
+            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Validade</label>
+            <input id="orc-validade" type="date" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
+          </div>
+          <div>
+            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Status</label>
+            <select id="orc-status" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">
+              <option>Aberto</option><option>Aprovado</option><option>Recusado</option><option>Cancelado</option>
+            </select>
+          </div>
+        </div>
+        <div>
+          <div class="flex items-center justify-between mb-2">
+            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Itens do orçamento</label>
+            <button id="btn-orc-add-item" type="button" class="text-xs font-medium text-amber-700 hover:text-amber-800">+ Adicionar item</button>
+          </div>
+          <div id="orc-itens-lista" class="space-y-2"></div>
+          <p class="text-right text-sm font-semibold text-slate-800 mt-2">Total: <span id="orc-total">R$ 0,00</span></p>
+        </div>
+        <div>
+          <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Observações</label>
+          <textarea id="orc-observacoes" rows="3" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"></textarea>
+        </div>
+      </div>
+      <div class="flex gap-3 mt-6">
+        <button id="btn-salvar-orcamento" class="flex-1 bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium py-2.5 rounded-md">Salvar orçamento</button>
+        <button id="btn-cancelar-painel-orcamento" class="px-4 text-sm font-medium text-slate-500 hover:text-slate-800">Cancelar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Painel: Turma -->
+  <div id="painel-turma" class="hidden fixed inset-0 z-50 flex justify-end">
+    <div id="painel-turma-overlay" class="absolute inset-0 bg-slate-900/40"></div>
+    <div class="relative w-full max-w-md bg-white h-full shadow-xl px-6 py-6 overflow-y-auto">
+      <div class="flex items-center justify-between mb-6">
+        <h2 id="painel-turma-titulo" class="font-serif text-xl text-slate-900">Nova turma</h2>
+        <button id="btn-fechar-painel-turma" class="text-slate-400 hover:text-slate-700 text-xl">×</button>
+      </div>
+      <div id="turma-form-erro" class="hidden bg-rose-50 text-rose-600 text-sm rounded-md px-3 py-2 mb-4"></div>
+      <div class="space-y-4">
+        <div>
+          <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Item do orçamento</label>
+          <select id="turma-item" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"></select>
+        </div>
+        <div>
+          <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Centro de Treinamento</label>
+          <select id="turma-centro" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"></select>
+        </div>
+        <div>
+          <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Instrutor</label>
+          <select id="turma-instrutor" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"></select>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Data início</label>
+            <input id="turma-data-inicio" type="date" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
+          </div>
+          <div>
+            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Data fim</label>
+            <input id="turma-data-fim" type="date" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Horário</label>
+            <input id="turma-horario" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" placeholder="Ex: 08h às 17h" />
+          </div>
+          <div>
+            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Vagas</label>
+            <input id="turma-vagas" type="number" min="0" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
+          </div>
+        </div>
+        <div>
+          <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Status</label>
+          <select id="turma-status" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">
+            <option>Planejada</option><option>Confirmada</option><option>Concluida</option><option>Cancelada</option>
+          </select>
+        </div>
+        <div>
+          <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Observações</label>
+          <textarea id="turma-observacoes" rows="3" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"></textarea>
+        </div>
+      </div>
+      <div class="flex gap-3 mt-6">
+        <button id="btn-salvar-turma" class="flex-1 bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium py-2.5 rounded-md">Salvar turma</button>
+        <button id="btn-cancelar-painel-turma" class="px-4 text-sm font-medium text-slate-500 hover:text-slate-800">Cancelar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Painel: Agendamento (Agendar Treinamento) -->
+  <div id="painel-agendamento" class="hidden fixed inset-0 z-50 flex justify-end">
+    <div id="painel-agendamento-overlay" class="absolute inset-0 bg-slate-900/40"></div>
+    <div class="relative w-full max-w-md bg-white h-full shadow-xl px-6 py-6 overflow-y-auto">
+      <div class="flex items-center justify-between mb-6">
+        <h2 id="painel-agendamento-titulo" class="font-serif text-xl text-slate-900">Agendar treinamento</h2>
+        <button id="btn-fechar-painel-agendamento" class="text-slate-400 hover:text-slate-700 text-xl">×</button>
+      </div>
+      <div id="ag-form-erro" class="hidden bg-rose-50 text-rose-600 text-sm rounded-md px-3 py-2 mb-4"></div>
+      <div class="space-y-4">
+        <div>
+          <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Instrutor</label>
+          <select id="ag-instrutor" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"></select>
+        </div>
+        <div>
+          <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Tipo de Treinamento</label>
+          <select id="ag-tipo" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"></select>
+        </div>
+        <div>
+          <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Centro de Treinamento</label>
+          <select id="ag-centro" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"></select>
+        </div>
+        <div>
+          <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Empresa (opcional)</label>
+          <select id="ag-empresa" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"></select>
+        </div>
+        <div>
+          <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Horário</label>
+          <input id="ag-horario" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" placeholder="Ex: 08h às 17h" />
+        </div>
+        <div>
+          <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Status</label>
+          <select id="ag-status" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">
+            <option value="Aguardando">Aguardando confirmação</option>
+            <option value="Confirmado">Confirmado</option>
+          </select>
+        </div>
+        <div>
+          <div class="flex items-center justify-between mb-2">
+            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Datas (dias disponíveis do instrutor)</label>
+            <span id="ag-dias-contagem" class="text-[11px] text-amber-700 font-medium">0 selecionado(s)</span>
+          </div>
+          <div id="ag-sem-instrutor" class="text-xs text-slate-400 border border-dashed border-slate-300 rounded-lg p-3">Selecione um instrutor para escolher as datas.</div>
+          <div id="ag-calendario" class="hidden border border-slate-200 rounded-lg p-3 bg-slate-50">
+            <div class="flex items-center justify-between mb-2">
+              <button id="ag-mes-anterior" type="button" class="p-1 rounded-md hover:bg-white text-slate-500">‹</button>
+              <p id="ag-mes-label" class="font-serif text-sm text-slate-800"></p>
+              <button id="ag-mes-proximo" type="button" class="p-1 rounded-md hover:bg-white text-slate-500">›</button>
+            </div>
+            <div id="ag-dias-semana" class="grid grid-cols-7 gap-1 mb-1"></div>
+            <div id="ag-grade-dias" class="grid grid-cols-7 gap-1"></div>
+          </div>
+          <div class="flex flex-wrap gap-x-3 gap-y-1 mt-2 text-[10px] text-slate-500">
+            <span class="inline-flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm bg-teal-600 inline-block"></span>Disponível</span>
+            <span class="inline-flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm bg-amber-500 inline-block"></span>Selecionado</span>
+            <span class="inline-flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm bg-slate-300 inline-block"></span>Indisponível</span>
+          </div>
+        </div>
+        <div>
+          <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Observações</label>
+          <textarea id="ag-observacoes" rows="3" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"></textarea>
+        </div>
+      </div>
+      <div class="flex gap-3 mt-6">
+        <button id="btn-salvar-agendamento" class="flex-1 bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium py-2.5 rounded-md">Salvar agendamento</button>
+        <button id="btn-cancelar-painel-agendamento" class="px-4 text-sm font-medium text-slate-500 hover:text-slate-800">Cancelar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
