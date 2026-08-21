@@ -873,7 +873,7 @@ const CRUD_CONFIG = {
     ordenarPor: "nome",
     campos: [
       { id: "nome", label: "Nome da empresa", obrigatorio: true },
-      { id: "cnpj", label: "CNPJ" },
+      { id: "cnpj", label: "CNPJ", botaoAcao: { id: "btn-buscar-cnpj", label: "🔎 Pesquisar Receita Federal", onClick: buscarCnpjReceitaFederal } },
       { id: "contato_nome", label: "Nome do contato" },
       { id: "contato_email", label: "E-mail do contato", tipo: "email" },
       { id: "contato_telefone", label: "Telefone do contato" },
@@ -952,6 +952,16 @@ function renderCampoHtml(campo, valor) {
     return `<div>
       <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">${campo.label}</label>
       <textarea id="crud-campo-${campo.id}" rows="3" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">${val}</textarea>
+    </div>`;
+  }
+  if (campo.botaoAcao) {
+    return `<div>
+      <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">${campo.label}</label>
+      <div class="mt-1 flex gap-2">
+        <input id="crud-campo-${campo.id}" type="${campo.tipo || "text"}" value="${String(val).replace(/"/g, "&quot;")}" class="flex-1 min-w-0 rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
+        <button type="button" id="${campo.botaoAcao.id}" class="shrink-0 whitespace-nowrap text-xs font-medium text-white bg-slate-900 hover:bg-slate-800 rounded-md px-3">${campo.botaoAcao.label}</button>
+      </div>
+      <p id="${campo.botaoAcao.id}-status" class="text-[11px] mt-1"></p>
     </div>`;
   }
   return `<div>
@@ -1056,6 +1066,7 @@ function abrirNovoCrud() {
   $("painel-crud-titulo").textContent = "Novo " + cfg.titulo.toLowerCase();
   $("btn-salvar-crud").textContent = "Cadastrar";
   $("crud-campos").innerHTML = cfg.campos.map((c) => renderCampoHtml(c, c.padrao)).join("");
+  ligarBotoesAcaoCampos(cfg);
   montarBlocoPermissoes(cfg, null);
   $("painel-crud").classList.remove("hidden");
 }
@@ -1069,8 +1080,62 @@ function abrirEdicaoCrud(id) {
   $("painel-crud-titulo").textContent = "Editar " + cfg.titulo.toLowerCase();
   $("btn-salvar-crud").textContent = "Salvar alterações";
   $("crud-campos").innerHTML = cfg.campos.map((c) => renderCampoHtml(c, item[c.id])).join("");
+  ligarBotoesAcaoCampos(cfg);
   montarBlocoPermissoes(cfg, item);
   $("painel-crud").classList.remove("hidden");
+}
+
+function ligarBotoesAcaoCampos(cfg) {
+  cfg.campos.forEach((c) => {
+    if (c.botaoAcao) $(c.botaoAcao.id).addEventListener("click", c.botaoAcao.onClick);
+  });
+}
+
+async function buscarCnpjReceitaFederal() {
+  const status = $("btn-buscar-cnpj-status");
+  const cnpjDigits = $("crud-campo-cnpj").value.replace(/\D/g, "");
+  if (cnpjDigits.length !== 14) {
+    status.className = "text-[11px] mt-1 text-rose-600";
+    status.textContent = "Informe um CNPJ válido (14 dígitos) antes de pesquisar.";
+    return;
+  }
+
+  const btn = $("btn-buscar-cnpj");
+  const textoOriginal = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "Buscando…";
+  status.className = "text-[11px] mt-1 text-slate-400";
+  status.textContent = "Consultando a Receita Federal…";
+
+  try {
+    const resp = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpjDigits}`);
+    if (!resp.ok) throw new Error("CNPJ não encontrado");
+    const dados = await resp.json();
+
+    if ($("crud-campo-nome")) $("crud-campo-nome").value = dados.razao_social || dados.nome_fantasia || "";
+    if ($("crud-campo-endereco")) {
+      const partes = [
+        [dados.logradouro, dados.numero].filter(Boolean).join(", "),
+        dados.complemento,
+        dados.bairro,
+        dados.municipio && dados.uf ? `${dados.municipio}/${dados.uf}` : dados.municipio || dados.uf,
+        dados.cep ? `CEP ${dados.cep}` : null,
+      ].filter(Boolean);
+      $("crud-campo-endereco").value = partes.join(" - ");
+    }
+    if ($("crud-campo-contato_telefone") && dados.ddd_telefone_1) {
+      $("crud-campo-contato_telefone").value = dados.ddd_telefone_1;
+    }
+
+    status.className = "text-[11px] mt-1 text-teal-700";
+    status.textContent = `✅ ${dados.razao_social || "Empresa encontrada"}${dados.descricao_situacao_cadastral ? ` — ${dados.descricao_situacao_cadastral}` : ""}`;
+  } catch (e) {
+    status.className = "text-[11px] mt-1 text-rose-600";
+    status.textContent = "Não foi possível encontrar esse CNPJ na Receita Federal. Confira o número e tente novamente.";
+  } finally {
+    btn.disabled = false;
+    btn.textContent = textoOriginal;
+  }
 }
 
 $("btn-crud-novo").addEventListener("click", abrirNovoCrud);
