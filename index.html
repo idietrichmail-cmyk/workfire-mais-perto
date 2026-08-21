@@ -232,16 +232,24 @@
 <!-- ===================== PAINEL ADMINISTRATIVO ===================== -->
 <div id="tela-admin" class="tela hidden min-h-screen bg-slate-100 text-slate-900">
   <div class="flex">
-    <aside class="hidden md:flex w-60 shrink-0 flex-col bg-slate-900 text-slate-300 min-h-screen px-4 py-6 overflow-y-auto">
+    <aside class="hidden md:flex w-60 shrink-0 flex-col bg-slate-900 text-slate-300 min-h-screen px-4 py-6">
       <div class="flex items-center gap-2 px-2 mb-8">
         <span class="text-amber-500 text-xl">🔥</span>
         <span class="font-serif text-lg text-white tracking-wide">Work Fire</span>
       </div>
-      <nav id="admin-nav" class="flex flex-col gap-1 text-sm"></nav>
+      <nav id="admin-nav" class="flex-1 flex flex-col gap-1 text-sm overflow-y-auto"></nav>
+      <div class="pt-4 mt-4 border-t border-slate-800 flex flex-col gap-1 text-sm">
+        <button id="btn-ver-instrutor" class="flex items-center gap-2 rounded-md px-3 py-2 text-left w-full text-slate-300 hover:bg-slate-800 hover:text-white">📱 Ver tela do instrutor</button>
+        <button id="btn-admin-trocar-senha" class="flex items-center gap-2 rounded-md px-3 py-2 text-left w-full text-slate-300 hover:bg-slate-800 hover:text-white">🔑 Trocar minha senha</button>
+        <button id="btn-admin-sair" class="flex items-center gap-2 rounded-md px-3 py-2 text-left w-full text-rose-400 hover:bg-rose-950 hover:text-rose-300">🚪 Sair</button>
+      </div>
     </aside>
 
     <main class="flex-1 px-5 md:px-10 py-8 max-w-6xl">
-      <select id="admin-nav-mobile" class="md:hidden w-full mb-5 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium"></select>
+      <div class="md:hidden mb-5 flex items-center gap-2">
+        <select id="admin-nav-mobile" class="flex-1 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium"></select>
+        <button id="btn-admin-sair-mobile" class="shrink-0 rounded-md border border-rose-200 bg-rose-50 text-rose-600 text-xs font-medium px-3 py-2">🚪 Sair</button>
+      </div>
 
       <header class="mb-8 flex items-start justify-between gap-4">
         <div>
@@ -250,9 +258,9 @@
           <p id="admin-descricao-pagina" class="text-slate-500 mt-2 max-w-xl">Registre os instrutores que poderão ser alocados na agenda de turmas e treinamentos.</p>
         </div>
         <div class="hidden sm:flex flex-col gap-2 shrink-0">
-          <button id="btn-ver-instrutor" class="inline-flex items-center gap-2 text-xs font-medium text-slate-600 border border-slate-300 rounded-md px-3 py-2 hover:bg-white">📱 Ver tela do instrutor</button>
-          <button id="btn-admin-trocar-senha" class="inline-flex items-center gap-2 text-xs font-medium text-slate-500 hover:text-slate-800 px-3">🔑 Trocar minha senha</button>
-          <button id="btn-admin-sair" class="inline-flex items-center gap-2 text-xs font-medium text-rose-500 hover:text-rose-700 px-3">🚪 Sair</button>
+          <button id="btn-ver-instrutor-desktop" class="inline-flex items-center gap-2 text-xs font-medium text-slate-600 border border-slate-300 rounded-md px-3 py-2 hover:bg-white">📱 Ver tela do instrutor</button>
+          <button id="btn-admin-trocar-senha-desktop" class="inline-flex items-center gap-2 text-xs font-medium text-slate-500 hover:text-slate-800 px-3">🔑 Trocar minha senha</button>
+          <button id="btn-admin-sair-desktop" class="inline-flex items-center gap-2 text-xs font-medium text-rose-500 hover:text-rose-700 px-3">🚪 Sair</button>
         </div>
       </header>
 

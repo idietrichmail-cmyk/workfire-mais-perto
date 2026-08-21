@@ -666,20 +666,26 @@ function renderizarListaAdmin() {
 $("admin-busca").addEventListener("input", renderizarListaAdmin);
 $("admin-filtro-status").addEventListener("change", renderizarListaAdmin);
 
-$("btn-ver-instrutor").addEventListener("click", () => mostrarTela("tela-login"));
-$("btn-admin-trocar-senha").addEventListener("click", () => {
+function verTelaInstrutor() {
+  mostrarTela("tela-login");
+}
+function trocarSenhaAdmin() {
   telaAposLoginParaTrocaSenha = "tela-admin";
   $("ts-email").value = usuarioSistemaAtual.email;
   esconderErro("ts-erro");
   mostrarTela("tela-trocar-senha");
-});
-$("btn-admin-sair").addEventListener("click", async () => {
+}
+async function sairAdmin() {
   await supabase.auth.signOut();
   usuarioSistemaAtual = null;
   permissoesAtual = {};
   moduloAtivo = null;
   mostrarTela("tela-acesso-admin");
-});
+}
+
+["btn-ver-instrutor", "btn-ver-instrutor-desktop"].forEach((id) => $(id).addEventListener("click", verTelaInstrutor));
+["btn-admin-trocar-senha", "btn-admin-trocar-senha-desktop"].forEach((id) => $(id).addEventListener("click", trocarSenhaAdmin));
+["btn-admin-sair", "btn-admin-sair-desktop", "btn-admin-sair-mobile"].forEach((id) => $(id).addEventListener("click", sairAdmin));
 
 // --- Formulário de cadastro/edição ---
 function limparFormulario() {
