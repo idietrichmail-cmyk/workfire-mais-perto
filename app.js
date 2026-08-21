@@ -490,16 +490,40 @@ async function entrarNoPainelAdmin() {
   }
   mostrarTela("tela-admin");
   renderizarNavAdmin();
+  mostrarMenuInicio();
+}
 
-  const primeiro = MODULOS.find((m) => podeFazer(m.id, "consultar"));
-  if (primeiro) {
-    irParaModulo(primeiro.id);
-  } else {
-    document.querySelectorAll("#tela-admin main > section").forEach((s) => s.classList.add("hidden"));
-    $("admin-eyebrow").textContent = "Área de trabalho";
-    $("admin-titulo-pagina").textContent = "Sem permissões";
-    $("admin-descricao-pagina").textContent = "Seu usuário ainda não tem acesso a nenhum cadastro ou operação. Fale com o administrador.";
+function mostrarMenuInicio() {
+  moduloAtivo = null;
+  document.querySelectorAll("#tela-admin main > section").forEach((s) => s.classList.add("hidden"));
+  renderizarNavAdmin();
+  $("admin-nav-mobile").value = "";
+
+  const acessiveis = MODULOS.filter((m) => podeFazer(m.id, "consultar"));
+  $("admin-eyebrow").textContent = "Work Fire mais perto de você";
+  $("admin-titulo-pagina").textContent = "Menu";
+  $("admin-descricao-pagina").textContent = acessiveis.length
+    ? "Escolha um cadastro ou operação para começar."
+    : "Seu usuário ainda não tem acesso a nenhum cadastro ou operação. Fale com o administrador.";
+
+  $("secao-inicio").classList.remove("hidden");
+  const grade = $("inicio-grade");
+  if (acessiveis.length === 0) {
+    grade.innerHTML = `<div class="col-span-full bg-white border border-dashed border-slate-300 rounded-lg py-16 text-center text-slate-500 text-sm">Nenhum item disponível.</div>`;
+    return;
   }
+  grade.innerHTML = acessiveis.map((m) => `
+    <button data-inicio-modulo="${m.id}" class="text-left bg-white rounded-lg border border-slate-200 p-5 flex items-center gap-3 shadow-sm hover:border-amber-400 hover:shadow-md transition">
+      <span class="text-2xl">${m.icone}</span>
+      <div>
+        <p class="font-serif text-base text-slate-900 leading-tight">${m.label}</p>
+        <p class="text-[11px] text-slate-400 mt-0.5">${m.grupo}</p>
+      </div>
+    </button>
+  `).join("");
+  grade.querySelectorAll("[data-inicio-modulo]").forEach((btn) =>
+    btn.addEventListener("click", () => irParaModulo(btn.getAttribute("data-inicio-modulo")))
+  );
 }
 
 // ---------------------------------------------------------
@@ -513,7 +537,13 @@ function renderizarNavAdmin() {
     (grupos[m.grupo] = grupos[m.grupo] || []).push(m);
   });
 
-  nav.innerHTML = Object.entries(grupos).map(([grupo, itens]) => `
+  const botaoInicio = `
+    <button data-nav-inicio class="flex items-center gap-2 rounded-md px-3 py-2 text-left w-full mb-3 ${
+      moduloAtivo === null ? "bg-slate-800 text-white border-l-2 border-amber-500" : "hover:bg-slate-800 hover:text-white"
+    }">🏠 Início</button>
+  `;
+
+  nav.innerHTML = botaoInicio + Object.entries(grupos).map(([grupo, itens]) => `
     <p class="text-[10px] uppercase tracking-wider text-slate-500 px-3 mt-4 mb-1 first:mt-0">${grupo}</p>
     ${itens.map((m) => `
       <button data-nav-modulo="${m.id}" class="flex items-center gap-2 rounded-md px-3 py-2 text-left w-full ${
@@ -522,19 +552,24 @@ function renderizarNavAdmin() {
     `).join("")}
   `).join("");
 
+  nav.querySelector("[data-nav-inicio]").addEventListener("click", mostrarMenuInicio);
   nav.querySelectorAll("[data-nav-modulo]").forEach((btn) =>
     btn.addEventListener("click", () => irParaModulo(btn.getAttribute("data-nav-modulo")))
   );
 
   const navMobile = $("admin-nav-mobile");
-  navMobile.innerHTML = Object.entries(grupos).map(([grupo, itens]) => `
-    <optgroup label="${grupo}">
-      ${itens.map((m) => `<option value="${m.id}" ${m.id === moduloAtivo ? "selected" : ""}>${m.icone} ${m.label}</option>`).join("")}
-    </optgroup>
-  `).join("");
+  navMobile.innerHTML = `<option value="" ${moduloAtivo === null ? "selected" : ""}>🏠 Início</option>` +
+    Object.entries(grupos).map(([grupo, itens]) => `
+      <optgroup label="${grupo}">
+        ${itens.map((m) => `<option value="${m.id}" ${m.id === moduloAtivo ? "selected" : ""}>${m.icone} ${m.label}</option>`).join("")}
+      </optgroup>
+    `).join("");
 }
 
-$("admin-nav-mobile").addEventListener("change", (e) => irParaModulo(e.target.value));
+$("admin-nav-mobile").addEventListener("change", (e) => {
+  if (e.target.value) irParaModulo(e.target.value);
+  else mostrarMenuInicio();
+});
 
 function irParaModulo(id) {
   moduloAtivo = id;
