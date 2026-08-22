@@ -160,6 +160,9 @@ let turmaOrcamentoSelecionadoId = null;
 let turmasDoOrcamento = [];
 let editandoTurmaId = null;
 
+const FORMATOS_TEORIA = ["CT", "InCompany", "EAD", "EAD Síncrono", "Móvel"];
+const FORMATOS_PRATICA = ["CT", "InCompany", "Móvel"];
+
 const MODULOS = [
   { id: "instrutores", label: "Instrutores", icone: "👥", grupo: "Cadastros" },
   { id: "empresas", label: "Empresas", icone: "🏢", grupo: "Cadastros" },
@@ -1573,12 +1576,14 @@ function abrirNovoOrcamento() {
   $("orc-validade").value = "";
   $("orc-status").value = "Aberto";
   $("orc-observacoes").value = "";
+  $("orc-turmas-bloco").classList.add("hidden");
+  $("orc-turmas-tbody").innerHTML = "";
   $("painel-orcamento-titulo").textContent = "Novo orçamento";
   $("btn-salvar-orcamento").textContent = "Salvar orçamento";
   $("painel-orcamento").classList.remove("hidden");
 }
 
-function abrirEdicaoOrcamento(id) {
+async function abrirEdicaoOrcamento(id) {
   const o = listaOrcamentos.find((x) => x.id === id);
   if (!o) return;
   editandoOrcamentoId = id;
@@ -1601,6 +1606,54 @@ function abrirEdicaoOrcamento(id) {
   $("painel-orcamento-titulo").textContent = "Editar orçamento";
   $("btn-salvar-orcamento").textContent = "Salvar alterações";
   $("painel-orcamento").classList.remove("hidden");
+  await carregarTabelaTurmasOrcamento(id);
+}
+
+// Carrega e renderiza, dentro do painel do orçamento, a tabela editável
+// das turmas já geradas (Data, Formato Teoria, Formato Prática).
+async function carregarTabelaTurmasOrcamento(orcamentoId) {
+  const { data } = await supabase.from("turmas").select("*").eq("orcamento_id", orcamentoId).order("identificacao");
+  const turmas = data || [];
+  const bloco = $("orc-turmas-bloco");
+  const corpo = $("orc-turmas-tbody");
+  if (turmas.length === 0) {
+    bloco.classList.add("hidden");
+    corpo.innerHTML = "";
+    return;
+  }
+  bloco.classList.remove("hidden");
+  const opcoesTeoria = (val) => FORMATOS_TEORIA.map((f) => `<option value="${f}" ${f === val ? "selected" : ""}>${f}</option>`).join("");
+  const opcoesPratica = (val) => FORMATOS_PRATICA.map((f) => `<option value="${f}" ${f === val ? "selected" : ""}>${f}</option>`).join("");
+  corpo.innerHTML = turmas.map((t) => `
+    <tr data-turma-linha="${t.id}">
+      <td class="px-2 py-1.5 font-mono text-slate-500">${t.identificacao || "—"}</td>
+      <td class="px-2 py-1.5">
+        <input type="date" data-turma-campo="data_inicio" value="${t.data_inicio || ""}" class="w-full text-xs rounded-md border border-slate-300 px-2 py-1.5" />
+      </td>
+      <td class="px-2 py-1.5">
+        <select data-turma-campo="formato_teoria" class="w-full text-xs rounded-md border border-slate-300 px-2 py-1.5">
+          <option value="">—</option>
+          ${opcoesTeoria(t.formato_teoria)}
+        </select>
+      </td>
+      <td class="px-2 py-1.5">
+        <select data-turma-campo="formato_pratica" class="w-full text-xs rounded-md border border-slate-300 px-2 py-1.5">
+          <option value="">—</option>
+          ${opcoesPratica(t.formato_pratica)}
+        </select>
+      </td>
+    </tr>
+  `).join("");
+
+  corpo.querySelectorAll("[data-turma-campo]").forEach((el) => {
+    el.addEventListener("change", async (e) => {
+      const linha = e.target.closest("[data-turma-linha]");
+      const turmaId = linha.getAttribute("data-turma-linha");
+      const campo = e.target.getAttribute("data-turma-campo");
+      const valor = e.target.value || null;
+      await supabase.from("turmas").update({ [campo]: valor }).eq("id", turmaId);
+    });
+  });
 }
 
 $("btn-orc-novo").addEventListener("click", abrirNovoOrcamento);
@@ -1654,11 +1707,20 @@ async function salvarOrcamento() {
     return mostrarErro("orc-form-erro", "Não foi possível salvar. Tente novamente.");
   }
 
+  $("btn-salvar-orcamento").disabled = false;
+
   if (!editandoOrcamentoId) {
     await gerarTurmasParaOrcamento(linha, qtdTurmas);
+    // Mantém o painel aberto, já em modo edição, para preencher a tabela de turmas geradas.
+    editandoOrcamentoId = linha.id;
+    $("orc-numero").disabled = true;
+    $("painel-orcamento-titulo").textContent = "Editar orçamento";
+    $("btn-salvar-orcamento").textContent = "Salvar alterações";
+    await carregarTabelaTurmasOrcamento(linha.id);
+    await carregarOrcamentos();
+    return;
   }
 
-  $("btn-salvar-orcamento").disabled = false;
   $("painel-orcamento").classList.add("hidden");
   await carregarOrcamentos();
 }

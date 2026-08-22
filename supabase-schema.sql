@@ -492,3 +492,11 @@ alter table orcamentos
 alter table turmas
   add column if not exists identificacao text,
   add column if not exists dias_totais integer;
+
+-- =========================================================
+-- Formato de teoria/prática de cada turma (editável na tela
+-- de Orçamento, em tabela, logo após a geração automática)
+-- =========================================================
+alter table turmas
+  add column if not exists formato_teoria text check (formato_teoria in ('CT','InCompany','EAD','EAD Síncrono','Móvel')),
+  add column if not exists formato_pratica text check (formato_pratica in ('CT','InCompany','Móvel'));

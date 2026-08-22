@@ -537,6 +537,24 @@
           <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Observações</label>
           <textarea id="orc-observacoes" rows="3" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"></textarea>
         </div>
+
+        <div id="orc-turmas-bloco" class="hidden">
+          <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Turmas geradas</label>
+          <p class="text-[11px] text-slate-400 mt-0.5 mb-2">Preencha a data e o formato de cada turma. Salva automaticamente ao alterar.</p>
+          <div class="border border-slate-200 rounded-lg overflow-x-auto">
+            <table class="w-full text-xs">
+              <thead>
+                <tr class="bg-slate-50 text-slate-500 text-left">
+                  <th class="px-2 py-2 font-medium">Turma</th>
+                  <th class="px-2 py-2 font-medium">Data</th>
+                  <th class="px-2 py-2 font-medium">Formato Teoria</th>
+                  <th class="px-2 py-2 font-medium">Formato Prática</th>
+                </tr>
+              </thead>
+              <tbody id="orc-turmas-tbody" class="divide-y divide-slate-100"></tbody>
+            </table>
+          </div>
+        </div>
       </div>
       <div class="flex gap-3 mt-6">
         <button id="btn-salvar-orcamento" class="flex-1 bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium py-2.5 rounded-md">Salvar orçamento</button>
