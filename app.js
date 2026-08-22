@@ -1561,6 +1561,14 @@ function renderizarListaOrcamentos() {
 
 $("orc-busca").addEventListener("input", renderizarListaOrcamentos);
 
+function atualizarQtdAlunosCalculado() {
+  const turmas = Number($("orc-qtd-turmas").value) || 0;
+  const porTurma = Number($("orc-qtd-alunos-turma").value) || 0;
+  $("orc-qtd-alunos").value = turmas * porTurma;
+}
+$("orc-qtd-turmas").addEventListener("input", atualizarQtdAlunosCalculado);
+$("orc-qtd-alunos-turma").addEventListener("input", atualizarQtdAlunosCalculado);
+
 function abrirNovoOrcamento() {
   editandoOrcamentoId = null;
   esconderErro("orc-form-erro");
@@ -1569,9 +1577,11 @@ function abrirNovoOrcamento() {
   preencherSelect("orc-empresa", listaEmpresasAtivas, "id", (i) => i.nome, "— Selecione —");
   preencherSelect("orc-centro", listaCentrosAtivos, "id", (i) => i.nome, "— Selecione —");
   preencherSelect("orc-tipo", listaTiposAtivos, "id", (i) => i.nome, "— Selecione —");
+  preencherSelect("orc-formato-teoria", FORMATOS_TEORIA.map((f) => ({ id: f, nome: f })), "id", (i) => i.nome, "— Selecione —");
+  preencherSelect("orc-formato-pratica", FORMATOS_PRATICA.map((f) => ({ id: f, nome: f })), "id", (i) => i.nome, "— Selecione —");
   $("orc-qtd-turmas").value = "1";
-  $("orc-qtd-alunos").value = "";
   $("orc-qtd-alunos-turma").value = "";
+  atualizarQtdAlunosCalculado();
   $("orc-data").value = formatarData(new Date());
   $("orc-validade").value = "";
   $("orc-status").value = "Aberto";
@@ -1596,9 +1606,13 @@ async function abrirEdicaoOrcamento(id) {
   $("orc-centro").value = o.centro_treinamento_id || "";
   preencherSelect("orc-tipo", listaTiposAtivos, "id", (i) => i.nome, "— Selecione —");
   $("orc-tipo").value = o.tipo_treinamento_id || "";
+  preencherSelect("orc-formato-teoria", FORMATOS_TEORIA.map((f) => ({ id: f, nome: f })), "id", (i) => i.nome, "— Selecione —");
+  $("orc-formato-teoria").value = o.formato_teoria || "";
+  preencherSelect("orc-formato-pratica", FORMATOS_PRATICA.map((f) => ({ id: f, nome: f })), "id", (i) => i.nome, "— Selecione —");
+  $("orc-formato-pratica").value = o.formato_pratica || "";
   $("orc-qtd-turmas").value = o.qtd_turmas || "";
-  $("orc-qtd-alunos").value = o.qtd_alunos || "";
   $("orc-qtd-alunos-turma").value = o.qtd_alunos_por_turma || "";
+  atualizarQtdAlunosCalculado();
   $("orc-data").value = o.data || "";
   $("orc-validade").value = o.validade || "";
   $("orc-status").value = o.status;
@@ -1609,8 +1623,9 @@ async function abrirEdicaoOrcamento(id) {
   await carregarTabelaTurmasOrcamento(id);
 }
 
-// Carrega e renderiza, dentro do painel do orçamento, a tabela editável
-// das turmas já geradas (Data, Formato Teoria, Formato Prática).
+// Carrega e renderiza, dentro do painel do orçamento, a tabela das turmas
+// já geradas. Formato Teoria/Prática vêm do orçamento (repetidos em todas
+// as turmas); só a Data é editável aqui.
 async function carregarTabelaTurmasOrcamento(orcamentoId) {
   const { data } = await supabase.from("turmas").select("*").eq("orcamento_id", orcamentoId).order("identificacao");
   const turmas = data || [];
@@ -1622,26 +1637,14 @@ async function carregarTabelaTurmasOrcamento(orcamentoId) {
     return;
   }
   bloco.classList.remove("hidden");
-  const opcoesTeoria = (val) => FORMATOS_TEORIA.map((f) => `<option value="${f}" ${f === val ? "selected" : ""}>${f}</option>`).join("");
-  const opcoesPratica = (val) => FORMATOS_PRATICA.map((f) => `<option value="${f}" ${f === val ? "selected" : ""}>${f}</option>`).join("");
   corpo.innerHTML = turmas.map((t) => `
     <tr data-turma-linha="${t.id}">
       <td class="px-2 py-1.5 font-mono text-slate-500">${t.identificacao || "—"}</td>
       <td class="px-2 py-1.5">
         <input type="date" data-turma-campo="data_inicio" value="${t.data_inicio || ""}" class="w-full text-xs rounded-md border border-slate-300 px-2 py-1.5" />
       </td>
-      <td class="px-2 py-1.5">
-        <select data-turma-campo="formato_teoria" class="w-full text-xs rounded-md border border-slate-300 px-2 py-1.5">
-          <option value="">—</option>
-          ${opcoesTeoria(t.formato_teoria)}
-        </select>
-      </td>
-      <td class="px-2 py-1.5">
-        <select data-turma-campo="formato_pratica" class="w-full text-xs rounded-md border border-slate-300 px-2 py-1.5">
-          <option value="">—</option>
-          ${opcoesPratica(t.formato_pratica)}
-        </select>
-      </td>
+      <td class="px-2 py-1.5 text-slate-600">${t.formato_teoria || "—"}</td>
+      <td class="px-2 py-1.5 text-slate-600">${t.formato_pratica || "—"}</td>
     </tr>
   `).join("");
 
@@ -1674,13 +1677,16 @@ async function salvarOrcamento() {
   if (!tipoId) return mostrarErro("orc-form-erro", "Selecione o treinamento.");
   if (qtdTurmas < 1) return mostrarErro("orc-form-erro", "Informe a quantidade de turmas (mínimo 1).");
 
+  const qtdAlunosPorTurma = $("orc-qtd-alunos-turma").value ? Number($("orc-qtd-alunos-turma").value) : 0;
   const payload = {
     empresa_id: empresaId,
     centro_treinamento_id: centroId,
     tipo_treinamento_id: tipoId,
+    formato_teoria: $("orc-formato-teoria").value || null,
+    formato_pratica: $("orc-formato-pratica").value || null,
     qtd_turmas: qtdTurmas,
-    qtd_alunos: $("orc-qtd-alunos").value ? Number($("orc-qtd-alunos").value) : null,
-    qtd_alunos_por_turma: $("orc-qtd-alunos-turma").value ? Number($("orc-qtd-alunos-turma").value) : null,
+    qtd_alunos_por_turma: qtdAlunosPorTurma || null,
+    qtd_alunos: qtdTurmas * qtdAlunosPorTurma,
     data: $("orc-data").value || null,
     validade: $("orc-validade").value || null,
     status: $("orc-status").value,
@@ -1739,6 +1745,8 @@ async function gerarTurmasParaOrcamento(orcamento, qtdTurmas) {
     identificacao: letraIndice(i),
     tipo_treinamento_id: orcamento.tipo_treinamento_id,
     centro_treinamento_id: orcamento.centro_treinamento_id,
+    formato_teoria: orcamento.formato_teoria || null,
+    formato_pratica: orcamento.formato_pratica || null,
     vagas: orcamento.qtd_alunos_por_turma || null,
     dias_totais: diasTotais,
     status: "Planejada",

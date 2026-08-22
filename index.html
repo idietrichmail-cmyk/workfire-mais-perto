@@ -503,18 +503,29 @@
           <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Treinamento</label>
           <select id="orc-tipo" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"></select>
         </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Formato Teoria</label>
+            <select id="orc-formato-teoria" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"></select>
+          </div>
+          <div>
+            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Formato Prática</label>
+            <select id="orc-formato-pratica" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"></select>
+          </div>
+        </div>
         <div class="grid grid-cols-3 gap-3">
           <div>
             <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Qtde de turmas</label>
             <input id="orc-qtd-turmas" type="number" min="1" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
           </div>
           <div>
-            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Qtde de alunos</label>
-            <input id="orc-qtd-alunos" type="number" min="0" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
-          </div>
-          <div>
             <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Alunos por turma</label>
             <input id="orc-qtd-alunos-turma" type="number" min="0" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
+          </div>
+          <div>
+            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Qtde de alunos</label>
+            <input id="orc-qtd-alunos" type="number" readonly class="mt-1 w-full rounded-md border border-slate-300 bg-slate-100 text-slate-500 px-3 py-2 text-sm" />
+            <p class="text-[11px] text-slate-400 mt-1">Calculado: turmas × alunos por turma</p>
           </div>
         </div>
         <div class="grid grid-cols-3 gap-3">

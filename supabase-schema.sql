@@ -500,3 +500,9 @@ alter table turmas
 alter table turmas
   add column if not exists formato_teoria text check (formato_teoria in ('CT','InCompany','EAD','EAD Síncrono','Móvel')),
   add column if not exists formato_pratica text check (formato_pratica in ('CT','InCompany','Móvel'));
+
+-- Formato Teoria/Prática agora são selecionados no orçamento e repetidos
+-- em cada turma gerada automaticamente
+alter table orcamentos
+  add column if not exists formato_teoria text check (formato_teoria in ('CT','InCompany','EAD','EAD Síncrono','Móvel')),
+  add column if not exists formato_pratica text check (formato_pratica in ('CT','InCompany','Móvel'));
