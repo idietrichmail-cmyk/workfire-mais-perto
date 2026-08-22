@@ -455,3 +455,16 @@ create policy "agendamentos_delete" on agendamentos for delete using (is_admin_s
 --
 -- insert into usuarios_sistema (user_id, nome, email, role, status)
 -- values ('COLE-O-UID-AQUI', 'Administrador', 'admin@suaempresa.com', 'admin', 'Ativo');
+
+
+-- =========================================================
+-- Estrutura do Centro de Treinamento (capacidade e recursos)
+-- =========================================================
+alter table centros_treinamento
+  add column if not exists capacidade_diaria integer,
+  add column if not exists qtd_salas_aula integer,
+  add column if not exists qtd_pistas_treinamento integer,
+  add column if not exists qtd_torres_altura integer,
+  add column if not exists qtd_espaco_confinado integer,
+  add column if not exists qtd_petrolifera integer,
+  add column if not exists qtd_uti integer;

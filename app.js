@@ -887,19 +887,34 @@ const CRUD_CONFIG = {
   centros_treinamento: {
     tabela: "centros_treinamento",
     titulo: "Centro de Treinamento",
-    descricao: "Locais onde os treinamentos acontecem.",
+    descricao: "Locais onde os treinamentos acontecem, com sua estrutura disponível.",
     buscaPlaceholder: "Buscar por nome",
     ordenarPor: "nome",
     campos: [
       { id: "nome", label: "Nome do centro", obrigatorio: true },
       { id: "endereco", label: "Endereço" },
-      { id: "capacidade", label: "Capacidade (pessoas)" },
+      { id: "capacidade_diaria", label: "Capacidade diária (pessoas/dia)", tipo: "number" },
+      { id: "qtd_salas_aula", label: "Qtd. Salas de Aula", tipo: "number" },
+      { id: "qtd_pistas_treinamento", label: "Qtd. Pistas de Treinamento", tipo: "number" },
+      { id: "qtd_torres_altura", label: "Qtd. Torres de Altura", tipo: "number" },
+      { id: "qtd_espaco_confinado", label: "Qtd. Espaço Confinado", tipo: "number" },
+      { id: "qtd_petrolifera", label: "Qtd. Petrolífera", tipo: "number" },
+      { id: "qtd_uti", label: "Qtd. UTI", tipo: "number" },
       { id: "observacoes", label: "Observações", tipo: "textarea" },
       { id: "status", label: "Status", tipo: "select", opcoes: ["Ativo", "Inativo"], padrao: "Ativo" },
     ],
     campoBusca: (i) => `${i.nome} ${i.endereco || ""}`,
     cardTitulo: (i) => i.nome,
-    cardLinhas: (i) => [i.endereco, i.capacidade && `Capacidade: ${i.capacidade}`].filter(Boolean),
+    cardLinhas: (i) => [
+      i.endereco,
+      i.capacidade_diaria && `👥 Capacidade diária: ${i.capacidade_diaria}/dia`,
+      i.qtd_salas_aula && `🏫 ${i.qtd_salas_aula} sala(s) de aula`,
+      i.qtd_pistas_treinamento && `🛣️ ${i.qtd_pistas_treinamento} pista(s) de treinamento`,
+      i.qtd_torres_altura && `🗼 ${i.qtd_torres_altura} torre(s) de altura`,
+      i.qtd_espaco_confinado && `🕳️ ${i.qtd_espaco_confinado} espaço(s) confinado(s)`,
+      i.qtd_petrolifera && `🛢️ ${i.qtd_petrolifera} petrolífera(s)`,
+      i.qtd_uti && `🏥 ${i.qtd_uti} UTI(s)`,
+    ].filter(Boolean),
   },
   tipos_treinamento: {
     tabela: "tipos_treinamento",
@@ -1161,8 +1176,9 @@ async function salvarCrud() {
   const payload = {};
   for (const campo of cfg.campos) {
     const el = $("crud-campo-" + campo.id);
-    const valor = typeof el.value === "string" ? el.value.trim() : el.value;
+    let valor = typeof el.value === "string" ? el.value.trim() : el.value;
     if (campo.obrigatorio && !valor) return mostrarErro("crud-form-erro", `Informe: ${campo.label}.`);
+    if (campo.tipo === "number") valor = valor === "" ? null : Number(valor);
     payload[campo.id] = valor;
   }
 
