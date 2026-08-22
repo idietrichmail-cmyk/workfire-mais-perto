@@ -468,3 +468,11 @@ alter table centros_treinamento
   add column if not exists qtd_espaco_confinado integer,
   add column if not exists qtd_petrolifera integer,
   add column if not exists qtd_uti integer;
+
+-- =========================================================
+-- Consumo de dias do Treinamento (teoria / prática / ambos)
+-- =========================================================
+alter table tipos_treinamento
+  add column if not exists dias_teoria integer,
+  add column if not exists dias_pratica integer,
+  add column if not exists dias_teoria_pratica integer;
