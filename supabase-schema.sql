@@ -506,3 +506,8 @@ alter table turmas
 alter table orcamentos
   add column if not exists formato_teoria text check (formato_teoria in ('CT','InCompany','EAD','EAD Síncrono','Móvel')),
   add column if not exists formato_pratica text check (formato_pratica in ('CT','InCompany','Móvel'));
+
+-- Cada linha de turma gerada indica se o dia é de Teoria, Prática ou
+-- Teoria com Prática, conforme os dias configurados no treinamento
+alter table turmas
+  add column if not exists tipo_dia text check (tipo_dia in ('Teoria','Prática','Teoria com Prática'));

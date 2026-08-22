@@ -1637,9 +1637,13 @@ async function carregarTabelaTurmasOrcamento(orcamentoId) {
     return;
   }
   bloco.classList.remove("hidden");
+  const corTipoDia = { "Teoria": "bg-blue-50 text-blue-700", "Prática": "bg-amber-50 text-amber-700", "Teoria com Prática": "bg-purple-50 text-purple-700" };
   corpo.innerHTML = turmas.map((t) => `
     <tr data-turma-linha="${t.id}">
       <td class="px-2 py-1.5 font-mono text-slate-500">${t.identificacao || "—"}</td>
+      <td class="px-2 py-1.5">
+        ${t.tipo_dia ? `<span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${corTipoDia[t.tipo_dia] || ""}">${t.tipo_dia}</span>` : "—"}
+      </td>
       <td class="px-2 py-1.5">
         <input type="date" data-turma-campo="data_inicio" value="${t.data_inicio || ""}" class="w-full text-xs rounded-md border border-slate-300 px-2 py-1.5" />
       </td>
@@ -1734,21 +1738,32 @@ async function salvarOrcamento() {
 $("btn-salvar-orcamento").addEventListener("click", salvarOrcamento);
 
 // Cria automaticamente as linhas de turma do orçamento: uma linha por DIA
-// de treinamento de cada turma. O número de dias por turma é a soma de
-// dias_teoria + dias_pratica + dias_teoria_pratica do treinamento
-// selecionado. Ex.: treinamento com 3 dias e 2 turmas → A1,A2,A3,B1,B2,B3.
+// de treinamento de cada turma, marcada com o tipo do dia (Teoria, Prática
+// ou Teoria com Prática) conforme os dias do treinamento selecionado.
+// Ex.: 3 dias de teoria + 2 de prática + 1 de teoria com prática, 2 turmas →
+// A1,A2,A3 teoria / A4,A5 prática / A6 teoria com prática, e o mesmo para B.
 async function gerarTurmasParaOrcamento(orcamento, qtdTurmas) {
   const tipo = listaTiposAtivos.find((t) => t.id === orcamento.tipo_treinamento_id);
-  const diasTotais = tipo ? (Number(tipo.dias_teoria) || 0) + (Number(tipo.dias_pratica) || 0) + (Number(tipo.dias_teoria_pratica) || 0) : 0;
-  const diasPorTurma = diasTotais > 0 ? diasTotais : 1;
+  const diasTeoria = tipo ? Number(tipo.dias_teoria) || 0 : 0;
+  const diasPratica = tipo ? Number(tipo.dias_pratica) || 0 : 0;
+  const diasTeoriaPratica = tipo ? Number(tipo.dias_teoria_pratica) || 0 : 0;
+  const diasTotais = diasTeoria + diasPratica + diasTeoriaPratica;
+
+  const sequenciaDias = [
+    ...Array(diasTeoria).fill("Teoria"),
+    ...Array(diasPratica).fill("Prática"),
+    ...Array(diasTeoriaPratica).fill("Teoria com Prática"),
+  ];
+  if (sequenciaDias.length === 0) sequenciaDias.push(null); // treinamento sem dias configurados: gera 1 dia sem tipo
 
   const turmasPayload = [];
   for (let i = 0; i < qtdTurmas; i++) {
     const letra = letraIndice(i);
-    for (let d = 1; d <= diasPorTurma; d++) {
+    sequenciaDias.forEach((tipoDia, idx) => {
       turmasPayload.push({
         orcamento_id: orcamento.id,
-        identificacao: `${letra}${d}`,
+        identificacao: `${letra}${idx + 1}`,
+        tipo_dia: tipoDia,
         tipo_treinamento_id: orcamento.tipo_treinamento_id,
         centro_treinamento_id: orcamento.centro_treinamento_id,
         formato_teoria: orcamento.formato_teoria || null,
@@ -1757,7 +1772,7 @@ async function gerarTurmasParaOrcamento(orcamento, qtdTurmas) {
         dias_totais: diasTotais || null,
         status: "Planejada",
       });
-    }
+    });
   }
 
   await supabase.from("turmas").insert(turmasPayload);
@@ -1841,10 +1856,10 @@ function renderizarListaTurmas() {
         <span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${corStatus[t.status] || ""}">${t.status}</span>
       </div>
       <div class="text-xs text-slate-500 space-y-1">
+        ${t.tipo_dia ? `<p>🏷️ ${t.tipo_dia}</p>` : ""}
         ${t.instrutores?.nome ? `<p>👤 ${t.instrutores.nome}</p>` : ""}
         ${t.centros_treinamento?.nome ? `<p>🏫 ${t.centros_treinamento.nome}</p>` : ""}
         <p>🗓️ ${t.data_inicio || "—"}${t.data_fim && t.data_fim !== t.data_inicio ? ` a ${t.data_fim}` : ""}</p>
-        ${t.dias_totais ? `<p>📆 ${t.dias_totais} dia(s) de treinamento</p>` : ""}
         ${t.horario ? `<p>⏰ ${t.horario}</p>` : ""}
         ${t.vagas ? `<p>🎟️ ${t.vagas} vaga(s)</p>` : ""}
       </div>
