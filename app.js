@@ -154,7 +154,6 @@ let agendamentoInstrutorOriginalId = null;
 
 let listaOrcamentos = [];
 let editandoOrcamentoId = null;
-let orcItens = [];
 
 let listaOrcamentosParaTurma = [];
 let turmaOrcamentoSelecionadoId = null;
@@ -1236,10 +1235,6 @@ function preencherSelect(id, itens, valueKey, labelFn, opcaoVazia) {
     itens.map((i) => `<option value="${i[valueKey]}">${labelFn(i)}</option>`).join("");
 }
 
-function formatarMoeda(v) {
-  return (v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-}
-
 // ===========================================================
 // OPERAÇÃO: AGENDAR TREINAMENTO
 // ===========================================================
@@ -1498,20 +1493,29 @@ async function excluirAgendamento(id) {
 // ===========================================================
 // OPERAÇÃO: ORÇAMENTOS
 // ===========================================================
-function calcularTotalItens(itens) {
-  return (itens || []).reduce((soma, it) => soma + (Number(it.quantidade_turmas) || 0) * (Number(it.valor_unitario) || 0), 0);
+
+// Gera a identificação alfabética das turmas: 0→A, 1→B, ..., 25→Z, 26→AA...
+function letraIndice(i) {
+  let n = i, letra = "";
+  do {
+    letra = String.fromCharCode(65 + (n % 26)) + letra;
+    n = Math.floor(n / 26) - 1;
+  } while (n >= 0);
+  return letra;
 }
 
 async function carregarOrcamentos() {
-  $("admin-descricao-pagina").textContent = "Registre orçamentos de treinamento por empresa.";
-  const [{ data: orcs }, { data: empresas }, { data: tipos }] = await Promise.all([
-    supabase.from("orcamentos").select("*, empresas(nome), orcamento_itens(*)").order("created_at", { ascending: false }),
+  $("admin-descricao-pagina").textContent = "Registre orçamentos de treinamento por empresa. Ao criar um novo orçamento, as turmas já são geradas automaticamente.";
+  const [{ data: orcs }, { data: empresas }, { data: tipos }, { data: centros }] = await Promise.all([
+    supabase.from("orcamentos").select("*, empresas(nome), centros_treinamento(nome), tipos_treinamento(nome)").order("created_at", { ascending: false }),
     supabase.from("empresas").select("*").eq("status", "Ativo").order("nome"),
     supabase.from("tipos_treinamento").select("*").eq("status", "Ativo").order("nome"),
+    supabase.from("centros_treinamento").select("*").eq("status", "Ativo").order("nome"),
   ]);
   listaOrcamentos = orcs || [];
   listaEmpresasAtivas = empresas || [];
   listaTiposAtivos = tipos || [];
+  listaCentrosAtivos = centros || [];
   $("btn-orc-novo").classList.toggle("hidden", !podeFazer("orcamentos", "incluir"));
   renderizarListaOrcamentos();
 }
@@ -1536,9 +1540,12 @@ function renderizarListaOrcamentos() {
         </div>
         <span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${corStatus[o.status] || ""}">${o.status}</span>
       </div>
-      <p class="text-sm text-slate-600">📅 ${o.data || ""}${o.validade ? ` · válido até ${o.validade}` : ""}</p>
-      <p class="text-sm font-semibold text-slate-800">💰 ${formatarMoeda(calcularTotalItens(o.orcamento_itens))}</p>
-      <p class="text-xs text-slate-400">${(o.orcamento_itens || []).length} item(ns)</p>
+      <p class="text-sm text-amber-700 font-medium">🏷️ ${o.tipos_treinamento?.nome || "—"}</p>
+      <div class="text-xs text-slate-500 space-y-1">
+        ${o.centros_treinamento?.nome ? `<p>🏫 ${o.centros_treinamento.nome}</p>` : ""}
+        <p>📅 ${o.data || ""}${o.validade ? ` · válido até ${o.validade}` : ""}</p>
+        <p>🎓 ${o.qtd_turmas || 0} turma(s) · 👥 ${o.qtd_alunos || 0} aluno(s) · ${o.qtd_alunos_por_turma || 0} aluno(s)/turma</p>
+      </div>
       <div class="flex gap-2 mt-2 pt-2 border-t border-slate-100">
         ${podeAlterar ? `<button data-orc-editar="${o.id}" class="flex-1 text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-50 rounded-md py-1.5">✏️ Editar</button>` : ""}
         ${podeExcluir ? `<button data-orc-excluir="${o.id}" class="flex-1 text-xs font-medium text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-md py-1.5">🗑️ Excluir</button>` : ""}
@@ -1551,66 +1558,21 @@ function renderizarListaOrcamentos() {
 
 $("orc-busca").addEventListener("input", renderizarListaOrcamentos);
 
-function atualizarTotalOrcamentoForm() {
-  $("orc-total").textContent = formatarMoeda(calcularTotalItens(orcItens));
-}
-
-function renderizarItensOrcamentoForm() {
-  const cont = $("orc-itens-lista");
-  if (orcItens.length === 0) {
-    cont.innerHTML = `<p class="text-xs text-slate-400">Nenhum item adicionado.</p>`;
-  } else {
-    cont.innerHTML = orcItens.map((it, idx) => `
-      <div class="border border-slate-200 rounded-md p-2 grid grid-cols-12 gap-2 items-end">
-        <div class="col-span-5">
-          <label class="text-[10px] text-slate-400">Tipo de treinamento</label>
-          <select data-orc-item-campo="tipo_treinamento_id" data-idx="${idx}" class="w-full text-xs rounded-md border border-slate-300 px-2 py-1.5">
-            ${listaTiposAtivos.map((t) => `<option value="${t.id}" ${t.id === it.tipo_treinamento_id ? "selected" : ""}>${t.nome}</option>`).join("")}
-          </select>
-        </div>
-        <div class="col-span-2">
-          <label class="text-[10px] text-slate-400">Qtd. turmas</label>
-          <input type="number" min="1" data-orc-item-campo="quantidade_turmas" data-idx="${idx}" value="${it.quantidade_turmas}" class="w-full text-xs rounded-md border border-slate-300 px-2 py-1.5" />
-        </div>
-        <div class="col-span-4">
-          <label class="text-[10px] text-slate-400">Valor unitário</label>
-          <input type="number" min="0" step="0.01" data-orc-item-campo="valor_unitario" data-idx="${idx}" value="${it.valor_unitario}" class="w-full text-xs rounded-md border border-slate-300 px-2 py-1.5" />
-        </div>
-        <div class="col-span-1">
-          <button type="button" data-orc-item-remover="${idx}" class="text-rose-500 hover:text-rose-700 text-sm pb-1.5">×</button>
-        </div>
-      </div>
-    `).join("");
-  }
-  cont.querySelectorAll("[data-orc-item-campo]").forEach((el) => el.addEventListener("input", (e) => {
-    const idx = Number(e.target.getAttribute("data-idx"));
-    const campo = e.target.getAttribute("data-orc-item-campo");
-    orcItens[idx][campo] = campo === "tipo_treinamento_id" ? e.target.value : Number(e.target.value);
-    atualizarTotalOrcamentoForm();
-  }));
-  cont.querySelectorAll("[data-orc-item-remover]").forEach((btn) => btn.addEventListener("click", () => {
-    orcItens.splice(Number(btn.getAttribute("data-orc-item-remover")), 1);
-    renderizarItensOrcamentoForm();
-  }));
-  atualizarTotalOrcamentoForm();
-}
-
-$("btn-orc-add-item").addEventListener("click", () => {
-  if (listaTiposAtivos.length === 0) return;
-  orcItens.push({ tipo_treinamento_id: listaTiposAtivos[0].id, quantidade_turmas: 1, valor_unitario: 0 });
-  renderizarItensOrcamentoForm();
-});
-
 function abrirNovoOrcamento() {
   editandoOrcamentoId = null;
   esconderErro("orc-form-erro");
+  $("orc-numero").value = "";
+  $("orc-numero").disabled = false;
   preencherSelect("orc-empresa", listaEmpresasAtivas, "id", (i) => i.nome, "— Selecione —");
+  preencherSelect("orc-centro", listaCentrosAtivos, "id", (i) => i.nome, "— Selecione —");
+  preencherSelect("orc-tipo", listaTiposAtivos, "id", (i) => i.nome, "— Selecione —");
+  $("orc-qtd-turmas").value = "1";
+  $("orc-qtd-alunos").value = "";
+  $("orc-qtd-alunos-turma").value = "";
   $("orc-data").value = formatarData(new Date());
   $("orc-validade").value = "";
   $("orc-status").value = "Aberto";
   $("orc-observacoes").value = "";
-  orcItens = [];
-  renderizarItensOrcamentoForm();
   $("painel-orcamento-titulo").textContent = "Novo orçamento";
   $("btn-salvar-orcamento").textContent = "Salvar orçamento";
   $("painel-orcamento").classList.remove("hidden");
@@ -1621,14 +1583,21 @@ function abrirEdicaoOrcamento(id) {
   if (!o) return;
   editandoOrcamentoId = id;
   esconderErro("orc-form-erro");
+  $("orc-numero").value = o.numero || "";
+  $("orc-numero").disabled = true; // número já definido não muda mais, evita conflito de unicidade
   preencherSelect("orc-empresa", listaEmpresasAtivas, "id", (i) => i.nome, "— Selecione —");
   $("orc-empresa").value = o.empresa_id || "";
+  preencherSelect("orc-centro", listaCentrosAtivos, "id", (i) => i.nome, "— Selecione —");
+  $("orc-centro").value = o.centro_treinamento_id || "";
+  preencherSelect("orc-tipo", listaTiposAtivos, "id", (i) => i.nome, "— Selecione —");
+  $("orc-tipo").value = o.tipo_treinamento_id || "";
+  $("orc-qtd-turmas").value = o.qtd_turmas || "";
+  $("orc-qtd-alunos").value = o.qtd_alunos || "";
+  $("orc-qtd-alunos-turma").value = o.qtd_alunos_por_turma || "";
   $("orc-data").value = o.data || "";
   $("orc-validade").value = o.validade || "";
   $("orc-status").value = o.status;
   $("orc-observacoes").value = o.observacoes || "";
-  orcItens = (o.orcamento_itens || []).map((it) => ({ id: it.id, tipo_treinamento_id: it.tipo_treinamento_id, quantidade_turmas: it.quantidade_turmas, valor_unitario: it.valor_unitario }));
-  renderizarItensOrcamentoForm();
   $("painel-orcamento-titulo").textContent = "Editar orçamento";
   $("btn-salvar-orcamento").textContent = "Salvar alterações";
   $("painel-orcamento").classList.remove("hidden");
@@ -1641,46 +1610,53 @@ $("painel-orcamento-overlay").addEventListener("click", () => $("painel-orcament
 
 async function salvarOrcamento() {
   esconderErro("orc-form-erro");
+  const numero = $("orc-numero").value.trim();
   const empresaId = $("orc-empresa").value;
+  const centroId = $("orc-centro").value;
+  const tipoId = $("orc-tipo").value;
+  const qtdTurmas = Number($("orc-qtd-turmas").value) || 0;
+  if (!numero) return mostrarErro("orc-form-erro", "Informe o número do orçamento.");
   if (!empresaId) return mostrarErro("orc-form-erro", "Selecione a empresa.");
-  if (orcItens.length === 0) return mostrarErro("orc-form-erro", "Adicione ao menos um item.");
+  if (!centroId) return mostrarErro("orc-form-erro", "Selecione o centro de treinamento.");
+  if (!tipoId) return mostrarErro("orc-form-erro", "Selecione o treinamento.");
+  if (qtdTurmas < 1) return mostrarErro("orc-form-erro", "Informe a quantidade de turmas (mínimo 1).");
 
   const payload = {
     empresa_id: empresaId,
+    centro_treinamento_id: centroId,
+    tipo_treinamento_id: tipoId,
+    qtd_turmas: qtdTurmas,
+    qtd_alunos: $("orc-qtd-alunos").value ? Number($("orc-qtd-alunos").value) : null,
+    qtd_alunos_por_turma: $("orc-qtd-alunos-turma").value ? Number($("orc-qtd-alunos-turma").value) : null,
     data: $("orc-data").value || null,
     validade: $("orc-validade").value || null,
     status: $("orc-status").value,
     observacoes: $("orc-observacoes").value.trim(),
   };
+  if (!editandoOrcamentoId) payload.numero = numero;
 
   $("btn-salvar-orcamento").disabled = true;
   $("btn-salvar-orcamento").textContent = "Salvando…";
 
-  let orcamentoId = editandoOrcamentoId;
-  let erro;
+  let linha, erro;
   if (editandoOrcamentoId) {
-    ({ error: erro } = await supabase.from("orcamentos").update(payload).eq("id", editandoOrcamentoId));
+    ({ data: linha, error: erro } = await supabase.from("orcamentos").update(payload).eq("id", editandoOrcamentoId).select().single());
   } else {
-    const { data: linha, error: erroInsert } = await supabase.from("orcamentos").insert(payload).select().single();
-    erro = erroInsert;
-    if (linha) orcamentoId = linha.id;
+    ({ data: linha, error: erro } = await supabase.from("orcamentos").insert(payload).select().single());
   }
 
   if (erro) {
     $("btn-salvar-orcamento").disabled = false;
     $("btn-salvar-orcamento").textContent = editandoOrcamentoId ? "Salvar alterações" : "Salvar orçamento";
+    if (erro.message && erro.message.includes("duplicate")) {
+      return mostrarErro("orc-form-erro", "Já existe um orçamento com esse número.");
+    }
     return mostrarErro("orc-form-erro", "Não foi possível salvar. Tente novamente.");
   }
 
-  // Substitui os itens (mais simples e seguro que calcular um diff)
-  await supabase.from("orcamento_itens").delete().eq("orcamento_id", orcamentoId);
-  const itensPayload = orcItens.map((it) => ({
-    orcamento_id: orcamentoId,
-    tipo_treinamento_id: it.tipo_treinamento_id,
-    quantidade_turmas: it.quantidade_turmas,
-    valor_unitario: it.valor_unitario,
-  }));
-  await supabase.from("orcamento_itens").insert(itensPayload);
+  if (!editandoOrcamentoId) {
+    await gerarTurmasParaOrcamento(linha, qtdTurmas);
+  }
 
   $("btn-salvar-orcamento").disabled = false;
   $("painel-orcamento").classList.add("hidden");
@@ -1688,6 +1664,26 @@ async function salvarOrcamento() {
 }
 
 $("btn-salvar-orcamento").addEventListener("click", salvarOrcamento);
+
+// Cria automaticamente as linhas de turma do orçamento, com identificação
+// alfabética (A, B, C…) e a soma de dias teóricos/práticos do treinamento
+// selecionado como referência de duração de cada turma.
+async function gerarTurmasParaOrcamento(orcamento, qtdTurmas) {
+  const tipo = listaTiposAtivos.find((t) => t.id === orcamento.tipo_treinamento_id);
+  const diasTotais = tipo ? (Number(tipo.dias_teoria) || 0) + (Number(tipo.dias_pratica) || 0) + (Number(tipo.dias_teoria_pratica) || 0) : null;
+
+  const turmasPayload = Array.from({ length: qtdTurmas }, (_, i) => ({
+    orcamento_id: orcamento.id,
+    identificacao: letraIndice(i),
+    tipo_treinamento_id: orcamento.tipo_treinamento_id,
+    centro_treinamento_id: orcamento.centro_treinamento_id,
+    vagas: orcamento.qtd_alunos_por_turma || null,
+    dias_totais: diasTotais,
+    status: "Planejada",
+  }));
+
+  await supabase.from("turmas").insert(turmasPayload);
+}
 
 async function excluirOrcamento(id) {
   const { error } = await supabase.from("orcamentos").delete().eq("id", id);
@@ -1698,15 +1694,17 @@ async function excluirOrcamento(id) {
 // OPERAÇÃO: TURMAS POR ORÇAMENTO
 // ===========================================================
 async function carregarTurmasInit() {
-  $("admin-descricao-pagina").textContent = "Crie turmas vinculadas aos itens de um orçamento.";
-  const [{ data: orcs }, { data: centros }, { data: insts }] = await Promise.all([
-    supabase.from("orcamentos").select("*, empresas(nome), orcamento_itens(*, tipos_treinamento(nome))").order("created_at", { ascending: false }),
+  $("admin-descricao-pagina").textContent = "Acompanhe e ajuste as turmas geradas automaticamente para cada orçamento.";
+  const [{ data: orcs }, { data: centros }, { data: insts }, { data: tipos }] = await Promise.all([
+    supabase.from("orcamentos").select("*, empresas(nome), tipos_treinamento(nome)").order("created_at", { ascending: false }),
     supabase.from("centros_treinamento").select("*").eq("status", "Ativo").order("nome"),
     supabase.from("instrutores").select("*").eq("status", "Ativo").order("nome"),
+    supabase.from("tipos_treinamento").select("*").eq("status", "Ativo").order("nome"),
   ]);
   listaOrcamentosParaTurma = orcs || [];
   listaCentrosAtivos = centros || [];
   listaInstrutoresAtivos = insts || [];
+  listaTiposAtivos = tipos || [];
 
   preencherSelect("turma-orcamento-select", listaOrcamentosParaTurma, "id", (o) => `${o.numero} — ${o.empresas?.nome || "—"}`, "— Selecione —");
   $("turma-orcamento-select").value = "";
@@ -1727,8 +1725,9 @@ $("turma-orcamento-select").addEventListener("change", () => {
   info.classList.remove("hidden");
   info.innerHTML = `
     <p><strong>Empresa:</strong> ${o.empresas?.nome || "—"}</p>
+    <p><strong>Treinamento:</strong> ${o.tipos_treinamento?.nome || "—"}</p>
     <p><strong>Status do orçamento:</strong> ${o.status}</p>
-    <p><strong>Itens:</strong> ${(o.orcamento_itens || []).map((it) => `${it.tipos_treinamento?.nome || "—"} (${it.quantidade_turmas} turma(s))`).join(", ") || "—"}</p>
+    <p><strong>Previsto:</strong> ${o.qtd_turmas || 0} turma(s) · ${o.qtd_alunos || 0} aluno(s) · ${o.qtd_alunos_por_turma || 0} aluno(s)/turma</p>
   `;
   $("turma-conteudo").classList.remove("hidden");
   $("btn-turma-novo").classList.toggle("hidden", !podeFazer("turmas", "incluir"));
@@ -1740,7 +1739,7 @@ async function carregarTurmasDoOrcamento() {
     .from("turmas")
     .select("*, tipos_treinamento(nome), centros_treinamento(nome), instrutores(nome)")
     .eq("orcamento_id", turmaOrcamentoSelecionadoId)
-    .order("created_at", { ascending: false });
+    .order("identificacao", { ascending: true });
   turmasDoOrcamento = data || [];
   renderizarListaTurmas();
 }
@@ -1757,13 +1756,17 @@ function renderizarListaTurmas() {
   cont.innerHTML = turmasDoOrcamento.map((t) => `
     <div class="bg-white rounded-lg border border-slate-200 p-4 flex flex-col gap-2 shadow-sm">
       <div class="flex items-start justify-between">
-        <p class="font-serif text-lg text-slate-900 leading-tight">${t.tipos_treinamento?.nome || "—"}</p>
+        <div>
+          <p class="font-mono text-[11px] text-slate-400">Turma ${t.identificacao || "—"}</p>
+          <p class="font-serif text-lg text-slate-900 leading-tight">${t.tipos_treinamento?.nome || "—"}</p>
+        </div>
         <span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${corStatus[t.status] || ""}">${t.status}</span>
       </div>
       <div class="text-xs text-slate-500 space-y-1">
         ${t.instrutores?.nome ? `<p>👤 ${t.instrutores.nome}</p>` : ""}
         ${t.centros_treinamento?.nome ? `<p>🏫 ${t.centros_treinamento.nome}</p>` : ""}
         <p>🗓️ ${t.data_inicio || "—"}${t.data_fim && t.data_fim !== t.data_inicio ? ` a ${t.data_fim}` : ""}</p>
+        ${t.dias_totais ? `<p>📆 ${t.dias_totais} dia(s) de treinamento</p>` : ""}
         ${t.horario ? `<p>⏰ ${t.horario}</p>` : ""}
         ${t.vagas ? `<p>🎟️ ${t.vagas} vaga(s)</p>` : ""}
       </div>
@@ -1781,14 +1784,16 @@ function abrirNovaTurma() {
   editandoTurmaId = null;
   esconderErro("turma-form-erro");
   const o = listaOrcamentosParaTurma.find((x) => x.id === turmaOrcamentoSelecionadoId);
-  const itens = (o && o.orcamento_itens) || [];
-  preencherSelect("turma-item", itens, "id", (it) => it.tipos_treinamento?.nome || "—", null);
+  $("turma-identificacao").value = letraIndice(turmasDoOrcamento.length);
+  preencherSelect("turma-tipo", listaTiposAtivos, "id", (i) => i.nome, "— Selecione —");
+  $("turma-tipo").value = (o && o.tipo_treinamento_id) || "";
   preencherSelect("turma-centro", listaCentrosAtivos, "id", (i) => i.nome, "— Selecione —");
+  $("turma-centro").value = (o && o.centro_treinamento_id) || "";
   preencherSelect("turma-instrutor", listaInstrutoresAtivos, "id", (i) => i.nome, "— Selecione —");
   $("turma-data-inicio").value = "";
   $("turma-data-fim").value = "";
   $("turma-horario").value = "";
-  $("turma-vagas").value = "";
+  $("turma-vagas").value = (o && o.qtd_alunos_por_turma) || "";
   $("turma-status").value = "Planejada";
   $("turma-observacoes").value = "";
   $("painel-turma-titulo").textContent = "Nova turma";
@@ -1801,10 +1806,9 @@ function abrirEdicaoTurma(id) {
   if (!t) return;
   editandoTurmaId = id;
   esconderErro("turma-form-erro");
-  const o = listaOrcamentosParaTurma.find((x) => x.id === turmaOrcamentoSelecionadoId);
-  const itens = (o && o.orcamento_itens) || [];
-  preencherSelect("turma-item", itens, "id", (it) => it.tipos_treinamento?.nome || "—", null);
-  $("turma-item").value = t.orcamento_item_id || "";
+  $("turma-identificacao").value = t.identificacao || "";
+  preencherSelect("turma-tipo", listaTiposAtivos, "id", (i) => i.nome, "— Selecione —");
+  $("turma-tipo").value = t.tipo_treinamento_id || "";
   preencherSelect("turma-centro", listaCentrosAtivos, "id", (i) => i.nome, "— Selecione —");
   $("turma-centro").value = t.centro_treinamento_id || "";
   preencherSelect("turma-instrutor", listaInstrutoresAtivos, "id", (i) => i.nome, "— Selecione —");
@@ -1827,15 +1831,18 @@ $("painel-turma-overlay").addEventListener("click", () => $("painel-turma").clas
 
 async function salvarTurma() {
   esconderErro("turma-form-erro");
-  const itemId = $("turma-item").value;
-  if (!itemId) return mostrarErro("turma-form-erro", "Selecione o item do orçamento.");
-  const o = listaOrcamentosParaTurma.find((x) => x.id === turmaOrcamentoSelecionadoId);
-  const item = (o?.orcamento_itens || []).find((i) => i.id === itemId);
+  const identificacao = $("turma-identificacao").value.trim();
+  const tipoId = $("turma-tipo").value;
+  if (!identificacao) return mostrarErro("turma-form-erro", "Informe a identificação da turma.");
+  if (!tipoId) return mostrarErro("turma-form-erro", "Selecione o treinamento.");
+  const tipo = listaTiposAtivos.find((t) => t.id === tipoId);
+  const diasTotais = tipo ? (Number(tipo.dias_teoria) || 0) + (Number(tipo.dias_pratica) || 0) + (Number(tipo.dias_teoria_pratica) || 0) : null;
 
   const payload = {
     orcamento_id: turmaOrcamentoSelecionadoId,
-    orcamento_item_id: itemId,
-    tipo_treinamento_id: item ? item.tipo_treinamento_id : null,
+    identificacao,
+    tipo_treinamento_id: tipoId,
+    dias_totais: diasTotais,
     centro_treinamento_id: $("turma-centro").value || null,
     instrutor_id: $("turma-instrutor").value || null,
     data_inicio: $("turma-data-inicio").value || null,

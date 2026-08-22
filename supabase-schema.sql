@@ -476,3 +476,19 @@ alter table tipos_treinamento
   add column if not exists dias_teoria integer,
   add column if not exists dias_pratica integer,
   add column if not exists dias_teoria_pratica integer;
+
+-- =========================================================
+-- Reestruturação do Orçamento: um treinamento por orçamento
+-- (sem lista de itens), número digitado manualmente, e geração
+-- automática das turmas (A, B, C...) ao criar o orçamento
+-- =========================================================
+alter table orcamentos
+  add column if not exists centro_treinamento_id uuid references centros_treinamento(id) on delete set null,
+  add column if not exists tipo_treinamento_id uuid references tipos_treinamento(id) on delete set null,
+  add column if not exists qtd_turmas integer,
+  add column if not exists qtd_alunos integer,
+  add column if not exists qtd_alunos_por_turma integer;
+
+alter table turmas
+  add column if not exists identificacao text,
+  add column if not exists dias_totais integer;

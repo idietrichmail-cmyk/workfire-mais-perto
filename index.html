@@ -487,8 +487,35 @@
       <div id="orc-form-erro" class="hidden bg-rose-50 text-rose-600 text-sm rounded-md px-3 py-2 mb-4"></div>
       <div class="space-y-4">
         <div>
+          <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Número do orçamento</label>
+          <input id="orc-numero" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-amber-500" placeholder="Ex: ORC-2026-001" />
+          <p class="text-[11px] text-slate-400 mt-1">Precisa ser único — escolha um número que ainda não foi usado.</p>
+        </div>
+        <div>
           <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Empresa</label>
           <select id="orc-empresa" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"></select>
+        </div>
+        <div>
+          <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Centro de Treinamento</label>
+          <select id="orc-centro" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"></select>
+        </div>
+        <div>
+          <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Treinamento</label>
+          <select id="orc-tipo" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"></select>
+        </div>
+        <div class="grid grid-cols-3 gap-3">
+          <div>
+            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Qtde de turmas</label>
+            <input id="orc-qtd-turmas" type="number" min="1" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
+          </div>
+          <div>
+            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Qtde de alunos</label>
+            <input id="orc-qtd-alunos" type="number" min="0" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
+          </div>
+          <div>
+            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Alunos por turma</label>
+            <input id="orc-qtd-alunos-turma" type="number" min="0" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
+          </div>
         </div>
         <div class="grid grid-cols-3 gap-3">
           <div>
@@ -505,14 +532,6 @@
               <option>Aberto</option><option>Aprovado</option><option>Recusado</option><option>Cancelado</option>
             </select>
           </div>
-        </div>
-        <div>
-          <div class="flex items-center justify-between mb-2">
-            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Itens do orçamento</label>
-            <button id="btn-orc-add-item" type="button" class="text-xs font-medium text-amber-700 hover:text-amber-800">+ Adicionar item</button>
-          </div>
-          <div id="orc-itens-lista" class="space-y-2"></div>
-          <p class="text-right text-sm font-semibold text-slate-800 mt-2">Total: <span id="orc-total">R$ 0,00</span></p>
         </div>
         <div>
           <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Observações</label>
@@ -537,8 +556,12 @@
       <div id="turma-form-erro" class="hidden bg-rose-50 text-rose-600 text-sm rounded-md px-3 py-2 mb-4"></div>
       <div class="space-y-4">
         <div>
-          <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Item do orçamento</label>
-          <select id="turma-item" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"></select>
+          <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Identificação</label>
+          <input id="turma-identificacao" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" placeholder="Ex: A, B, C…" />
+        </div>
+        <div>
+          <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Treinamento</label>
+          <select id="turma-tipo" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"></select>
         </div>
         <div>
           <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Centro de Treinamento</label>
