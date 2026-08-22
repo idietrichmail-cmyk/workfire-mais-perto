@@ -1733,24 +1733,32 @@ async function salvarOrcamento() {
 
 $("btn-salvar-orcamento").addEventListener("click", salvarOrcamento);
 
-// Cria automaticamente as linhas de turma do orçamento, com identificação
-// alfabética (A, B, C…) e a soma de dias teóricos/práticos do treinamento
-// selecionado como referência de duração de cada turma.
+// Cria automaticamente as linhas de turma do orçamento: uma linha por DIA
+// de treinamento de cada turma. O número de dias por turma é a soma de
+// dias_teoria + dias_pratica + dias_teoria_pratica do treinamento
+// selecionado. Ex.: treinamento com 3 dias e 2 turmas → A1,A2,A3,B1,B2,B3.
 async function gerarTurmasParaOrcamento(orcamento, qtdTurmas) {
   const tipo = listaTiposAtivos.find((t) => t.id === orcamento.tipo_treinamento_id);
-  const diasTotais = tipo ? (Number(tipo.dias_teoria) || 0) + (Number(tipo.dias_pratica) || 0) + (Number(tipo.dias_teoria_pratica) || 0) : null;
+  const diasTotais = tipo ? (Number(tipo.dias_teoria) || 0) + (Number(tipo.dias_pratica) || 0) + (Number(tipo.dias_teoria_pratica) || 0) : 0;
+  const diasPorTurma = diasTotais > 0 ? diasTotais : 1;
 
-  const turmasPayload = Array.from({ length: qtdTurmas }, (_, i) => ({
-    orcamento_id: orcamento.id,
-    identificacao: letraIndice(i),
-    tipo_treinamento_id: orcamento.tipo_treinamento_id,
-    centro_treinamento_id: orcamento.centro_treinamento_id,
-    formato_teoria: orcamento.formato_teoria || null,
-    formato_pratica: orcamento.formato_pratica || null,
-    vagas: orcamento.qtd_alunos_por_turma || null,
-    dias_totais: diasTotais,
-    status: "Planejada",
-  }));
+  const turmasPayload = [];
+  for (let i = 0; i < qtdTurmas; i++) {
+    const letra = letraIndice(i);
+    for (let d = 1; d <= diasPorTurma; d++) {
+      turmasPayload.push({
+        orcamento_id: orcamento.id,
+        identificacao: `${letra}${d}`,
+        tipo_treinamento_id: orcamento.tipo_treinamento_id,
+        centro_treinamento_id: orcamento.centro_treinamento_id,
+        formato_teoria: orcamento.formato_teoria || null,
+        formato_pratica: orcamento.formato_pratica || null,
+        vagas: orcamento.qtd_alunos_por_turma || null,
+        dias_totais: diasTotais || null,
+        status: "Planejada",
+      });
+    }
+  }
 
   await supabase.from("turmas").insert(turmasPayload);
 }
@@ -1854,7 +1862,7 @@ function abrirNovaTurma() {
   editandoTurmaId = null;
   esconderErro("turma-form-erro");
   const o = listaOrcamentosParaTurma.find((x) => x.id === turmaOrcamentoSelecionadoId);
-  $("turma-identificacao").value = letraIndice(turmasDoOrcamento.length);
+  $("turma-identificacao").value = "";
   preencherSelect("turma-tipo", listaTiposAtivos, "id", (i) => i.nome, "— Selecione —");
   $("turma-tipo").value = (o && o.tipo_treinamento_id) || "";
   preencherSelect("turma-centro", listaCentrosAtivos, "id", (i) => i.nome, "— Selecione —");
