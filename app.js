@@ -168,6 +168,7 @@ const MODULOS = [
   { id: "empresas", label: "Empresas", icone: "🏢", grupo: "Cadastros" },
   { id: "centros_treinamento", label: "Centros de Treinamento", icone: "🏫", grupo: "Cadastros" },
   { id: "tipos_treinamento", label: "Treinamentos", icone: "🏷️", grupo: "Cadastros" },
+  { id: "empresas_transporte", label: "Empresas de Transporte", icone: "🚐", grupo: "Cadastros" },
   { id: "usuarios_sistema", label: "Usuários do Sistema", icone: "🔑", grupo: "Cadastros" },
   { id: "agendamentos", label: "Agendar Treinamento", icone: "🗓️", grupo: "Operações" },
   { id: "orcamentos", label: "Orçamentos", icone: "💰", grupo: "Operações" },
@@ -944,6 +945,20 @@ const CRUD_CONFIG = {
       i.dias_teoria_pratica && `📘🛠️ ${i.dias_teoria_pratica} dia(s) de teoria com prática`,
     ].filter(Boolean),
   },
+  empresas_transporte: {
+    tabela: "empresas_transporte",
+    titulo: "Empresa de Transporte",
+    descricao: "Empresas que fazem o transporte do instrutor até o local do treinamento.",
+    buscaPlaceholder: "Buscar por nome",
+    ordenarPor: "nome",
+    campos: [
+      { id: "nome", label: "Nome da empresa", obrigatorio: true },
+      { id: "status", label: "Status", tipo: "select", opcoes: ["Ativo", "Inativo"], padrao: "Ativo" },
+    ],
+    campoBusca: (i) => i.nome,
+    cardTitulo: (i) => i.nome,
+    cardLinhas: () => [],
+  },
   usuarios_sistema: {
     tabela: "usuarios_sistema",
     titulo: "Usuário do Sistema",
@@ -1623,12 +1638,32 @@ async function abrirEdicaoOrcamento(id) {
   await carregarTabelaTurmasOrcamento(id);
 }
 
+// Um dia só precisa de empresa de transporte quando o formato daquele dia
+// exige deslocamento até um local físico (CT ou Móvel). InCompany/EAD (teoria)
+// e InCompany/Móvel (prática, o instrutor já vai até o cliente ou é o próprio
+// veículo) não precisam de transporte contratado.
+function transporteAplicavel(t) {
+  const teoriaSemTransporte = ["InCompany", "EAD", "EAD Síncrono"];
+  const praticaSemTransporte = ["InCompany", "Móvel"];
+  if (t.tipo_dia === "Teoria") return !teoriaSemTransporte.includes(t.formato_teoria);
+  if (t.tipo_dia === "Prática") return !praticaSemTransporte.includes(t.formato_pratica);
+  if (t.tipo_dia === "Teoria com Prática") {
+    return !teoriaSemTransporte.includes(t.formato_teoria) || !praticaSemTransporte.includes(t.formato_pratica);
+  }
+  return true;
+}
+
 // Carrega e renderiza, dentro do painel do orçamento, a tabela das turmas
-// já geradas. Formato Teoria/Prática vêm do orçamento (repetidos em todas
-// as turmas); só a Data é editável aqui.
+// já geradas: Data, Instrutor 1, Instrutor 2 e Empresa de Transporte (ou
+// "N/A" quando o formato do dia não exige deslocamento) são editáveis aqui.
 async function carregarTabelaTurmasOrcamento(orcamentoId) {
-  const { data } = await supabase.from("turmas").select("*").eq("orcamento_id", orcamentoId).order("identificacao");
+  const [{ data }, { data: insts }, { data: transportadoras }] = await Promise.all([
+    supabase.from("turmas").select("*").eq("orcamento_id", orcamentoId).order("identificacao"),
+    supabase.from("instrutores").select("*").eq("status", "Ativo").order("nome"),
+    supabase.from("empresas_transporte").select("*").eq("status", "Ativo").order("nome"),
+  ]);
   const turmas = data || [];
+  listaInstrutoresAtivos = insts || [];
   const bloco = $("orc-turmas-bloco");
   const corpo = $("orc-turmas-tbody");
   if (turmas.length === 0) {
@@ -1638,7 +1673,12 @@ async function carregarTabelaTurmasOrcamento(orcamentoId) {
   }
   bloco.classList.remove("hidden");
   const corTipoDia = { "Teoria": "bg-blue-50 text-blue-700", "Prática": "bg-amber-50 text-amber-700", "Teoria com Prática": "bg-purple-50 text-purple-700" };
-  corpo.innerHTML = turmas.map((t) => `
+  const opcoesInstrutor = (val) => `<option value="">—</option>` + listaInstrutoresAtivos.map((i) => `<option value="${i.id}" ${i.id === val ? "selected" : ""}>${i.nome}</option>`).join("");
+  const opcoesTransporte = (val) => `<option value="">—</option>` + transportadoras.map((e) => `<option value="${e.id}" ${e.id === val ? "selected" : ""}>${e.nome}</option>`).join("");
+
+  corpo.innerHTML = turmas.map((t) => {
+    const precisaTransporte = transporteAplicavel(t);
+    return `
     <tr data-turma-linha="${t.id}">
       <td class="px-2 py-1.5 font-mono text-slate-500">${t.identificacao || "—"}</td>
       <td class="px-2 py-1.5">
@@ -1647,10 +1687,20 @@ async function carregarTabelaTurmasOrcamento(orcamentoId) {
       <td class="px-2 py-1.5">
         <input type="date" data-turma-campo="data_inicio" value="${t.data_inicio || ""}" class="w-full text-xs rounded-md border border-slate-300 px-2 py-1.5" />
       </td>
-      <td class="px-2 py-1.5 text-slate-600">${t.formato_teoria || "—"}</td>
-      <td class="px-2 py-1.5 text-slate-600">${t.formato_pratica || "—"}</td>
+      <td class="px-2 py-1.5">
+        <select data-turma-campo="instrutor1_id" class="w-full text-xs rounded-md border border-slate-300 px-2 py-1.5">${opcoesInstrutor(t.instrutor1_id)}</select>
+      </td>
+      <td class="px-2 py-1.5">
+        <select data-turma-campo="instrutor2_id" class="w-full text-xs rounded-md border border-slate-300 px-2 py-1.5">${opcoesInstrutor(t.instrutor2_id)}</select>
+      </td>
+      <td class="px-2 py-1.5">
+        ${precisaTransporte
+          ? `<select data-turma-campo="empresa_transporte_id" class="w-full text-xs rounded-md border border-slate-300 px-2 py-1.5">${opcoesTransporte(t.empresa_transporte_id)}</select>`
+          : `<span class="text-slate-400">N/A</span>`}
+      </td>
     </tr>
-  `).join("");
+  `;
+  }).join("");
 
   corpo.querySelectorAll("[data-turma-campo]").forEach((el) => {
     el.addEventListener("change", async (e) => {
@@ -1830,7 +1880,7 @@ $("turma-orcamento-select").addEventListener("change", () => {
 async function carregarTurmasDoOrcamento() {
   const { data } = await supabase
     .from("turmas")
-    .select("*, tipos_treinamento(nome), centros_treinamento(nome), instrutores(nome)")
+    .select("*, tipos_treinamento(nome), centros_treinamento(nome), instrutor1:instrutores!instrutor1_id(nome), instrutor2:instrutores!instrutor2_id(nome), empresas_transporte(nome)")
     .eq("orcamento_id", turmaOrcamentoSelecionadoId)
     .order("identificacao", { ascending: true });
   turmasDoOrcamento = data || [];
@@ -1857,9 +1907,10 @@ function renderizarListaTurmas() {
       </div>
       <div class="text-xs text-slate-500 space-y-1">
         ${t.tipo_dia ? `<p>🏷️ ${t.tipo_dia}</p>` : ""}
-        ${t.instrutores?.nome ? `<p>👤 ${t.instrutores.nome}</p>` : ""}
+        ${t.instrutor1?.nome ? `<p>👤 ${t.instrutor1.nome}${t.instrutor2?.nome ? ` + ${t.instrutor2.nome}` : ""}</p>` : ""}
         ${t.centros_treinamento?.nome ? `<p>🏫 ${t.centros_treinamento.nome}</p>` : ""}
         <p>🗓️ ${t.data_inicio || "—"}${t.data_fim && t.data_fim !== t.data_inicio ? ` a ${t.data_fim}` : ""}</p>
+        ${t.empresas_transporte?.nome ? `<p>🚐 ${t.empresas_transporte.nome}</p>` : ""}
         ${t.horario ? `<p>⏰ ${t.horario}</p>` : ""}
         ${t.vagas ? `<p>🎟️ ${t.vagas} vaga(s)</p>` : ""}
       </div>

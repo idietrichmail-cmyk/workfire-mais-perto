@@ -511,3 +511,25 @@ alter table orcamentos
 -- Teoria com Prática, conforme os dias configurados no treinamento
 alter table turmas
   add column if not exists tipo_dia text check (tipo_dia in ('Teoria','Prática','Teoria com Prática'));
+
+-- =========================================================
+-- Instrutor 1/2 e Empresa de Transporte por dia de turma
+-- =========================================================
+create table if not exists empresas_transporte (
+  id uuid primary key default gen_random_uuid(),
+  nome text not null,
+  status text not null default 'Ativo' check (status in ('Ativo', 'Inativo')),
+  created_at timestamptz not null default now()
+);
+
+alter table empresas_transporte enable row level security;
+
+create policy "empresas_transporte_select" on empresas_transporte for select using (is_admin_sistema(auth.uid()) or tem_permissao(auth.uid(), 'empresas_transporte', 'consultar'));
+create policy "empresas_transporte_insert" on empresas_transporte for insert with check (is_admin_sistema(auth.uid()) or tem_permissao(auth.uid(), 'empresas_transporte', 'incluir'));
+create policy "empresas_transporte_update" on empresas_transporte for update using (is_admin_sistema(auth.uid()) or tem_permissao(auth.uid(), 'empresas_transporte', 'alterar'));
+create policy "empresas_transporte_delete" on empresas_transporte for delete using (is_admin_sistema(auth.uid()) or tem_permissao(auth.uid(), 'empresas_transporte', 'excluir'));
+
+alter table turmas
+  add column if not exists instrutor1_id uuid references instrutores(id) on delete set null,
+  add column if not exists instrutor2_id uuid references instrutores(id) on delete set null,
+  add column if not exists empresa_transporte_id uuid references empresas_transporte(id) on delete set null;
