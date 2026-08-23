@@ -154,6 +154,7 @@ let agendamentoInstrutorOriginalId = null;
 
 let listaOrcamentos = [];
 let editandoOrcamentoId = null;
+let orcFiltroStatus = new Set(["Aberto", "Aprovado", "Recusado", "Cancelado", "Concluído"]);
 
 let listaOrcamentosParaTurma = [];
 let turmaOrcamentoSelecionadoId = null;
@@ -162,6 +163,8 @@ let editandoTurmaId = null;
 
 const FORMATOS_TEORIA = ["CT", "InCompany", "EAD", "EAD Síncrono", "Móvel"];
 const FORMATOS_PRATICA = ["CT", "InCompany", "Móvel"];
+const AGENDA_STATUS = ["A agendar", "Agendado", "Aguardando confirmação", "Não aplicável"];
+const ORCAMENTO_STATUS = ["Aberto", "Aprovado", "Recusado", "Cancelado", "Concluído"];
 
 const MODULOS = [
   { id: "instrutores", label: "Instrutores", icone: "👥", grupo: "Cadastros" },
@@ -932,6 +935,7 @@ const CRUD_CONFIG = {
       { id: "dias_teoria", label: "Dias de Teoria", tipo: "number" },
       { id: "dias_pratica", label: "Dias de Prática", tipo: "number" },
       { id: "dias_teoria_pratica", label: "Dias de Teoria com Prática", tipo: "number" },
+      { id: "alunos_por_instrutor", label: "Alunos por Instrutor", tipo: "number" },
       { id: "descricao", label: "Descrição", tipo: "textarea" },
       { id: "status", label: "Status", tipo: "select", opcoes: ["Ativo", "Inativo"], padrao: "Ativo" },
     ],
@@ -943,6 +947,7 @@ const CRUD_CONFIG = {
       i.dias_teoria && `📘 ${i.dias_teoria} dia(s) de teoria`,
       i.dias_pratica && `🛠️ ${i.dias_pratica} dia(s) de prática`,
       i.dias_teoria_pratica && `📘🛠️ ${i.dias_teoria_pratica} dia(s) de teoria com prática`,
+      i.alunos_por_instrutor && `👥 até ${i.alunos_por_instrutor} aluno(s) por instrutor`,
     ].filter(Boolean),
   },
   empresas_transporte: {
@@ -1535,42 +1540,59 @@ async function carregarOrcamentos() {
   listaTiposAtivos = tipos || [];
   listaCentrosAtivos = centros || [];
   $("btn-orc-novo").classList.toggle("hidden", !podeFazer("orcamentos", "incluir"));
+  renderizarFiltroStatusOrcamento();
   renderizarListaOrcamentos();
+}
+
+function renderizarFiltroStatusOrcamento() {
+  const cont = $("orc-filtro-status");
+  cont.innerHTML = ORCAMENTO_STATUS.map((s) => `
+    <label class="inline-flex items-center gap-1.5">
+      <input type="checkbox" data-filtro-status="${s}" ${orcFiltroStatus.has(s) ? "checked" : ""} class="rounded border-slate-300" />
+      ${s}
+    </label>
+  `).join("");
+  cont.querySelectorAll("[data-filtro-status]").forEach((el) => {
+    el.addEventListener("change", (e) => {
+      const s = e.target.getAttribute("data-filtro-status");
+      if (e.target.checked) orcFiltroStatus.add(s);
+      else orcFiltroStatus.delete(s);
+      renderizarListaOrcamentos();
+    });
+  });
 }
 
 function renderizarListaOrcamentos() {
   const busca = $("orc-busca").value.toLowerCase();
   const podeAlterar = podeFazer("orcamentos", "alterar");
   const podeExcluir = podeFazer("orcamentos", "excluir");
-  const lista = listaOrcamentos.filter((o) => `${o.numero} ${o.empresas?.nome || ""}`.toLowerCase().includes(busca));
+  const lista = listaOrcamentos
+    .filter((o) => orcFiltroStatus.has(o.status))
+    .filter((o) => `${o.numero} ${o.empresas?.nome || ""}`.toLowerCase().includes(busca));
   const cont = $("orc-lista");
   if (lista.length === 0) {
-    cont.innerHTML = `<div class="col-span-full bg-white border border-dashed border-slate-300 rounded-lg py-16 text-center text-slate-500 text-sm">Nenhum orçamento encontrado.</div>`;
+    cont.innerHTML = `<tr><td colspan="9" class="text-center text-slate-500 text-sm py-16">Nenhum orçamento encontrado.</td></tr>`;
     return;
   }
-  const corStatus = { Aberto: "bg-amber-50 text-amber-700", Aprovado: "bg-teal-50 text-teal-700", Recusado: "bg-rose-50 text-rose-600", Cancelado: "bg-slate-100 text-slate-500" };
+  const corStatus = { Aberto: "bg-amber-50 text-amber-700", Aprovado: "bg-teal-50 text-teal-700", Recusado: "bg-rose-50 text-rose-600", Cancelado: "bg-slate-100 text-slate-500", "Concluído": "bg-blue-50 text-blue-700" };
   cont.innerHTML = lista.map((o) => `
-    <div class="bg-white rounded-lg border border-slate-200 p-4 flex flex-col gap-2 shadow-sm">
-      <div class="flex items-start justify-between">
-        <div>
-          <p class="font-mono text-[11px] text-slate-400">${o.numero}</p>
-          <p class="font-serif text-lg text-slate-900 leading-tight">${o.empresas?.nome || "—"}</p>
-        </div>
-        <span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${corStatus[o.status] || ""}">${o.status}</span>
-      </div>
-      <p class="text-sm text-amber-700 font-medium">🏷️ ${o.tipos_treinamento?.nome || "—"}</p>
-      <div class="text-xs text-slate-500 space-y-1">
-        ${o.centros_treinamento?.nome ? `<p>🏫 ${o.centros_treinamento.nome}</p>` : ""}
-        <p>📅 ${o.data || ""}${o.validade ? ` · válido até ${o.validade}` : ""}</p>
-        <p>🎓 ${o.qtd_turmas || 0} turma(s) · 👥 ${o.qtd_alunos || 0} aluno(s) · ${o.qtd_alunos_por_turma || 0} aluno(s)/turma</p>
-      </div>
-      <div class="flex gap-2 mt-2 pt-2 border-t border-slate-100">
-        ${podeAlterar ? `<button data-orc-editar="${o.id}" class="flex-1 text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-50 rounded-md py-1.5">✏️ Editar</button>` : ""}
-        ${podeExcluir ? `<button data-orc-excluir="${o.id}" class="flex-1 text-xs font-medium text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-md py-1.5">🗑️ Excluir</button>` : ""}
-      </div>
-    </div>
+    <tr class="hover:bg-slate-50">
+      <td class="px-3 py-2 font-mono text-slate-700 cursor-pointer select-none" data-orc-numero="${o.id}" title="Dois cliques para editar">${o.numero}</td>
+      <td class="px-3 py-2 text-slate-700">${o.empresas?.nome || "—"}</td>
+      <td class="px-3 py-2 text-slate-500">${o.tipos_treinamento?.nome || "—"}</td>
+      <td class="px-3 py-2 text-slate-500">${o.centros_treinamento?.nome || "—"}</td>
+      <td class="px-3 py-2"><span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${corStatus[o.status] || ""}">${o.status}</span></td>
+      <td class="px-3 py-2 text-slate-500">${o.qtd_turmas || 0}</td>
+      <td class="px-3 py-2 text-slate-500">${o.qtd_alunos || 0}</td>
+      <td class="px-3 py-2 text-slate-500">${o.data || "—"}</td>
+      <td class="px-3 py-2 text-right whitespace-nowrap">
+        ${podeExcluir ? `<button data-orc-excluir="${o.id}" class="text-xs font-medium text-rose-500 hover:text-rose-700 px-2 py-1">🗑️</button>` : ""}
+      </td>
+    </tr>
   `).join("");
-  cont.querySelectorAll("[data-orc-editar]").forEach((btn) => btn.addEventListener("click", () => abrirEdicaoOrcamento(btn.getAttribute("data-orc-editar"))));
+  if (podeAlterar) {
+    cont.querySelectorAll("[data-orc-numero]").forEach((el) => el.addEventListener("dblclick", () => abrirEdicaoOrcamento(el.getAttribute("data-orc-numero"))));
+  }
   cont.querySelectorAll("[data-orc-excluir]").forEach((btn) => btn.addEventListener("click", () => excluirOrcamento(btn.getAttribute("data-orc-excluir"))));
 }
 
@@ -1580,9 +1602,20 @@ function atualizarQtdAlunosCalculado() {
   const turmas = Number($("orc-qtd-turmas").value) || 0;
   const porTurma = Number($("orc-qtd-alunos-turma").value) || 0;
   $("orc-qtd-alunos").value = turmas * porTurma;
+  atualizarNecessitaDoisInstrutores();
+}
+
+// Marca automaticamente "Necessita dois instrutores" quando a quantidade de
+// alunos por turma passa da capacidade por instrutor do treinamento selecionado.
+function atualizarNecessitaDoisInstrutores() {
+  const porTurma = Number($("orc-qtd-alunos-turma").value) || 0;
+  const tipo = listaTiposAtivos.find((t) => t.id === $("orc-tipo").value);
+  const capacidade = tipo ? Number(tipo.alunos_por_instrutor) || 0 : 0;
+  $("orc-dois-instrutores").checked = capacidade > 0 && porTurma > capacidade;
 }
 $("orc-qtd-turmas").addEventListener("input", atualizarQtdAlunosCalculado);
 $("orc-qtd-alunos-turma").addEventListener("input", atualizarQtdAlunosCalculado);
+$("orc-tipo").addEventListener("change", atualizarNecessitaDoisInstrutores);
 
 function abrirNovoOrcamento() {
   editandoOrcamentoId = null;
@@ -1741,6 +1774,7 @@ async function salvarOrcamento() {
     qtd_turmas: qtdTurmas,
     qtd_alunos_por_turma: qtdAlunosPorTurma || null,
     qtd_alunos: qtdTurmas * qtdAlunosPorTurma,
+    necessita_dois_instrutores: $("orc-dois-instrutores").checked,
     data: $("orc-data").value || null,
     validade: $("orc-validade").value || null,
     status: $("orc-status").value,
@@ -1806,11 +1840,20 @@ async function gerarTurmasParaOrcamento(orcamento, qtdTurmas) {
   ];
   if (sequenciaDias.length === 0) sequenciaDias.push(null); // treinamento sem dias configurados: gera 1 dia sem tipo
 
+  // Agendas: CT/Móvel dependem só do formato do orçamento (mesmo em todas as
+  // linhas); instrutor 2 depende de "necessita dois instrutores"; instrutor 1
+  // é sempre necessário; transporte depende do dia (calculado por linha).
+  const ctAplicavel = orcamento.formato_teoria === "CT" || orcamento.formato_pratica === "CT";
+  const movelAplicavel = orcamento.formato_teoria === "Móvel" || orcamento.formato_pratica === "Móvel";
+  const agendaCt = ctAplicavel ? "A agendar" : "Não aplicável";
+  const agendaMovel = movelAplicavel ? "A agendar" : "Não aplicável";
+  const agendaInstrutor2 = orcamento.necessita_dois_instrutores ? "A agendar" : "Não aplicável";
+
   const turmasPayload = [];
   for (let i = 0; i < qtdTurmas; i++) {
     const letra = letraIndice(i);
     sequenciaDias.forEach((tipoDia, idx) => {
-      turmasPayload.push({
+      const linha = {
         orcamento_id: orcamento.id,
         identificacao: `${letra}${idx + 1}`,
         tipo_dia: tipoDia,
@@ -1821,7 +1864,13 @@ async function gerarTurmasParaOrcamento(orcamento, qtdTurmas) {
         vagas: orcamento.qtd_alunos_por_turma || null,
         dias_totais: diasTotais || null,
         status: "Planejada",
-      });
+        agenda_ct: agendaCt,
+        agenda_movel: agendaMovel,
+        agenda_instrutor1: "A agendar",
+        agenda_instrutor2: agendaInstrutor2,
+      };
+      linha.agenda_transporte = transporteAplicavel(linha) ? "A agendar" : "Não aplicável";
+      turmasPayload.push(linha);
     });
   }
 
@@ -1896,6 +1945,8 @@ function renderizarListaTurmas() {
     return;
   }
   const corStatus = { Planejada: "bg-amber-50 text-amber-700", Confirmada: "bg-teal-50 text-teal-700", Concluida: "bg-slate-100 text-slate-600", Cancelada: "bg-rose-50 text-rose-600" };
+  const corAgenda = { "A agendar": "bg-amber-50 text-amber-700", "Agendado": "bg-teal-50 text-teal-700", "Aguardando confirmação": "bg-blue-50 text-blue-700", "Não aplicável": "bg-slate-100 text-slate-400" };
+  const badgeAgenda = (rotulo, valor) => valor ? `<span class="text-[10px] font-medium px-1.5 py-0.5 rounded-full ${corAgenda[valor] || ""}" title="${valor}">${rotulo}</span>` : "";
   cont.innerHTML = turmasDoOrcamento.map((t) => `
     <div class="bg-white rounded-lg border border-slate-200 p-4 flex flex-col gap-2 shadow-sm">
       <div class="flex items-start justify-between">
@@ -1914,6 +1965,13 @@ function renderizarListaTurmas() {
         ${t.horario ? `<p>⏰ ${t.horario}</p>` : ""}
         ${t.vagas ? `<p>🎟️ ${t.vagas} vaga(s)</p>` : ""}
       </div>
+      <div class="flex flex-wrap gap-1 pt-1">
+        ${badgeAgenda("CT", t.agenda_ct)}
+        ${badgeAgenda("Inst.1", t.agenda_instrutor1)}
+        ${badgeAgenda("Inst.2", t.agenda_instrutor2)}
+        ${badgeAgenda("Transp.", t.agenda_transporte)}
+        ${badgeAgenda("Móvel", t.agenda_movel)}
+      </div>
       <div class="flex gap-2 mt-2 pt-2 border-t border-slate-100">
         ${podeAlterar ? `<button data-turma-editar="${t.id}" class="flex-1 text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-50 rounded-md py-1.5">✏️ Editar</button>` : ""}
         ${podeExcluir ? `<button data-turma-excluir="${t.id}" class="flex-1 text-xs font-medium text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-md py-1.5">🗑️ Excluir</button>` : ""}
@@ -1922,6 +1980,11 @@ function renderizarListaTurmas() {
   `).join("");
   cont.querySelectorAll("[data-turma-editar]").forEach((btn) => btn.addEventListener("click", () => abrirEdicaoTurma(btn.getAttribute("data-turma-editar"))));
   cont.querySelectorAll("[data-turma-excluir]").forEach((btn) => btn.addEventListener("click", () => excluirTurma(btn.getAttribute("data-turma-excluir"))));
+}
+
+function preencherSelectAgenda(id, val) {
+  preencherSelect(id, AGENDA_STATUS.map((s) => ({ id: s, nome: s })), "id", (i) => i.nome, null);
+  $(id).value = val || "A agendar";
 }
 
 function abrirNovaTurma() {
@@ -1940,6 +2003,11 @@ function abrirNovaTurma() {
   $("turma-vagas").value = (o && o.qtd_alunos_por_turma) || "";
   $("turma-status").value = "Planejada";
   $("turma-observacoes").value = "";
+  preencherSelectAgenda("turma-agenda-ct", "A agendar");
+  preencherSelectAgenda("turma-agenda-instrutor1", "A agendar");
+  preencherSelectAgenda("turma-agenda-instrutor2", "Não aplicável");
+  preencherSelectAgenda("turma-agenda-transporte", "A agendar");
+  preencherSelectAgenda("turma-agenda-movel", "Não aplicável");
   $("painel-turma-titulo").textContent = "Nova turma";
   $("btn-salvar-turma").textContent = "Salvar turma";
   $("painel-turma").classList.remove("hidden");
@@ -1963,6 +2031,11 @@ function abrirEdicaoTurma(id) {
   $("turma-vagas").value = t.vagas || "";
   $("turma-status").value = t.status;
   $("turma-observacoes").value = t.observacoes || "";
+  preencherSelectAgenda("turma-agenda-ct", t.agenda_ct);
+  preencherSelectAgenda("turma-agenda-instrutor1", t.agenda_instrutor1);
+  preencherSelectAgenda("turma-agenda-instrutor2", t.agenda_instrutor2);
+  preencherSelectAgenda("turma-agenda-transporte", t.agenda_transporte);
+  preencherSelectAgenda("turma-agenda-movel", t.agenda_movel);
   $("painel-turma-titulo").textContent = "Editar turma";
   $("btn-salvar-turma").textContent = "Salvar alterações";
   $("painel-turma").classList.remove("hidden");
@@ -1995,6 +2068,11 @@ async function salvarTurma() {
     vagas: $("turma-vagas").value ? Number($("turma-vagas").value) : null,
     status: $("turma-status").value,
     observacoes: $("turma-observacoes").value.trim(),
+    agenda_ct: $("turma-agenda-ct").value,
+    agenda_instrutor1: $("turma-agenda-instrutor1").value,
+    agenda_instrutor2: $("turma-agenda-instrutor2").value,
+    agenda_transporte: $("turma-agenda-transporte").value,
+    agenda_movel: $("turma-agenda-movel").value,
   };
 
   $("btn-salvar-turma").disabled = true;

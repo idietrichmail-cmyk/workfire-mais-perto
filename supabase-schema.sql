@@ -533,3 +533,23 @@ alter table turmas
   add column if not exists instrutor1_id uuid references instrutores(id) on delete set null,
   add column if not exists instrutor2_id uuid references instrutores(id) on delete set null,
   add column if not exists empresa_transporte_id uuid references empresas_transporte(id) on delete set null;
+
+-- =========================================================
+-- Lista de orçamentos, status "Concluído", dois instrutores e
+-- status de agenda por turma
+-- =========================================================
+alter table orcamentos drop constraint if exists orcamentos_status_check;
+alter table orcamentos add constraint orcamentos_status_check check (status in ('Aberto','Aprovado','Recusado','Cancelado','Concluído'));
+
+alter table tipos_treinamento
+  add column if not exists alunos_por_instrutor integer;
+
+alter table orcamentos
+  add column if not exists necessita_dois_instrutores boolean not null default false;
+
+alter table turmas
+  add column if not exists agenda_ct text check (agenda_ct in ('A agendar','Agendado','Aguardando confirmação','Não aplicável')),
+  add column if not exists agenda_instrutor1 text check (agenda_instrutor1 in ('A agendar','Agendado','Aguardando confirmação','Não aplicável')),
+  add column if not exists agenda_instrutor2 text check (agenda_instrutor2 in ('A agendar','Agendado','Aguardando confirmação','Não aplicável')),
+  add column if not exists agenda_transporte text check (agenda_transporte in ('A agendar','Agendado','Aguardando confirmação','Não aplicável')),
+  add column if not exists agenda_movel text check (agenda_movel in ('A agendar','Agendado','Aguardando confirmação','Não aplicável'));
