@@ -1,5 +1,6 @@
 // =========================================================
-// Agenda de Instrutores — lógica do app (Supabase)
+// Work Fire mais perto de você — lógica do app (Supabase)
+// Área de trabalho: cadastros, operações e permissões.
 // =========================================================
 (function () {
   // Proteção contra o script ser incluído/executado mais de uma vez na página
