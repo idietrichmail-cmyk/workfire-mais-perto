@@ -2349,6 +2349,8 @@ async function abrirPainelLocalidadesTurma(turmaId) {
   limparFormLocalidadeTurma();
   $("bloco-nova-localidade-turma").classList.toggle("hidden", !podeFazer("turmas", "incluir"));
   $("btn-repetir-localidades-turma").classList.toggle("hidden", !podeFazer("turmas", "incluir"));
+  $("btn-excluir-localidades-turma").classList.toggle("hidden", !podeFazer("turmas", "excluir"));
+  $("btn-excluir-localidades-todas-turmas").classList.toggle("hidden", !podeFazer("turmas", "excluir"));
   $("painel-localidades-turma").classList.remove("hidden");
   await carregarLocalidadesDaTurma();
 }
@@ -2440,6 +2442,20 @@ async function repetirLocalidadesTurma() {
   setTimeout(esconderStatusRepetirLocalidades, 7000);
 }
 
+async function excluirLocalidadesTurmaAtual() {
+  if (!confirm("Deseja excluir todas as localidades desta turma, exceto a Principal?")) return;
+  await supabase.from("turma_localidades").delete().eq("turma_id", turmaLocalidadesAbertaId).neq("nome", "Principal");
+  await carregarLocalidadesDaTurma();
+}
+
+async function excluirLocalidadesTodasTurmas() {
+  if (!confirm("Deseja excluir todas as localidades de todas as turmas deste orçamento, exceto as Principal?")) return;
+  const todasTurmasIds = turmasDoOrcamento.map((t) => t.id);
+  if (todasTurmasIds.length === 0) return;
+  await supabase.from("turma_localidades").delete().in("turma_id", todasTurmasIds).neq("nome", "Principal");
+  await carregarLocalidadesDaTurma();
+}
+
 async function salvarLocalidadeTurma() {
   esconderErro("localidade-turma-form-erro");
   const nome = $("localidade-turma-nome").value.trim();
@@ -2489,6 +2505,8 @@ $("btn-cancelar-edicao-localidade-turma").addEventListener("click", () => {
 $("btn-fechar-painel-localidades-turma").addEventListener("click", () => $("painel-localidades-turma").classList.add("hidden"));
 $("painel-localidades-turma-overlay").addEventListener("click", () => $("painel-localidades-turma").classList.add("hidden"));
 $("btn-repetir-localidades-turma").addEventListener("click", repetirLocalidadesTurma);
+$("btn-excluir-localidades-turma").addEventListener("click", excluirLocalidadesTurmaAtual);
+$("btn-excluir-localidades-todas-turmas").addEventListener("click", excluirLocalidadesTodasTurmas);
 
 iniciar();
 
