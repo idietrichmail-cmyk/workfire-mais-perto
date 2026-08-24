@@ -752,7 +752,8 @@
         <h2 id="painel-localidades-turma-titulo" class="font-serif text-xl text-slate-900">Localidades</h2>
         <button id="btn-fechar-painel-localidades-turma" class="text-slate-400 hover:text-slate-700 text-xl">×</button>
       </div>
-      <p id="painel-localidades-turma-empresa" class="text-xs text-slate-500 mb-4"></p>
+      <p id="painel-localidades-turma-empresa" class="text-xs text-slate-500 mb-2"></p>
+      <button id="btn-repetir-localidades-turma" class="mb-4 inline-flex items-center gap-1 text-xs font-medium text-slate-600 border border-slate-300 hover:bg-slate-50 rounded-md px-3 py-1.5">🔁 Repetir localidades</button>
 
       <div id="bloco-nova-localidade-turma" class="border border-slate-200 rounded-lg p-4 mb-5">
         <div id="localidade-turma-form-erro" class="hidden bg-rose-50 text-rose-600 text-sm rounded-md px-3 py-2 mb-3"></div>
@@ -789,6 +790,14 @@
         </thead>
         <tbody id="localidade-turma-lista"></tbody>
       </table>
+    </div>
+  </div>
+
+  <!-- Overlay: status "Repetir localidades" -->
+  <div id="localidade-repetir-overlay" class="hidden fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/60">
+    <div class="bg-white rounded-lg px-10 py-8 flex flex-col items-center gap-3 shadow-xl">
+      <span id="localidade-repetir-icone" class="text-5xl">⏳</span>
+      <span id="localidade-repetir-texto" class="text-sm font-medium text-slate-700">Processando…</span>
     </div>
   </div>
 

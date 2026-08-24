@@ -2348,6 +2348,7 @@ async function abrirPainelLocalidadesTurma(turmaId) {
   editandoLocalidadeId = null;
   limparFormLocalidadeTurma();
   $("bloco-nova-localidade-turma").classList.toggle("hidden", !podeFazer("turmas", "incluir"));
+  $("btn-repetir-localidades-turma").classList.toggle("hidden", !podeFazer("turmas", "incluir"));
   $("painel-localidades-turma").classList.remove("hidden");
   await carregarLocalidadesDaTurma();
 }
@@ -2391,8 +2392,8 @@ function renderizarListaLocalidadesTurma() {
   corpo.innerHTML = localidadesDaTurmaAtual.map((l) => `
     <tr class="border-t border-slate-100">
       <td class="py-1.5 pr-2">${l.nome}</td>
-      <td class="py-1.5 pr-2">${l.cnpj_atestado || "—"}</td>
-      <td class="py-1.5 pr-2">${l.cnpj_faturamento || "—"}</td>
+      <td class="py-1.5 pr-2">${l.cnpj_atestado ? MASCARAS.cnpj(l.cnpj_atestado) : "—"}</td>
+      <td class="py-1.5 pr-2">${l.cnpj_faturamento ? MASCARAS.cnpj(l.cnpj_faturamento) : "—"}</td>
       <td class="py-1.5 text-right whitespace-nowrap">
         ${podeAlterar ? `<button data-localidade-turma-editar="${l.id}" class="text-slate-500 hover:text-slate-800 text-xs mr-2">✏️</button>` : ""}
         ${podeExcluir ? `<button data-localidade-turma-excluir="${l.id}" class="text-rose-500 hover:text-rose-700 text-xs">🗑️</button>` : ""}
@@ -2406,6 +2407,37 @@ function renderizarListaLocalidadesTurma() {
 async function excluirLocalidadeTurma(id) {
   const { error } = await supabase.from("turma_localidades").delete().eq("id", id);
   if (!error) await carregarLocalidadesDaTurma();
+}
+
+function mostrarStatusRepetirLocalidades(texto, icone) {
+  $("localidade-repetir-icone").textContent = icone;
+  $("localidade-repetir-texto").textContent = texto;
+  $("localidade-repetir-overlay").classList.remove("hidden");
+}
+
+function esconderStatusRepetirLocalidades() {
+  $("localidade-repetir-overlay").classList.add("hidden");
+}
+
+async function repetirLocalidadesTurma() {
+  if (localidadesDaTurmaAtual.length === 0) return alert("Não há localidades cadastradas nesta turma para repetir.");
+  const outrasTurmasIds = turmasDoOrcamento.filter((t) => t.id !== turmaLocalidadesAbertaId).map((t) => t.id);
+  if (outrasTurmasIds.length === 0) return alert("Esta é a única turma deste orçamento.");
+  if (!confirm("Deseja repetir estas localidades para as outras turmas?")) return;
+
+  mostrarStatusRepetirLocalidades("Processando…", "⏳");
+
+  await supabase.from("turma_localidades").delete().in("turma_id", outrasTurmasIds);
+  const payload = [];
+  outrasTurmasIds.forEach((turmaId) => {
+    localidadesDaTurmaAtual.forEach((l) => {
+      payload.push({ turma_id: turmaId, nome: l.nome, cnpj_atestado: l.cnpj_atestado, cnpj_faturamento: l.cnpj_faturamento });
+    });
+  });
+  await supabase.from("turma_localidades").insert(payload);
+
+  mostrarStatusRepetirLocalidades("Concluído", "✅");
+  setTimeout(esconderStatusRepetirLocalidades, 7000);
 }
 
 async function salvarLocalidadeTurma() {
@@ -2456,6 +2488,7 @@ $("btn-cancelar-edicao-localidade-turma").addEventListener("click", () => {
 });
 $("btn-fechar-painel-localidades-turma").addEventListener("click", () => $("painel-localidades-turma").classList.add("hidden"));
 $("painel-localidades-turma-overlay").addEventListener("click", () => $("painel-localidades-turma").classList.add("hidden"));
+$("btn-repetir-localidades-turma").addEventListener("click", repetirLocalidadesTurma);
 
 iniciar();
 
