@@ -744,6 +744,51 @@
     </div>
   </div>
 
+  <!-- Painel: Localidades por Turma -->
+  <div id="painel-localidades-turma" class="hidden fixed inset-0 z-50 flex justify-end">
+    <div id="painel-localidades-turma-overlay" class="absolute inset-0 bg-slate-900/40"></div>
+    <div class="relative w-full max-w-2xl bg-white h-full shadow-xl px-6 py-6 overflow-y-auto">
+      <div class="flex items-center justify-between mb-2">
+        <h2 id="painel-localidades-turma-titulo" class="font-serif text-xl text-slate-900">Localidades</h2>
+        <button id="btn-fechar-painel-localidades-turma" class="text-slate-400 hover:text-slate-700 text-xl">×</button>
+      </div>
+      <p id="painel-localidades-turma-empresa" class="text-xs text-slate-500 mb-4"></p>
+
+      <div id="bloco-nova-localidade-turma" class="border border-slate-200 rounded-lg p-4 mb-5">
+        <div id="localidade-turma-form-erro" class="hidden bg-rose-50 text-rose-600 text-sm rounded-md px-3 py-2 mb-3"></div>
+        <div class="grid sm:grid-cols-2 gap-3">
+          <div>
+            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Nome da localidade</label>
+            <input id="localidade-turma-nome" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
+          </div>
+          <div></div>
+          <div>
+            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">CNPJ do atestado</label>
+            <input id="localidade-turma-cnpj-atestado" maxlength="18" placeholder="00.000.000/0000-00" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
+          </div>
+          <div>
+            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">CNPJ do faturamento</label>
+            <input id="localidade-turma-cnpj-faturamento" maxlength="18" placeholder="00.000.000/0000-00" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
+          </div>
+        </div>
+        <p class="text-[11px] text-slate-400 mt-2">Os CNPJs de atestado e faturamento precisam estar cadastrados em Empresas e pertencer ao mesmo grupo econômico da empresa do orçamento.</p>
+        <button id="btn-salvar-localidade-turma" class="mt-3 bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium px-4 py-2 rounded-md">+ Adicionar localidade</button>
+      </div>
+
+      <table class="w-full text-xs">
+        <thead>
+          <tr class="text-left text-slate-400 uppercase tracking-wide text-[10px]">
+            <th class="pb-1.5 pr-2">Nome</th>
+            <th class="pb-1.5 pr-2">CNPJ atestado</th>
+            <th class="pb-1.5 pr-2">CNPJ faturamento</th>
+            <th class="pb-1.5"></th>
+          </tr>
+        </thead>
+        <tbody id="localidade-turma-lista"></tbody>
+      </table>
+    </div>
+  </div>
+
   <!-- Painel: Agendamento (Agendar Treinamento) -->
   <div id="painel-agendamento" class="hidden fixed inset-0 z-50 flex justify-end">
     <div id="painel-agendamento-overlay" class="absolute inset-0 bg-slate-900/40"></div>

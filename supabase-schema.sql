@@ -586,3 +586,27 @@ create policy "turma_alunos_select" on turma_alunos for select using (is_admin_s
 create policy "turma_alunos_insert" on turma_alunos for insert with check (is_admin_sistema(auth.uid()) or tem_permissao(auth.uid(), 'turmas', 'incluir'));
 create policy "turma_alunos_update" on turma_alunos for update using (is_admin_sistema(auth.uid()) or tem_permissao(auth.uid(), 'turmas', 'alterar'));
 create policy "turma_alunos_delete" on turma_alunos for delete using (is_admin_sistema(auth.uid()) or tem_permissao(auth.uid(), 'turmas', 'excluir'));
+
+-- =========================================================
+-- Localidades por Turma
+-- Nome + cnpj_atestado + cnpj_faturamento, mesma validação
+-- de grupo econômico da tabela turma_alunos (feita no
+-- front-end). Ao gerar/cadastrar uma turma, o app cria
+-- automaticamente uma localidade "Principal" com os CNPJs
+-- iguais ao CNPJ da empresa do orçamento.
+-- =========================================================
+create table if not exists turma_localidades (
+  id uuid primary key default gen_random_uuid(),
+  turma_id uuid not null references turmas(id) on delete cascade,
+  nome text not null,
+  cnpj_atestado text,
+  cnpj_faturamento text,
+  created_at timestamptz not null default now()
+);
+
+alter table turma_localidades enable row level security;
+
+create policy "turma_localidades_select" on turma_localidades for select using (is_admin_sistema(auth.uid()) or tem_permissao(auth.uid(), 'turmas', 'consultar'));
+create policy "turma_localidades_insert" on turma_localidades for insert with check (is_admin_sistema(auth.uid()) or tem_permissao(auth.uid(), 'turmas', 'incluir'));
+create policy "turma_localidades_update" on turma_localidades for update using (is_admin_sistema(auth.uid()) or tem_permissao(auth.uid(), 'turmas', 'alterar'));
+create policy "turma_localidades_delete" on turma_localidades for delete using (is_admin_sistema(auth.uid()) or tem_permissao(auth.uid(), 'turmas', 'excluir'));
