@@ -166,6 +166,7 @@ let turmaAlunosAbertaId = null;
 let alunosDaTurmaAtual = [];
 let turmaLocalidadesAbertaId = null;
 let localidadesDaTurmaAtual = [];
+let editandoLocalidadeId = null;
 
 const FORMATOS_TEORIA = ["CT", "InCompany", "EAD", "EAD Síncrono", "Móvel"];
 const FORMATOS_PRATICA = ["CT", "InCompany", "Móvel"];
@@ -2344,6 +2345,7 @@ async function abrirPainelLocalidadesTurma(turmaId) {
   $("painel-localidades-turma-titulo").textContent = `Localidades — Turma ${t?.identificacao || ""}`;
   $("painel-localidades-turma-empresa").textContent = `Empresa do orçamento: ${o?.empresas?.nome || "—"} (${o?.empresas?.cnpj || "sem CNPJ cadastrado"})`;
   esconderErro("localidade-turma-form-erro");
+  editandoLocalidadeId = null;
   limparFormLocalidadeTurma();
   $("bloco-nova-localidade-turma").classList.toggle("hidden", !podeFazer("turmas", "incluir"));
   $("painel-localidades-turma").classList.remove("hidden");
@@ -2351,9 +2353,25 @@ async function abrirPainelLocalidadesTurma(turmaId) {
 }
 
 function limparFormLocalidadeTurma() {
+  editandoLocalidadeId = null;
   $("localidade-turma-nome").value = "";
   $("localidade-turma-cnpj-atestado").value = "";
   $("localidade-turma-cnpj-faturamento").value = "";
+  $("btn-salvar-localidade-turma").textContent = "+ Adicionar localidade";
+  $("btn-cancelar-edicao-localidade-turma").classList.add("hidden");
+}
+
+function abrirEdicaoLocalidadeTurma(id) {
+  const l = localidadesDaTurmaAtual.find((x) => x.id === id);
+  if (!l) return;
+  editandoLocalidadeId = id;
+  esconderErro("localidade-turma-form-erro");
+  $("localidade-turma-nome").value = l.nome || "";
+  $("localidade-turma-cnpj-atestado").value = l.cnpj_atestado || "";
+  $("localidade-turma-cnpj-faturamento").value = l.cnpj_faturamento || "";
+  $("btn-salvar-localidade-turma").textContent = "Salvar alterações";
+  $("btn-cancelar-edicao-localidade-turma").classList.remove("hidden");
+  $("localidade-turma-nome").scrollIntoView({ behavior: "smooth", block: "center" });
 }
 
 async function carregarLocalidadesDaTurma() {
@@ -2363,6 +2381,7 @@ async function carregarLocalidadesDaTurma() {
 }
 
 function renderizarListaLocalidadesTurma() {
+  const podeAlterar = podeFazer("turmas", "alterar");
   const podeExcluir = podeFazer("turmas", "excluir");
   const corpo = $("localidade-turma-lista");
   if (localidadesDaTurmaAtual.length === 0) {
@@ -2374,9 +2393,13 @@ function renderizarListaLocalidadesTurma() {
       <td class="py-1.5 pr-2">${l.nome}</td>
       <td class="py-1.5 pr-2">${l.cnpj_atestado || "—"}</td>
       <td class="py-1.5 pr-2">${l.cnpj_faturamento || "—"}</td>
-      <td class="py-1.5 text-right">${podeExcluir ? `<button data-localidade-turma-excluir="${l.id}" class="text-rose-500 hover:text-rose-700 text-xs">🗑️</button>` : ""}</td>
+      <td class="py-1.5 text-right whitespace-nowrap">
+        ${podeAlterar ? `<button data-localidade-turma-editar="${l.id}" class="text-slate-500 hover:text-slate-800 text-xs mr-2">✏️</button>` : ""}
+        ${podeExcluir ? `<button data-localidade-turma-excluir="${l.id}" class="text-rose-500 hover:text-rose-700 text-xs">🗑️</button>` : ""}
+      </td>
     </tr>
   `).join("");
+  corpo.querySelectorAll("[data-localidade-turma-editar]").forEach((btn) => btn.addEventListener("click", () => abrirEdicaoLocalidadeTurma(btn.getAttribute("data-localidade-turma-editar"))));
   corpo.querySelectorAll("[data-localidade-turma-excluir]").forEach((btn) => btn.addEventListener("click", () => excluirLocalidadeTurma(btn.getAttribute("data-localidade-turma-excluir"))));
 }
 
@@ -2403,16 +2426,20 @@ async function salvarLocalidadeTurma() {
   if (erroFaturamento) return mostrarErro("localidade-turma-form-erro", `CNPJ do faturamento: ${erroFaturamento}`);
 
   const btn = $("btn-salvar-localidade-turma");
+  const textoOriginal = editandoLocalidadeId ? "Salvar alterações" : "+ Adicionar localidade";
   btn.disabled = true;
   btn.textContent = "Salvando…";
-  const { error } = await supabase.from("turma_localidades").insert({
-    turma_id: turmaLocalidadesAbertaId,
-    nome,
-    cnpj_atestado: cnpjAtestado,
-    cnpj_faturamento: cnpjFaturamento,
-  });
+
+  const dados = { nome, cnpj_atestado: cnpjAtestado, cnpj_faturamento: cnpjFaturamento };
+  let error;
+  if (editandoLocalidadeId) {
+    ({ error } = await supabase.from("turma_localidades").update(dados).eq("id", editandoLocalidadeId));
+  } else {
+    ({ error } = await supabase.from("turma_localidades").insert({ turma_id: turmaLocalidadesAbertaId, ...dados }));
+  }
+
   btn.disabled = false;
-  btn.textContent = "+ Adicionar localidade";
+  btn.textContent = textoOriginal;
 
   if (error) return mostrarErro("localidade-turma-form-erro", "Não foi possível salvar a localidade. Tente novamente.");
   limparFormLocalidadeTurma();
@@ -2423,6 +2450,10 @@ ligarMascaraCampo("localidade-turma-cnpj-atestado", "cnpj");
 ligarMascaraCampo("localidade-turma-cnpj-faturamento", "cnpj");
 
 $("btn-salvar-localidade-turma").addEventListener("click", salvarLocalidadeTurma);
+$("btn-cancelar-edicao-localidade-turma").addEventListener("click", () => {
+  esconderErro("localidade-turma-form-erro");
+  limparFormLocalidadeTurma();
+});
 $("btn-fechar-painel-localidades-turma").addEventListener("click", () => $("painel-localidades-turma").classList.add("hidden"));
 $("painel-localidades-turma-overlay").addEventListener("click", () => $("painel-localidades-turma").classList.add("hidden"));
 
