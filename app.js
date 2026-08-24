@@ -880,14 +880,17 @@ const CRUD_CONFIG = {
     ordenarPor: "nome",
     campos: [
       { id: "nome", label: "Nome da empresa", obrigatorio: true },
-      { id: "cnpj", label: "CNPJ", botaoAcao: { id: "btn-buscar-cnpj", label: "🔎 Pesquisar Receita Federal", onClick: buscarCnpjReceitaFederal } },
+      { id: "cnpj", label: "CNPJ", mascara: "cnpj", botaoAcao: { id: "btn-buscar-cnpj", label: "🔎 Pesquisar Receita Federal", onClick: buscarCnpjReceitaFederal } },
       {
         id: "cnpj_grupo_economico",
         label: "CNPJ do Grupo Econômico (opcional)",
+        mascara: "cnpj",
         validar: (valor) => {
           if (!valor) return null;
           const alvo = valor.replace(/\D/g, "");
-          const existe = crudLista.some((e) => e.id !== crudEditandoId && e.cnpj && e.cnpj.replace(/\D/g, "") === alvo);
+          const cnpjProprio = ($("crud-campo-cnpj").value || "").replace(/\D/g, "");
+          if (cnpjProprio && cnpjProprio === alvo) return null; // pode ser o próprio CNPJ da empresa
+          const existe = crudLista.some((e) => e.cnpj && e.cnpj.replace(/\D/g, "") === alvo);
           return existe ? null : "Esse CNPJ do grupo econômico não corresponde a nenhuma empresa já cadastrada.";
         },
       },
@@ -1011,11 +1014,12 @@ function renderCampoHtml(campo, valor) {
       <textarea id="crud-campo-${campo.id}" rows="3" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">${val}</textarea>
     </div>`;
   }
+  const atributoMascara = campo.mascara ? ` data-mascara="${campo.mascara}"` : "";
   if (campo.botaoAcao) {
     return `<div>
       <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">${campo.label}</label>
       <div class="mt-1 flex gap-2">
-        <input id="crud-campo-${campo.id}" type="${campo.tipo || "text"}" value="${String(val).replace(/"/g, "&quot;")}" class="flex-1 min-w-0 rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
+        <input id="crud-campo-${campo.id}"${atributoMascara} type="${campo.tipo || "text"}" value="${String(val).replace(/"/g, "&quot;")}" class="flex-1 min-w-0 rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
         <button type="button" id="${campo.botaoAcao.id}" class="shrink-0 whitespace-nowrap text-xs font-medium text-white bg-slate-900 hover:bg-slate-800 rounded-md px-3">${campo.botaoAcao.label}</button>
       </div>
       <p id="${campo.botaoAcao.id}-status" class="text-[11px] mt-1"></p>
@@ -1023,7 +1027,7 @@ function renderCampoHtml(campo, valor) {
   }
   return `<div>
     <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">${campo.label}</label>
-    <input id="crud-campo-${campo.id}" type="${campo.tipo || "text"}" value="${String(val).replace(/"/g, "&quot;")}" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
+    <input id="crud-campo-${campo.id}"${atributoMascara} type="${campo.tipo || "text"}" value="${String(val).replace(/"/g, "&quot;")}" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
   </div>`;
 }
 
@@ -1145,6 +1149,33 @@ function abrirEdicaoCrud(id) {
 function ligarBotoesAcaoCampos(cfg) {
   cfg.campos.forEach((c) => {
     if (c.botaoAcao) $(c.botaoAcao.id).addEventListener("click", c.botaoAcao.onClick);
+  });
+  ligarMascaras(cfg);
+}
+
+const MASCARAS = {
+  cnpj: (v) => {
+    const d = v.replace(/\D/g, "").slice(0, 14);
+    if (d.length > 12) return d.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{0,2})/, "$1.$2.$3/$4-$5");
+    if (d.length > 8) return d.replace(/^(\d{2})(\d{3})(\d{3})(\d{0,4})/, "$1.$2.$3/$4");
+    if (d.length > 5) return d.replace(/^(\d{2})(\d{3})(\d{0,3})/, "$1.$2.$3");
+    if (d.length > 2) return d.replace(/^(\d{2})(\d{0,3})/, "$1.$2");
+    return d;
+  },
+};
+
+function ligarMascaras(cfg) {
+  cfg.campos.forEach((c) => {
+    if (!c.mascara || !MASCARAS[c.mascara]) return;
+    const el = $("crud-campo-" + c.id);
+    if (!el) return;
+    el.addEventListener("input", () => {
+      const pos = el.selectionStart;
+      const antes = el.value.length;
+      el.value = MASCARAS[c.mascara](el.value);
+      const depois = el.value.length;
+      el.setSelectionRange(pos + (depois - antes), pos + (depois - antes));
+    });
   });
 }
 
