@@ -560,3 +560,29 @@ alter table turmas
 -- =========================================================
 alter table empresas
   add column if not exists cnpj_grupo_economico text;
+
+-- =========================================================
+-- Alunos por Turma (cadastro dos alunos de cada turma)
+-- CPF validado por dígito verificador + máscara no front-end.
+-- cnpj_atestado / cnpj_faturamento precisam ser CNPJs de
+-- empresas já cadastradas e pertencer ao mesmo grupo
+-- econômico da empresa do orçamento da turma (comparação
+-- feita no front-end usando cnpj_grupo_economico || cnpj).
+-- =========================================================
+create table if not exists turma_alunos (
+  id uuid primary key default gen_random_uuid(),
+  turma_id uuid not null references turmas(id) on delete cascade,
+  cpf text,
+  nome text not null,
+  data_nascimento date,
+  cnpj_atestado text,
+  cnpj_faturamento text,
+  created_at timestamptz not null default now()
+);
+
+alter table turma_alunos enable row level security;
+
+create policy "turma_alunos_select" on turma_alunos for select using (is_admin_sistema(auth.uid()) or tem_permissao(auth.uid(), 'turmas', 'consultar'));
+create policy "turma_alunos_insert" on turma_alunos for insert with check (is_admin_sistema(auth.uid()) or tem_permissao(auth.uid(), 'turmas', 'incluir'));
+create policy "turma_alunos_update" on turma_alunos for update using (is_admin_sistema(auth.uid()) or tem_permissao(auth.uid(), 'turmas', 'alterar'));
+create policy "turma_alunos_delete" on turma_alunos for delete using (is_admin_sistema(auth.uid()) or tem_permissao(auth.uid(), 'turmas', 'excluir'));

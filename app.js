@@ -161,6 +161,9 @@ let listaOrcamentosParaTurma = [];
 let turmaOrcamentoSelecionadoId = null;
 let turmasDoOrcamento = [];
 let editandoTurmaId = null;
+let listaEmpresasParaValidacao = [];
+let turmaAlunosAbertaId = null;
+let alunosDaTurmaAtual = [];
 
 const FORMATOS_TEORIA = ["CT", "InCompany", "EAD", "EAD Síncrono", "Móvel"];
 const FORMATOS_PRATICA = ["CT", "InCompany", "Móvel"];
@@ -1162,7 +1165,30 @@ const MASCARAS = {
     if (d.length > 2) return d.replace(/^(\d{2})(\d{0,3})/, "$1.$2");
     return d;
   },
+  cpf: (v) => {
+    const d = v.replace(/\D/g, "").slice(0, 11);
+    if (d.length > 9) return d.replace(/^(\d{3})(\d{3})(\d{3})(\d{0,2})/, "$1.$2.$3-$4");
+    if (d.length > 6) return d.replace(/^(\d{3})(\d{3})(\d{0,3})/, "$1.$2.$3");
+    if (d.length > 3) return d.replace(/^(\d{3})(\d{0,3})/, "$1.$2");
+    return d;
+  },
 };
+
+function cpfValido(valor) {
+  const d = (valor || "").replace(/\D/g, "");
+  if (d.length !== 11 || /^(\d)\1{10}$/.test(d)) return false;
+  let soma = 0;
+  for (let i = 0; i < 9; i++) soma += Number(d[i]) * (10 - i);
+  let resto = (soma * 10) % 11;
+  if (resto === 10) resto = 0;
+  if (resto !== Number(d[9])) return false;
+  soma = 0;
+  for (let i = 0; i < 10; i++) soma += Number(d[i]) * (11 - i);
+  resto = (soma * 10) % 11;
+  if (resto === 10) resto = 0;
+  if (resto !== Number(d[10])) return false;
+  return true;
+}
 
 function ligarMascaras(cfg) {
   cfg.campos.forEach((c) => {
@@ -1933,16 +1959,18 @@ async function excluirOrcamento(id) {
 // ===========================================================
 async function carregarTurmasInit() {
   $("admin-descricao-pagina").textContent = "Acompanhe e ajuste as turmas geradas automaticamente para cada orçamento.";
-  const [{ data: orcs }, { data: centros }, { data: insts }, { data: tipos }] = await Promise.all([
-    supabase.from("orcamentos").select("*, empresas(nome), tipos_treinamento(nome)").order("created_at", { ascending: false }),
+  const [{ data: orcs }, { data: centros }, { data: insts }, { data: tipos }, { data: empresasTodas }] = await Promise.all([
+    supabase.from("orcamentos").select("*, empresas(nome, cnpj, cnpj_grupo_economico), tipos_treinamento(nome)").order("created_at", { ascending: false }),
     supabase.from("centros_treinamento").select("*").eq("status", "Ativo").order("nome"),
     supabase.from("instrutores").select("*").eq("status", "Ativo").order("nome"),
     supabase.from("tipos_treinamento").select("*").eq("status", "Ativo").order("nome"),
+    supabase.from("empresas").select("id, nome, cnpj, cnpj_grupo_economico"),
   ]);
   listaOrcamentosParaTurma = orcs || [];
   listaCentrosAtivos = centros || [];
   listaInstrutoresAtivos = insts || [];
   listaTiposAtivos = tipos || [];
+  listaEmpresasParaValidacao = empresasTodas || [];
 
   preencherSelect("turma-orcamento-select", listaOrcamentosParaTurma, "id", (o) => `${o.numero} — ${o.empresas?.nome || "—"}`, "— Selecione —");
   $("turma-orcamento-select").value = "";
@@ -2019,6 +2047,7 @@ function renderizarListaTurmas() {
         ${badgeAgenda("Móvel", t.agenda_movel)}
       </div>
       <div class="flex gap-2 mt-2 pt-2 border-t border-slate-100">
+        <button data-turma-alunos="${t.id}" class="flex-1 text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-50 rounded-md py-1.5">👥 Alunos</button>
         ${podeAlterar ? `<button data-turma-editar="${t.id}" class="flex-1 text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-50 rounded-md py-1.5">✏️ Editar</button>` : ""}
         ${podeExcluir ? `<button data-turma-excluir="${t.id}" class="flex-1 text-xs font-medium text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-md py-1.5">🗑️ Excluir</button>` : ""}
       </div>
@@ -2026,6 +2055,7 @@ function renderizarListaTurmas() {
   `).join("");
   cont.querySelectorAll("[data-turma-editar]").forEach((btn) => btn.addEventListener("click", () => abrirEdicaoTurma(btn.getAttribute("data-turma-editar"))));
   cont.querySelectorAll("[data-turma-excluir]").forEach((btn) => btn.addEventListener("click", () => excluirTurma(btn.getAttribute("data-turma-excluir"))));
+  cont.querySelectorAll("[data-turma-alunos]").forEach((btn) => btn.addEventListener("click", () => abrirPainelAlunosTurma(btn.getAttribute("data-turma-alunos"))));
 }
 
 function preencherSelectAgenda(id, val) {
@@ -2147,6 +2177,135 @@ async function excluirTurma(id) {
   const { error } = await supabase.from("turmas").delete().eq("id", id);
   if (!error) await carregarTurmasDoOrcamento();
 }
+
+// ===========================================================
+// Alunos por Turma
+// ===========================================================
+
+function grupoDeEmpresa(emp) {
+  const g = (emp.cnpj_grupo_economico || emp.cnpj || "").replace(/\D/g, "");
+  return g || null;
+}
+
+function validarCnpjMesmoGrupoOrcamento(cnpjDigitado, grupoOrcamento) {
+  const alvo = (cnpjDigitado || "").replace(/\D/g, "");
+  if (alvo.length !== 14) return "Informe um CNPJ válido (14 dígitos).";
+  const empresa = listaEmpresasParaValidacao.find((e) => e.cnpj && e.cnpj.replace(/\D/g, "") === alvo);
+  if (!empresa) return "Esse CNPJ não corresponde a nenhuma empresa cadastrada.";
+  const grupo = grupoDeEmpresa(empresa);
+  if (!grupoOrcamento || grupo !== grupoOrcamento) return "Esse CNPJ não pertence ao mesmo grupo econômico da empresa do orçamento.";
+  return null;
+}
+
+async function abrirPainelAlunosTurma(turmaId) {
+  turmaAlunosAbertaId = turmaId;
+  const t = turmasDoOrcamento.find((x) => x.id === turmaId);
+  const o = listaOrcamentosParaTurma.find((x) => x.id === turmaOrcamentoSelecionadoId);
+  $("painel-alunos-turma-titulo").textContent = `Alunos — Turma ${t?.identificacao || ""}`;
+  $("painel-alunos-turma-empresa").textContent = `Empresa do orçamento: ${o?.empresas?.nome || "—"} (${o?.empresas?.cnpj || "sem CNPJ cadastrado"})`;
+  esconderErro("aluno-turma-form-erro");
+  limparFormAlunoTurma();
+  $("bloco-novo-aluno-turma").classList.toggle("hidden", !podeFazer("turmas", "incluir"));
+  $("painel-alunos-turma").classList.remove("hidden");
+  await carregarAlunosDaTurma();
+}
+
+function limparFormAlunoTurma() {
+  $("aluno-turma-cpf").value = "";
+  $("aluno-turma-nome").value = "";
+  $("aluno-turma-nascimento").value = "";
+  $("aluno-turma-cnpj-atestado").value = "";
+  $("aluno-turma-cnpj-faturamento").value = "";
+}
+
+async function carregarAlunosDaTurma() {
+  const { data } = await supabase.from("turma_alunos").select("*").eq("turma_id", turmaAlunosAbertaId).order("nome");
+  alunosDaTurmaAtual = data || [];
+  renderizarListaAlunosTurma();
+}
+
+function renderizarListaAlunosTurma() {
+  const podeExcluir = podeFazer("turmas", "excluir");
+  const corpo = $("aluno-turma-lista");
+  if (alunosDaTurmaAtual.length === 0) {
+    corpo.innerHTML = `<tr><td colspan="6" class="text-center text-slate-400 text-xs py-6">Nenhum aluno cadastrado para esta turma.</td></tr>`;
+    return;
+  }
+  corpo.innerHTML = alunosDaTurmaAtual.map((a) => `
+    <tr class="border-t border-slate-100">
+      <td class="py-1.5 pr-2">${a.cpf || "—"}</td>
+      <td class="py-1.5 pr-2">${a.nome}</td>
+      <td class="py-1.5 pr-2">${a.data_nascimento || "—"}</td>
+      <td class="py-1.5 pr-2">${a.cnpj_atestado || "—"}</td>
+      <td class="py-1.5 pr-2">${a.cnpj_faturamento || "—"}</td>
+      <td class="py-1.5 text-right">${podeExcluir ? `<button data-aluno-turma-excluir="${a.id}" class="text-rose-500 hover:text-rose-700 text-xs">🗑️</button>` : ""}</td>
+    </tr>
+  `).join("");
+  corpo.querySelectorAll("[data-aluno-turma-excluir]").forEach((btn) => btn.addEventListener("click", () => excluirAlunoTurma(btn.getAttribute("data-aluno-turma-excluir"))));
+}
+
+async function excluirAlunoTurma(id) {
+  const { error } = await supabase.from("turma_alunos").delete().eq("id", id);
+  if (!error) await carregarAlunosDaTurma();
+}
+
+async function salvarAlunoTurma() {
+  esconderErro("aluno-turma-form-erro");
+  const cpf = $("aluno-turma-cpf").value.trim();
+  const nome = $("aluno-turma-nome").value.trim();
+  const dataNascimento = $("aluno-turma-nascimento").value || null;
+  const cnpjAtestado = $("aluno-turma-cnpj-atestado").value.trim();
+  const cnpjFaturamento = $("aluno-turma-cnpj-faturamento").value.trim();
+
+  if (!nome) return mostrarErro("aluno-turma-form-erro", "Informe o nome do aluno.");
+  if (!cpfValido(cpf)) return mostrarErro("aluno-turma-form-erro", "CPF inválido. Confira os dígitos informados.");
+
+  const o = listaOrcamentosParaTurma.find((x) => x.id === turmaOrcamentoSelecionadoId);
+  const grupoOrcamento = o?.empresas ? grupoDeEmpresa(o.empresas) : null;
+  if (!grupoOrcamento) return mostrarErro("aluno-turma-form-erro", "A empresa do orçamento não possui CNPJ cadastrado para validação.");
+
+  const erroAtestado = validarCnpjMesmoGrupoOrcamento(cnpjAtestado, grupoOrcamento);
+  if (erroAtestado) return mostrarErro("aluno-turma-form-erro", `CNPJ do atestado: ${erroAtestado}`);
+  const erroFaturamento = validarCnpjMesmoGrupoOrcamento(cnpjFaturamento, grupoOrcamento);
+  if (erroFaturamento) return mostrarErro("aluno-turma-form-erro", `CNPJ do faturamento: ${erroFaturamento}`);
+
+  const btn = $("btn-salvar-aluno-turma");
+  btn.disabled = true;
+  btn.textContent = "Salvando…";
+  const { error } = await supabase.from("turma_alunos").insert({
+    turma_id: turmaAlunosAbertaId,
+    cpf,
+    nome,
+    data_nascimento: dataNascimento,
+    cnpj_atestado: cnpjAtestado,
+    cnpj_faturamento: cnpjFaturamento,
+  });
+  btn.disabled = false;
+  btn.textContent = "+ Adicionar aluno";
+
+  if (error) return mostrarErro("aluno-turma-form-erro", "Não foi possível salvar o aluno. Tente novamente.");
+  limparFormAlunoTurma();
+  await carregarAlunosDaTurma();
+}
+
+function ligarMascaraCampo(id, tipo) {
+  const el = $(id);
+  if (!el) return;
+  el.addEventListener("input", () => {
+    const pos = el.selectionStart;
+    const antes = el.value.length;
+    el.value = MASCARAS[tipo](el.value);
+    const depois = el.value.length;
+    el.setSelectionRange(pos + (depois - antes), pos + (depois - antes));
+  });
+}
+ligarMascaraCampo("aluno-turma-cpf", "cpf");
+ligarMascaraCampo("aluno-turma-cnpj-atestado", "cnpj");
+ligarMascaraCampo("aluno-turma-cnpj-faturamento", "cnpj");
+
+$("btn-salvar-aluno-turma").addEventListener("click", salvarAlunoTurma);
+$("btn-fechar-painel-alunos-turma").addEventListener("click", () => $("painel-alunos-turma").classList.add("hidden"));
+$("painel-alunos-turma-overlay").addEventListener("click", () => $("painel-alunos-turma").classList.add("hidden"));
 
 iniciar();
 
