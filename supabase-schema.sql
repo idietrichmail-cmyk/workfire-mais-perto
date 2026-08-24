@@ -553,3 +553,10 @@ alter table turmas
   add column if not exists agenda_instrutor2 text check (agenda_instrutor2 in ('A agendar','Agendado','Aguardando confirmação','Não aplicável')),
   add column if not exists agenda_transporte text check (agenda_transporte in ('A agendar','Agendado','Aguardando confirmação','Não aplicável')),
   add column if not exists agenda_movel text check (agenda_movel in ('A agendar','Agendado','Aguardando confirmação','Não aplicável'));
+
+-- =========================================================
+-- CNPJ do grupo econômico (opcional, validado contra empresa
+-- já cadastrada — feito no front-end)
+-- =========================================================
+alter table empresas
+  add column if not exists cnpj_grupo_economico text;

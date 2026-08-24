@@ -881,6 +881,16 @@ const CRUD_CONFIG = {
     campos: [
       { id: "nome", label: "Nome da empresa", obrigatorio: true },
       { id: "cnpj", label: "CNPJ", botaoAcao: { id: "btn-buscar-cnpj", label: "🔎 Pesquisar Receita Federal", onClick: buscarCnpjReceitaFederal } },
+      {
+        id: "cnpj_grupo_economico",
+        label: "CNPJ do Grupo Econômico (opcional)",
+        validar: (valor) => {
+          if (!valor) return null;
+          const alvo = valor.replace(/\D/g, "");
+          const existe = crudLista.some((e) => e.id !== crudEditandoId && e.cnpj && e.cnpj.replace(/\D/g, "") === alvo);
+          return existe ? null : "Esse CNPJ do grupo econômico não corresponde a nenhuma empresa já cadastrada.";
+        },
+      },
       { id: "contato_nome", label: "Nome do contato" },
       { id: "contato_email", label: "E-mail do contato", tipo: "email" },
       { id: "contato_telefone", label: "Telefone do contato" },
@@ -889,7 +899,7 @@ const CRUD_CONFIG = {
     ],
     campoBusca: (i) => `${i.nome} ${i.cnpj || ""}`,
     cardTitulo: (i) => i.nome,
-    cardLinhas: (i) => [i.cnpj && `CNPJ: ${i.cnpj}`, i.contato_nome, i.contato_email, i.contato_telefone].filter(Boolean),
+    cardLinhas: (i) => [i.cnpj && `CNPJ: ${i.cnpj}`, i.cnpj_grupo_economico && `Grupo: ${i.cnpj_grupo_economico}`, i.contato_nome, i.contato_email, i.contato_telefone].filter(Boolean),
   },
   centros_treinamento: {
     tabela: "centros_treinamento",
@@ -1210,6 +1220,10 @@ async function salvarCrud() {
     const el = $("crud-campo-" + campo.id);
     let valor = typeof el.value === "string" ? el.value.trim() : el.value;
     if (campo.obrigatorio && !valor) return mostrarErro("crud-form-erro", `Informe: ${campo.label}.`);
+    if (campo.validar) {
+      const erroValidacao = campo.validar(valor);
+      if (erroValidacao) return mostrarErro("crud-form-erro", erroValidacao);
+    }
     if (campo.tipo === "number") valor = valor === "" ? null : Number(valor);
     payload[campo.id] = valor;
   }
