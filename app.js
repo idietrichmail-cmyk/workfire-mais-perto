@@ -12,6 +12,13 @@ const $ = (id) => document.getElementById(id);
 
 const diasSemana = ["D", "S", "T", "Q", "Q", "S", "S"];
 const nomesMeses = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
+const nomesMesesAbrev = ["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"];
+
+function formatarDataAbrev(dataStr) {
+  if (!dataStr) return "—";
+  const [ano, mes, dia] = dataStr.split("-");
+  return `${dia}/${nomesMesesAbrev[Number(mes) - 1]}/${ano}`;
+}
 const pad2 = (n) => String(n).padStart(2, "0");
 const formatarData = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 
@@ -2393,7 +2400,7 @@ function celulaInstrutorAgendTurma(t, campo) {
 function renderizarListaAgendTurmas() {
   const cont = $("agend-turma-lista");
   if (agendTurmasLista.length === 0) {
-    cont.innerHTML = `<tr><td colspan="10" class="text-center text-slate-500 text-sm py-16">Nenhuma turma cadastrada para este orçamento.</td></tr>`;
+    cont.innerHTML = `<tr><td colspan="8" class="text-center text-slate-500 text-sm py-16">Nenhuma turma cadastrada para este orçamento.</td></tr>`;
     return;
   }
   const corStatus = {
@@ -2408,10 +2415,8 @@ function renderizarListaAgendTurmas() {
     <tr class="hover:bg-slate-50">
       <td class="px-3 py-2"><input type="checkbox" data-agend-turma-check="${t.id}" ${agendTurmaSelecionadas.has(t.id) ? "checked" : ""} class="rounded border-slate-300" /></td>
       <td class="px-3 py-2 font-mono text-slate-700">${t.identificacao || "—"}</td>
-      <td class="px-3 py-2 text-slate-700">${t.tipos_treinamento?.nome || "—"}</td>
       <td class="px-3 py-2 text-slate-500">${t.tipo_dia || "—"}</td>
-      <td class="px-3 py-2 text-slate-500">${t.centros_treinamento?.nome || "—"}</td>
-      <td class="px-3 py-2 text-slate-500">${t.data_inicio || "—"}${t.data_fim && t.data_fim !== t.data_inicio ? ` a ${t.data_fim}` : ""}</td>
+      <td class="px-3 py-2 text-slate-500">${formatarDataAbrev(t.data_inicio)}${t.data_fim && t.data_fim !== t.data_inicio ? ` a ${formatarDataAbrev(t.data_fim)}` : ""}</td>
       <td class="px-3 py-2"><span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${corStatus[t.status] || ""}">${t.status}</span></td>
       <td class="px-3 py-2 text-xs">${celulaCentroAgendTurma(t)}</td>
       <td class="px-3 py-2">${celulaInstrutorAgendTurma(t, "instrutor1")}</td>
@@ -2457,12 +2462,16 @@ async function verificarDisponibilidadeAgendTurma() {
   // --- Disponibilidade do Centro de Treinamento ---
   const centrosIds = [...new Set(selecionadas.map((t) => t.centro_treinamento_id).filter(Boolean))];
   const datas = [...new Set(selecionadas.map((t) => t.data_inicio).filter(Boolean))];
-  const { data: turmasNoPeriodo } = await supabase
-    .from("turmas")
-    .select("id, centro_treinamento_id, data_inicio, tipo_dia, status")
-    .in("centro_treinamento_id", centrosIds)
-    .in("data_inicio", datas)
-    .neq("status", "Cancelada");
+  const [{ data: turmasNoPeriodo }, { data: instrutoresAtualizados }] = await Promise.all([
+    supabase
+      .from("turmas")
+      .select("id, centro_treinamento_id, data_inicio, tipo_dia, status")
+      .in("centro_treinamento_id", centrosIds)
+      .in("data_inicio", datas)
+      .neq("status", "Cancelada"),
+    supabase.from("instrutores").select("*").eq("status", "Ativo").order("nome"),
+  ]);
+  listaInstrutoresAtivos = instrutoresAtualizados || [];
 
   const REQUER_SALA = ["Teoria", "Teoria com Prática"];
   const REQUER_PISTA = ["Prática", "Teoria com Prática"];
