@@ -170,6 +170,7 @@ let turmaLocalidadesAbertaId = null;
 let localidadesDaTurmaAtual = [];
 let editandoLocalidadeId = null;
 
+const URL_APP_ALUNO = "https://workfire-aluno.netlify.app";
 const FORMATOS_TEORIA = ["CT", "InCompany", "EAD", "EAD Síncrono", "Móvel"];
 const FORMATOS_PRATICA = ["CT", "InCompany", "Móvel"];
 const AGENDA_STATUS = ["A agendar", "Agendado", "Aguardando confirmação", "Não aplicável"];
@@ -2064,6 +2065,7 @@ function renderizarListaTurmas() {
       <div class="flex gap-2 mt-2 pt-2 border-t border-slate-100">
         <button data-turma-alunos="${t.id}" class="flex-1 text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-50 rounded-md py-1.5">👥 Alunos</button>
         <button data-turma-localidades="${t.id}" class="flex-1 text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-50 rounded-md py-1.5">📍 Localidades</button>
+        <button data-turma-qrcode="${t.id}" class="flex-1 text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-50 rounded-md py-1.5">📱 QR Code</button>
         ${podeAlterar ? `<button data-turma-editar="${t.id}" class="flex-1 text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-50 rounded-md py-1.5">✏️ Editar</button>` : ""}
         ${podeExcluir ? `<button data-turma-excluir="${t.id}" class="flex-1 text-xs font-medium text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-md py-1.5">🗑️ Excluir</button>` : ""}
       </div>
@@ -2073,6 +2075,16 @@ function renderizarListaTurmas() {
   cont.querySelectorAll("[data-turma-excluir]").forEach((btn) => btn.addEventListener("click", () => excluirTurma(btn.getAttribute("data-turma-excluir"))));
   cont.querySelectorAll("[data-turma-alunos]").forEach((btn) => btn.addEventListener("click", () => abrirPainelAlunosTurma(btn.getAttribute("data-turma-alunos"))));
   cont.querySelectorAll("[data-turma-localidades]").forEach((btn) => btn.addEventListener("click", () => abrirPainelLocalidadesTurma(btn.getAttribute("data-turma-localidades"))));
+  cont.querySelectorAll("[data-turma-qrcode]").forEach((btn) => btn.addEventListener("click", () => abrirQrCodeTurma(btn.getAttribute("data-turma-qrcode"))));
+}
+
+function abrirQrCodeTurma(turmaId) {
+  const t = turmasDoOrcamento.find((x) => x.id === turmaId);
+  const link = `${URL_APP_ALUNO}/?turma=${turmaId}`;
+  $("painel-qrcode-turma-titulo").textContent = `QR Code — Turma ${t?.identificacao || ""}`;
+  $("qrcode-turma-link").textContent = link;
+  $("painel-qrcode-turma").classList.remove("hidden");
+  QRCode.toCanvas($("qrcode-turma-canvas"), link, { width: 220, margin: 1 });
 }
 
 function preencherSelectAgenda(id, val) {
@@ -2402,6 +2414,8 @@ $("btn-cancelar-edicao-aluno-turma").addEventListener("click", () => {
   limparFormAlunoTurma();
 });
 $("btn-fechar-painel-alunos-turma").addEventListener("click", () => $("painel-alunos-turma").classList.add("hidden"));
+$("btn-fechar-painel-qrcode-turma").addEventListener("click", () => $("painel-qrcode-turma").classList.add("hidden"));
+$("painel-qrcode-turma-overlay").addEventListener("click", () => $("painel-qrcode-turma").classList.add("hidden"));
 $("painel-alunos-turma-overlay").addEventListener("click", () => $("painel-alunos-turma").classList.add("hidden"));
 
 // ===========================================================

@@ -620,3 +620,48 @@ create policy "turma_localidades_delete" on turma_localidades for delete using (
 -- vínculo com a localidade é removido.
 -- =========================================================
 alter table turma_alunos add column if not exists localidade_id uuid references turma_localidades(id) on delete set null;
+
+-- =========================================================
+-- App do Aluno (workfire-aluno, sem login, acessado via QR Code)
+-- Views públicas com colunas não sensíveis (sem CNPJ) + trigger
+-- que preenche cnpj_atestado/cnpj_faturamento a partir da
+-- localidade escolhida, para que o app do aluno nunca leia/envie
+-- esses CNPJs. Policy adicional permite o aluno (anon) se
+-- autocadastrar em turma_alunos.
+-- =========================================================
+create view v_qrcode_turma as
+select t.id as turma_id, t.identificacao, t.data_inicio, t.data_fim, t.orcamento_id,
+       o.numero as orcamento_numero, e.nome as empresa_nome
+from turmas t
+join orcamentos o on o.id = t.orcamento_id
+join empresas e on e.id = o.empresa_id;
+
+create view v_qrcode_localidades as
+select id, turma_id, nome from turma_localidades;
+
+grant select on v_qrcode_turma to anon;
+grant select on v_qrcode_localidades to anon;
+
+create or replace function preencher_cnpj_aluno_turma()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.localidade_id is not null then
+    select cnpj_atestado, cnpj_faturamento into new.cnpj_atestado, new.cnpj_faturamento
+    from turma_localidades where id = new.localidade_id;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_preencher_cnpj_aluno_turma on turma_alunos;
+create trigger trg_preencher_cnpj_aluno_turma
+before insert on turma_alunos
+for each row execute function preencher_cnpj_aluno_turma();
+
+create policy "turma_alunos_anon_insert" on turma_alunos
+  for insert to anon
+  with check (true);

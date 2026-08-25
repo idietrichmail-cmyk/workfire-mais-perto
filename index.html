@@ -7,6 +7,7 @@
 <meta name="theme-color" content="#0f172a" />
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
 <style>
   body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; }
   .font-serif { font-family: Georgia, "Times New Roman", serif; }
@@ -802,6 +803,21 @@
         </thead>
         <tbody id="localidade-turma-lista"></tbody>
       </table>
+    </div>
+  </div>
+
+  <!-- Painel: QR Code da turma -->
+  <div id="painel-qrcode-turma" class="hidden fixed inset-0 z-50 flex items-center justify-center">
+    <div id="painel-qrcode-turma-overlay" class="absolute inset-0 bg-slate-900/60"></div>
+    <div class="relative bg-white rounded-2xl shadow-xl px-6 py-6 w-full max-w-xs text-center">
+      <div class="flex items-center justify-between mb-4">
+        <h2 id="painel-qrcode-turma-titulo" class="font-serif text-lg text-slate-900">QR Code</h2>
+        <button id="btn-fechar-painel-qrcode-turma" class="text-slate-400 hover:text-slate-700 text-xl">×</button>
+      </div>
+      <div class="flex justify-center mb-3">
+        <canvas id="qrcode-turma-canvas"></canvas>
+      </div>
+      <p class="text-[11px] text-slate-400 break-all" id="qrcode-turma-link"></p>
     </div>
   </div>
 
