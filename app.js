@@ -2084,6 +2084,10 @@ function abrirQrCodeTurma(turmaId) {
   $("painel-qrcode-turma-titulo").textContent = `QR Code — Turma ${t?.identificacao || ""}`;
   $("qrcode-turma-link").textContent = link;
   $("painel-qrcode-turma").classList.remove("hidden");
+  if (typeof QRCode === "undefined") {
+    $("qrcode-turma-link").textContent = "Não foi possível carregar o gerador de QR Code. Verifique sua conexão e tente novamente.";
+    return;
+  }
   QRCode.toCanvas($("qrcode-turma-canvas"), link, { width: 220, margin: 1 });
 }
 
