@@ -173,6 +173,8 @@ let editandoLocalidadeId = null;
 const URL_APP_ALUNO = "https://workfire-aluno.netlify.app";
 const TURMA_STATUS = ["Planejada", "A confirmar", "Agendada", "Confirmada", "Concluída", "Cancelada"];
 let turmaFiltroStatus = new Set(TURMA_STATUS);
+let turmaFiltroDataDe = "";
+let turmaFiltroDataAte = "";
 const FORMATOS_TEORIA = ["CT", "InCompany", "EAD", "EAD Síncrono", "Móvel"];
 const FORMATOS_PRATICA = ["CT", "InCompany", "Móvel"];
 const AGENDA_STATUS = ["A agendar", "Agendado", "Aguardando confirmação", "Não aplicável"];
@@ -2029,6 +2031,22 @@ async function carregarTurmasDoOrcamento() {
   renderizarListaTurmas();
 }
 
+$("turma-filtro-data-de").addEventListener("change", () => {
+  turmaFiltroDataDe = $("turma-filtro-data-de").value;
+  renderizarListaTurmas();
+});
+$("turma-filtro-data-ate").addEventListener("change", () => {
+  turmaFiltroDataAte = $("turma-filtro-data-ate").value;
+  renderizarListaTurmas();
+});
+$("btn-turma-filtro-data-limpar").addEventListener("click", () => {
+  turmaFiltroDataDe = "";
+  turmaFiltroDataAte = "";
+  $("turma-filtro-data-de").value = "";
+  $("turma-filtro-data-ate").value = "";
+  renderizarListaTurmas();
+});
+
 function renderizarFiltroStatusTurma() {
   const cont = $("turma-filtro-status");
   cont.innerHTML = TURMA_STATUS.map((s) => `
@@ -2051,7 +2069,10 @@ function renderizarListaTurmas() {
   const podeAlterar = podeFazer("turmas", "alterar");
   const podeExcluir = podeFazer("turmas", "excluir");
   const cont = $("turma-lista");
-  const lista = turmasDoOrcamento.filter((t) => turmaFiltroStatus.has(t.status));
+  const lista = turmasDoOrcamento
+    .filter((t) => turmaFiltroStatus.has(t.status))
+    .filter((t) => !turmaFiltroDataDe || (t.data_inicio && t.data_inicio >= turmaFiltroDataDe))
+    .filter((t) => !turmaFiltroDataAte || (t.data_inicio && t.data_inicio <= turmaFiltroDataAte));
   if (lista.length === 0) {
     cont.innerHTML = `<tr><td colspan="7" class="text-center text-slate-500 text-sm py-16">Nenhuma turma encontrada.</td></tr>`;
     return;
