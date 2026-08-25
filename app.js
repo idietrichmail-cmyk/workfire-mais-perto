@@ -2295,14 +2295,17 @@ function renderizarListaAlunosTurma() {
   const podeExcluir = podeFazer("turmas", "excluir");
   const corpo = $("aluno-turma-lista");
   if (alunosDaTurmaAtual.length === 0) {
-    corpo.innerHTML = `<tr><td colspan="6" class="text-center text-slate-400 text-xs py-6">Nenhum aluno cadastrado para esta turma.</td></tr>`;
+    corpo.innerHTML = `<tr><td colspan="7" class="text-center text-slate-400 text-xs py-6">Nenhum aluno cadastrado para esta turma.</td></tr>`;
     return;
   }
-  corpo.innerHTML = alunosDaTurmaAtual.map((a) => `
+  corpo.innerHTML = alunosDaTurmaAtual.map((a) => {
+    const localidade = localidadesParaAlunosTurma.find((l) => l.id === a.localidade_id);
+    return `
     <tr class="border-t border-slate-100">
       <td class="py-1.5 pr-2">${a.cpf || "—"}</td>
       <td class="py-1.5 pr-2">${a.nome}</td>
       <td class="py-1.5 pr-2">${a.data_nascimento || "—"}</td>
+      <td class="py-1.5 pr-2">${localidade?.nome || "—"}</td>
       <td class="py-1.5 pr-2">${a.cnpj_atestado ? MASCARAS.cnpj(a.cnpj_atestado) : "—"}</td>
       <td class="py-1.5 pr-2">${a.cnpj_faturamento ? MASCARAS.cnpj(a.cnpj_faturamento) : "—"}</td>
       <td class="py-1.5 text-right whitespace-nowrap">
@@ -2310,7 +2313,8 @@ function renderizarListaAlunosTurma() {
         ${podeExcluir ? `<button data-aluno-turma-excluir="${a.id}" class="text-rose-500 hover:text-rose-700 text-xs">🗑️</button>` : ""}
       </td>
     </tr>
-  `).join("");
+  `;
+  }).join("");
   corpo.querySelectorAll("[data-aluno-turma-editar]").forEach((btn) => btn.addEventListener("click", () => abrirEdicaoAlunoTurma(btn.getAttribute("data-aluno-turma-editar"))));
   corpo.querySelectorAll("[data-aluno-turma-excluir]").forEach((btn) => btn.addEventListener("click", () => excluirAlunoTurma(btn.getAttribute("data-aluno-turma-excluir"))));
 }
@@ -2343,7 +2347,12 @@ async function salvarAlunoTurma() {
     const erroFaturamento = validarCnpjMesmoGrupoOrcamento(cnpjFaturamento, grupoOrcamento);
     if (erroFaturamento) return mostrarErro("aluno-turma-form-erro", `CNPJ do faturamento: ${erroFaturamento}`);
 
-    dados = { cpf, nome, data_nascimento: dataNascimento, cnpj_atestado: cnpjAtestado, cnpj_faturamento: cnpjFaturamento, localidade_id: null };
+    const cnpjAtestadoDigits = cnpjAtestado.replace(/\D/g, "");
+    const cnpjFaturamentoDigits = cnpjFaturamento.replace(/\D/g, "");
+    const localidadeCorrespondente = localidadesParaAlunosTurma.find(
+      (l) => (l.cnpj_atestado || "").replace(/\D/g, "") === cnpjAtestadoDigits && (l.cnpj_faturamento || "").replace(/\D/g, "") === cnpjFaturamentoDigits
+    );
+    dados = { cpf, nome, data_nascimento: dataNascimento, cnpj_atestado: cnpjAtestado, cnpj_faturamento: cnpjFaturamento, localidade_id: localidadeCorrespondente?.id || null };
   } else {
     const localidadeId = $("aluno-turma-localidade").value;
     if (!localidadeId) return mostrarErro("aluno-turma-form-erro", "Selecione a localidade do aluno.");
