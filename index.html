@@ -383,17 +383,31 @@
             <table class="w-full text-sm">
               <thead>
                 <tr class="bg-slate-50 text-slate-500 text-left text-xs">
+                  <th class="px-3 py-2 font-medium">
+                    <div>Seleciona</div>
+                    <div class="font-normal normal-case mt-0.5">
+                      <button id="btn-turma-agend-marcar-todas" type="button" class="text-amber-700 hover:underline">marcar todas</button>
+                      ·
+                      <button id="btn-turma-agend-desmarcar-todas" type="button" class="text-amber-700 hover:underline">desmarcar todas</button>
+                    </div>
+                  </th>
                   <th class="px-3 py-2 font-medium">Turma</th>
                   <th class="px-3 py-2 font-medium">Treinamento</th>
                   <th class="px-3 py-2 font-medium">Tipo do dia</th>
                   <th class="px-3 py-2 font-medium">Centro</th>
                   <th class="px-3 py-2 font-medium">Data</th>
                   <th class="px-3 py-2 font-medium">Status</th>
+                  <th class="px-3 py-2 font-medium">Centro de Treinamento</th>
+                  <th class="px-3 py-2 font-medium">Instrutor 1</th>
+                  <th class="px-3 py-2 font-medium">Instrutor 2</th>
                   <th class="px-3 py-2 font-medium"></th>
                 </tr>
               </thead>
               <tbody id="turma-lista" class="divide-y divide-slate-100"></tbody>
             </table>
+          </div>
+          <div class="mt-3">
+            <button id="btn-turma-verificar-disponibilidade" class="inline-flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium px-4 py-2 rounded-md">Verificar disponibilidade</button>
           </div>
         </div>
       </section>
