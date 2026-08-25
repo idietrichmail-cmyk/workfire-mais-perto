@@ -610,3 +610,13 @@ create policy "turma_localidades_select" on turma_localidades for select using (
 create policy "turma_localidades_insert" on turma_localidades for insert with check (is_admin_sistema(auth.uid()) or tem_permissao(auth.uid(), 'turmas', 'incluir'));
 create policy "turma_localidades_update" on turma_localidades for update using (is_admin_sistema(auth.uid()) or tem_permissao(auth.uid(), 'turmas', 'alterar'));
 create policy "turma_localidades_delete" on turma_localidades for delete using (is_admin_sistema(auth.uid()) or tem_permissao(auth.uid(), 'turmas', 'excluir'));
+
+-- =========================================================
+-- Alunos por Turma: vínculo com a localidade de origem
+-- Ao cadastrar um aluno, o CNPJ de atestado/faturamento vem
+-- da localidade selecionada (uma das cadastradas na turma).
+-- Na edição, o usuário pode alterar os CNPJs manualmente
+-- (mesma validação de grupo econômico), e nesse caso o
+-- vínculo com a localidade é removido.
+-- =========================================================
+alter table turma_alunos add column if not exists localidade_id uuid references turma_localidades(id) on delete set null;

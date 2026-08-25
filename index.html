@@ -715,17 +715,24 @@
             <input id="aluno-turma-nascimento" type="date" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
           </div>
           <div></div>
+          <div id="bloco-aluno-localidade" class="sm:col-span-2">
+            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Localidade</label>
+            <select id="aluno-turma-localidade" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"></select>
+          </div>
           <div>
             <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">CNPJ do atestado</label>
-            <input id="aluno-turma-cnpj-atestado" maxlength="18" placeholder="00.000.000/0000-00" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
+            <input id="aluno-turma-cnpj-atestado" maxlength="18" placeholder="00.000.000/0000-00" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 disabled:bg-slate-100 disabled:text-slate-500" />
           </div>
           <div>
             <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">CNPJ do faturamento</label>
-            <input id="aluno-turma-cnpj-faturamento" maxlength="18" placeholder="00.000.000/0000-00" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
+            <input id="aluno-turma-cnpj-faturamento" maxlength="18" placeholder="00.000.000/0000-00" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 disabled:bg-slate-100 disabled:text-slate-500" />
           </div>
         </div>
-        <p class="text-[11px] text-slate-400 mt-2">Os CNPJs de atestado e faturamento precisam estar cadastrados em Empresas e pertencer ao mesmo grupo econômico da empresa do orçamento.</p>
-        <button id="btn-salvar-aluno-turma" class="mt-3 bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium px-4 py-2 rounded-md">+ Adicionar aluno</button>
+        <p class="text-[11px] text-slate-400 mt-2">Ao adicionar, o CNPJ do atestado e do faturamento vêm da localidade selecionada. Ao editar um aluno já cadastrado, esses CNPJs podem ser alterados manualmente, desde que pertençam ao mesmo grupo econômico da empresa do orçamento.</p>
+        <div class="flex items-center gap-3 mt-3">
+          <button id="btn-salvar-aluno-turma" class="bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium px-4 py-2 rounded-md">+ Adicionar aluno</button>
+          <button id="btn-cancelar-edicao-aluno-turma" class="hidden text-sm font-medium text-slate-500 hover:text-slate-800">Cancelar edição</button>
+        </div>
       </div>
 
       <table class="w-full text-xs">
