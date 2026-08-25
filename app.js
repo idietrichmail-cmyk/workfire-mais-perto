@@ -171,6 +171,8 @@ let localidadesDaTurmaAtual = [];
 let editandoLocalidadeId = null;
 
 const URL_APP_ALUNO = "https://workfire-aluno.netlify.app";
+const TURMA_STATUS = ["Planejada", "A confirmar", "Agendada", "Confirmada", "Concluída", "Cancelada"];
+let turmaFiltroStatus = new Set(TURMA_STATUS);
 const FORMATOS_TEORIA = ["CT", "InCompany", "EAD", "EAD Síncrono", "Móvel"];
 const FORMATOS_PRATICA = ["CT", "InCompany", "Móvel"];
 const AGENDA_STATUS = ["A agendar", "Agendado", "Aguardando confirmação", "Não aplicável"];
@@ -2023,53 +2025,61 @@ async function carregarTurmasDoOrcamento() {
     .eq("orcamento_id", turmaOrcamentoSelecionadoId)
     .order("identificacao", { ascending: true });
   turmasDoOrcamento = data || [];
+  renderizarFiltroStatusTurma();
   renderizarListaTurmas();
+}
+
+function renderizarFiltroStatusTurma() {
+  const cont = $("turma-filtro-status");
+  cont.innerHTML = TURMA_STATUS.map((s) => `
+    <label class="inline-flex items-center gap-1.5">
+      <input type="checkbox" data-filtro-turma-status="${s}" ${turmaFiltroStatus.has(s) ? "checked" : ""} class="rounded border-slate-300" />
+      ${s}
+    </label>
+  `).join("");
+  cont.querySelectorAll("[data-filtro-turma-status]").forEach((el) => {
+    el.addEventListener("change", (e) => {
+      const s = e.target.getAttribute("data-filtro-turma-status");
+      if (e.target.checked) turmaFiltroStatus.add(s);
+      else turmaFiltroStatus.delete(s);
+      renderizarListaTurmas();
+    });
+  });
 }
 
 function renderizarListaTurmas() {
   const podeAlterar = podeFazer("turmas", "alterar");
   const podeExcluir = podeFazer("turmas", "excluir");
   const cont = $("turma-lista");
-  if (turmasDoOrcamento.length === 0) {
-    cont.innerHTML = `<div class="col-span-full bg-white border border-dashed border-slate-300 rounded-lg py-10 text-center text-slate-500 text-sm">Nenhuma turma cadastrada para este orçamento.</div>`;
+  const lista = turmasDoOrcamento.filter((t) => turmaFiltroStatus.has(t.status));
+  if (lista.length === 0) {
+    cont.innerHTML = `<tr><td colspan="7" class="text-center text-slate-500 text-sm py-16">Nenhuma turma encontrada.</td></tr>`;
     return;
   }
-  const corStatus = { Planejada: "bg-amber-50 text-amber-700", Confirmada: "bg-teal-50 text-teal-700", Concluida: "bg-slate-100 text-slate-600", Cancelada: "bg-rose-50 text-rose-600" };
-  const corAgenda = { "A agendar": "bg-amber-50 text-amber-700", "Agendado": "bg-teal-50 text-teal-700", "Aguardando confirmação": "bg-blue-50 text-blue-700", "Não aplicável": "bg-slate-100 text-slate-400" };
-  const badgeAgenda = (rotulo, valor) => valor ? `<span class="text-[10px] font-medium px-1.5 py-0.5 rounded-full ${corAgenda[valor] || ""}" title="${valor}">${rotulo}</span>` : "";
-  cont.innerHTML = turmasDoOrcamento.map((t) => `
-    <div class="bg-white rounded-lg border border-slate-200 p-4 flex flex-col gap-2 shadow-sm">
-      <div class="flex items-start justify-between">
-        <div>
-          <p class="font-mono text-[11px] text-slate-400">Turma ${t.identificacao || "—"}</p>
-          <p class="font-serif text-lg text-slate-900 leading-tight">${t.tipos_treinamento?.nome || "—"}</p>
-        </div>
-        <span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${corStatus[t.status] || ""}">${t.status}</span>
-      </div>
-      <div class="text-xs text-slate-500 space-y-1">
-        ${t.tipo_dia ? `<p>🏷️ ${t.tipo_dia}</p>` : ""}
-        ${t.instrutor1?.nome ? `<p>👤 ${t.instrutor1.nome}${t.instrutor2?.nome ? ` + ${t.instrutor2.nome}` : ""}</p>` : ""}
-        ${t.centros_treinamento?.nome ? `<p>🏫 ${t.centros_treinamento.nome}</p>` : ""}
-        <p>🗓️ ${t.data_inicio || "—"}${t.data_fim && t.data_fim !== t.data_inicio ? ` a ${t.data_fim}` : ""}</p>
-        ${t.empresas_transporte?.nome ? `<p>🚐 ${t.empresas_transporte.nome}</p>` : ""}
-        ${t.horario ? `<p>⏰ ${t.horario}</p>` : ""}
-        ${t.vagas ? `<p>🎟️ ${t.vagas} vaga(s)</p>` : ""}
-      </div>
-      <div class="flex flex-wrap gap-1 pt-1">
-        ${badgeAgenda("CT", t.agenda_ct)}
-        ${badgeAgenda("Inst.1", t.agenda_instrutor1)}
-        ${badgeAgenda("Inst.2", t.agenda_instrutor2)}
-        ${badgeAgenda("Transp.", t.agenda_transporte)}
-        ${badgeAgenda("Móvel", t.agenda_movel)}
-      </div>
-      <div class="flex gap-2 mt-2 pt-2 border-t border-slate-100">
-        <button data-turma-alunos="${t.id}" class="flex-1 text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-50 rounded-md py-1.5">👥 Alunos</button>
-        <button data-turma-localidades="${t.id}" class="flex-1 text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-50 rounded-md py-1.5">📍 Localidades</button>
-        <button data-turma-qrcode="${t.id}" class="flex-1 text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-50 rounded-md py-1.5">📱 QR Code</button>
-        ${podeAlterar ? `<button data-turma-editar="${t.id}" class="flex-1 text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-50 rounded-md py-1.5">✏️ Editar</button>` : ""}
-        ${podeExcluir ? `<button data-turma-excluir="${t.id}" class="flex-1 text-xs font-medium text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-md py-1.5">🗑️ Excluir</button>` : ""}
-      </div>
-    </div>
+  const corStatus = {
+    Planejada: "bg-amber-50 text-amber-700",
+    "A confirmar": "bg-orange-50 text-orange-700",
+    Agendada: "bg-blue-50 text-blue-700",
+    Confirmada: "bg-teal-50 text-teal-700",
+    "Concluída": "bg-slate-100 text-slate-600",
+    Cancelada: "bg-rose-50 text-rose-600",
+  };
+  cont.innerHTML = lista.map((t) => `
+    <tr class="hover:bg-slate-50">
+      <td class="px-3 py-2 font-mono text-slate-700">${t.identificacao || "—"}</td>
+      <td class="px-3 py-2 text-slate-700">${t.tipos_treinamento?.nome || "—"}</td>
+      <td class="px-3 py-2 text-slate-500">${t.tipo_dia || "—"}</td>
+      <td class="px-3 py-2 text-slate-500">${t.centros_treinamento?.nome || "—"}</td>
+      <td class="px-3 py-2 text-slate-500">${t.data_inicio || "—"}${t.data_fim && t.data_fim !== t.data_inicio ? ` a ${t.data_fim}` : ""}</td>
+      <td class="px-3 py-2"><span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${corStatus[t.status] || ""}">${t.status}</span></td>
+      <td class="px-3 py-2 text-right whitespace-nowrap">
+        <button data-turma-alunos="${t.id}" class="text-xs font-medium text-slate-600 hover:text-slate-900 px-1.5 py-1">👥 Alunos</button>
+        <button data-turma-localidades="${t.id}" class="text-xs font-medium text-slate-600 hover:text-slate-900 px-1.5 py-1">📍 Localidades</button>
+        <button data-turma-qrcode="${t.id}" class="text-xs font-medium text-slate-600 hover:text-slate-900 px-1.5 py-1">📱 QR Code Alunos</button>
+        ${podeAlterar ? `<button data-turma-editar="${t.id}" class="text-xs font-medium text-slate-600 hover:text-slate-900 px-1.5 py-1">✏️ Editar</button>` : ""}
+        ${podeExcluir ? `<button data-turma-excluir="${t.id}" class="text-xs font-medium text-rose-500 hover:text-rose-700 px-1.5 py-1">🗑️ Excluir</button>` : ""}
+      </td>
+    </tr>
   `).join("");
   cont.querySelectorAll("[data-turma-editar]").forEach((btn) => btn.addEventListener("click", () => abrirEdicaoTurma(btn.getAttribute("data-turma-editar"))));
   cont.querySelectorAll("[data-turma-excluir]").forEach((btn) => btn.addEventListener("click", () => excluirTurma(btn.getAttribute("data-turma-excluir"))));
@@ -2110,6 +2120,7 @@ function abrirNovaTurma() {
   $("turma-data-fim").value = "";
   $("turma-horario").value = "";
   $("turma-vagas").value = (o && o.qtd_alunos_por_turma) || "";
+  preencherSelect("turma-status", TURMA_STATUS.map((s) => ({ id: s, nome: s })), "id", (i) => i.nome, null);
   $("turma-status").value = "Planejada";
   $("turma-observacoes").value = "";
   preencherSelectAgenda("turma-agenda-ct", "A agendar");
@@ -2138,6 +2149,7 @@ function abrirEdicaoTurma(id) {
   $("turma-data-fim").value = t.data_fim || "";
   $("turma-horario").value = t.horario || "";
   $("turma-vagas").value = t.vagas || "";
+  preencherSelect("turma-status", TURMA_STATUS.map((s) => ({ id: s, nome: s })), "id", (i) => i.nome, null);
   $("turma-status").value = t.status;
   $("turma-observacoes").value = t.observacoes || "";
   preencherSelectAgenda("turma-agenda-ct", t.agenda_ct);
