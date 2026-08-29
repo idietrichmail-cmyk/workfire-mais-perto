@@ -120,6 +120,11 @@ function esconderErro(elId) {
   $(elId).classList.add("hidden");
 }
 
+// Confirmação padrão antes de qualquer exclusão definitiva.
+function confirmarExclusao(descricao) {
+  return confirm(`Tem certeza que deseja excluir ${descricao}?\n\nEsta ação não pode ser desfeita.`);
+}
+
 // ---------------------------------------------------------
 // Estado geral
 // ---------------------------------------------------------
@@ -896,6 +901,8 @@ async function salvarInstrutor() {
 }
 
 async function excluirInstrutor(id) {
+  const inst = listaInstrutoresAdmin.find((i) => i.id === id);
+  if (!confirmarExclusao(`o instrutor "${inst?.nome || ""}"`.trim())) return;
   const { error } = await supabase.from("instrutores").delete().eq("id", id);
   if (!error) await carregarListaAdmin();
 }
@@ -1347,6 +1354,9 @@ $("btn-salvar-crud").addEventListener("click", salvarCrud);
 
 async function excluirCrud(id) {
   const cfg = CRUD_CONFIG[crudModuloId];
+  const item = crudLista.find((i) => i.id === id);
+  const rotulo = item ? `${cfg.titulo.toLowerCase()} "${cfg.cardTitulo(item)}"` : `este registro (${cfg.titulo.toLowerCase()})`;
+  if (!confirmarExclusao(rotulo)) return;
   const { error } = await supabase.from(cfg.tabela).delete().eq("id", id);
   if (!error) await carregarModuloCrud(crudModuloId);
 }
@@ -1603,6 +1613,7 @@ $("btn-salvar-agendamento").addEventListener("click", salvarAgendamento);
 
 async function excluirAgendamento(id) {
   const a = listaAgendamentos.find((x) => x.id === id);
+  if (!confirmarExclusao("este agendamento")) return;
   if (a && a.instrutor_id) {
     const { data: inst } = await supabase.from("instrutores").select("dias_status").eq("id", a.instrutor_id).maybeSingle();
     if (inst) {
@@ -1990,6 +2001,8 @@ async function gerarTurmasParaOrcamento(orcamento, qtdTurmas) {
 }
 
 async function excluirOrcamento(id) {
+  const o = listaOrcamentos.find((x) => x.id === id);
+  if (!confirmarExclusao(`o orçamento ${o?.numero || ""}`.trim())) return;
   const { error } = await supabase.from("orcamentos").delete().eq("id", id);
   if (!error) await carregarOrcamentos();
 }
@@ -2353,6 +2366,8 @@ async function salvarTurma() {
 $("btn-salvar-turma").addEventListener("click", salvarTurma);
 
 async function excluirTurma(id) {
+  const t = turmasDoOrcamento.find((x) => x.id === id);
+  if (!confirmarExclusao(`a turma ${t?.identificacao || ""}`.trim())) return;
   const { error } = await supabase.from("turmas").delete().eq("id", id);
   if (!error) await carregarTurmasDoOrcamento();
 }
@@ -2485,6 +2500,7 @@ function renderizarListaAgendTurmas() {
     cont.innerHTML = `<tr><td colspan="8" class="text-center text-slate-500 text-sm py-16">Nenhuma turma cadastrada para este orçamento.</td></tr>`;
     return;
   }
+  const podeAlterarData = podeFazer("turmas", "alterar");
   const corStatus = {
     Planejada: "bg-amber-50 text-amber-700",
     "A confirmar": "bg-orange-50 text-orange-700",
@@ -2498,7 +2514,11 @@ function renderizarListaAgendTurmas() {
       <td class="px-3 py-2"><input type="checkbox" data-agend-turma-check="${t.id}" ${agendTurmaSelecionadas.has(t.id) ? "checked" : ""} class="rounded border-slate-300" /></td>
       <td class="px-3 py-2 font-mono text-slate-700">${t.identificacao || "—"}</td>
       <td class="px-3 py-2 text-slate-500">${t.tipo_dia || "—"}</td>
-      <td class="px-3 py-2 text-slate-500">${formatarDataAbrev(t.data_inicio)}${t.data_fim && t.data_fim !== t.data_inicio ? ` a ${formatarDataAbrev(t.data_fim)}` : ""}</td>
+      <td class="px-3 py-2 text-slate-500">
+        ${podeAlterarData
+          ? `<input type="date" data-agend-turma-data="${t.id}" value="${t.data_inicio || ""}" class="text-xs rounded-md border border-slate-300 px-1.5 py-1" />`
+          : `${formatarDataAbrev(t.data_inicio)}${t.data_fim && t.data_fim !== t.data_inicio ? ` a ${formatarDataAbrev(t.data_fim)}` : ""}`}
+      </td>
       <td class="px-3 py-2"><span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${corStatus[t.status] || ""}">${t.status}</span></td>
       <td class="px-3 py-2 text-xs">${celulaCentroAgendTurma(t)}</td>
       <td class="px-3 py-2">${celulaInstrutorAgendTurma(t, "instrutor1")}</td>
@@ -2522,6 +2542,31 @@ function renderizarListaAgendTurmas() {
       renderizarListaAgendTurmas();
     });
   });
+  cont.querySelectorAll("[data-agend-turma-data]").forEach((el) => {
+    el.addEventListener("change", (e) =>
+      definirDataAgendTurma(e.target.getAttribute("data-agend-turma-data"), e.target.value)
+    );
+  });
+}
+
+// Grava a data do treinamento de uma turma direto na lista de Agendamento de Turmas.
+// Alterar a data invalida a verificação de disponibilidade e a escolha de instrutores
+// da turma, que passam a depender da nova data.
+async function definirDataAgendTurma(turmaId, novaData) {
+  const t = agendTurmasLista.find((x) => x.id === turmaId);
+  if (!t) return;
+  const payload = { data_inicio: novaData || null };
+  if (novaData && (!t.data_fim || t.data_fim < novaData)) payload.data_fim = novaData;
+
+  const { error } = await supabase.from("turmas").update(payload).eq("id", turmaId);
+  if (error) {
+    alert("Não foi possível salvar a data da turma. Tente novamente.");
+    return;
+  }
+  Object.assign(t, payload);
+  agendTurmaCentroStatus.delete(turmaId);
+  agendTurmaInstrutores.delete(turmaId);
+  renderizarListaAgendTurmas();
 }
 
 $("btn-agend-marcar-todas").addEventListener("click", () => {
@@ -2706,6 +2751,8 @@ function renderizarListaAlunosTurma() {
 }
 
 async function excluirAlunoTurma(id) {
+  const a = alunosDaTurmaAtual.find((x) => x.id === id);
+  if (!confirmarExclusao(`o aluno "${a?.nome || ""}"`.trim())) return;
   const { error } = await supabase.from("turma_alunos").delete().eq("id", id);
   if (!error) await carregarAlunosDaTurma();
 }
@@ -2865,6 +2912,8 @@ function renderizarListaLocalidadesTurma() {
 }
 
 async function excluirLocalidadeTurma(id) {
+  const l = localidadesDaTurmaAtual.find((x) => x.id === id);
+  if (!confirmarExclusao(`a localidade "${l?.nome || ""}"`.trim())) return;
   const { error } = await supabase.from("turma_localidades").delete().eq("id", id);
   if (!error) await carregarLocalidadesDaTurma();
 }
