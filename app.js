@@ -2665,7 +2665,90 @@ async function abrirPainelAlunosTurma(turmaId) {
   localidadesParaAlunosTurma = localidades || [];
   limparFormAlunoTurma();
   $("bloco-novo-aluno-turma").classList.toggle("hidden", !podeFazer("turmas", "incluir"));
+  $("btn-repetir-alunos-turma").classList.toggle("hidden", !podeFazer("turmas", "incluir"));
+  fecharBlocoRepetirAlunos();
   $("painel-alunos-turma").classList.remove("hidden");
+  await carregarAlunosDaTurma();
+}
+
+// --- Repetir alunos para outras turmas do mesmo orçamento ---
+function abrirBlocoRepetirAlunos() {
+  if (alunosDaTurmaAtual.length === 0) return alert("Não há alunos nesta turma para repetir.");
+  const outras = turmasDoOrcamento.filter((t) => t.id !== turmaAlunosAbertaId);
+  if (outras.length === 0) return alert("Este é o único turma deste orçamento.");
+  $("repetir-alunos-turmas-lista").innerHTML = outras.map((t) => `
+    <label class="flex items-center gap-2 text-xs text-slate-700">
+      <input type="checkbox" data-repetir-aluno-turma="${t.id}" class="rounded border-slate-300" />
+      <span class="font-mono">${t.identificacao || "—"}</span>
+      <span class="text-slate-400">${t.tipo_dia || t.tipos_treinamento?.nome || ""}${t.data_inicio ? " · " + formatarDataAbrev(t.data_inicio) : ""}</span>
+    </label>
+  `).join("");
+  $("bloco-repetir-alunos-turma").classList.remove("hidden");
+  $("bloco-repetir-alunos-turma").scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+function fecharBlocoRepetirAlunos() {
+  $("bloco-repetir-alunos-turma").classList.add("hidden");
+}
+
+async function transferirAlunosParaTurmas() {
+  const idsDestino = [...document.querySelectorAll("[data-repetir-aluno-turma]:checked")].map((el) => el.getAttribute("data-repetir-aluno-turma"));
+  if (idsDestino.length === 0) return alert("Selecione ao menos uma turma de destino.");
+  if (alunosDaTurmaAtual.length === 0) return alert("Não há alunos nesta turma para repetir.");
+  if (!confirm(`Replicar ${alunosDaTurmaAtual.length} aluno(s) para ${idsDestino.length} turma(s)?`)) return;
+
+  mostrarProcessando("Transferindo alunos…", "⏳");
+
+  const [{ data: locaisDestino }, { data: alunosDestino }] = await Promise.all([
+    supabase.from("turma_localidades").select("id, turma_id, nome, cnpj_atestado, cnpj_faturamento").in("turma_id", idsDestino),
+    supabase.from("turma_alunos").select("turma_id, cpf").in("turma_id", idsDestino),
+  ]);
+
+  const soDigitos = (s) => (s || "").replace(/\D/g, "");
+  const chaveNome = (s) => (s || "").trim().toLowerCase();
+  const cpfsPorTurma = {};
+  (alunosDestino || []).forEach((a) => {
+    (cpfsPorTurma[a.turma_id] = cpfsPorTurma[a.turma_id] || new Set()).add(soDigitos(a.cpf));
+  });
+
+  const payload = [];
+  let ignorados = 0;
+  idsDestino.forEach((turmaId) => {
+    const jaExiste = cpfsPorTurma[turmaId] || new Set();
+    const locais = (locaisDestino || []).filter((l) => l.turma_id === turmaId);
+    alunosDaTurmaAtual.forEach((a) => {
+      if (jaExiste.has(soDigitos(a.cpf))) { ignorados++; return; }
+      const origem = localidadesParaAlunosTurma.find((l) => l.id === a.localidade_id);
+      let destino = null;
+      if (origem) {
+        destino = locais.find((l) => chaveNome(l.nome) === chaveNome(origem.nome))
+          || locais.find((l) => soDigitos(l.cnpj_atestado) === soDigitos(a.cnpj_atestado) && soDigitos(l.cnpj_faturamento) === soDigitos(a.cnpj_faturamento));
+      }
+      payload.push({
+        turma_id: turmaId,
+        cpf: a.cpf,
+        nome: a.nome,
+        data_nascimento: a.data_nascimento,
+        localidade_id: destino ? destino.id : null,
+        cnpj_atestado: a.cnpj_atestado,
+        cnpj_faturamento: a.cnpj_faturamento,
+      });
+    });
+  });
+
+  if (payload.length === 0) {
+    esconderProcessando();
+    return alert("Nada a transferir: todos os alunos já existem nas turmas selecionadas.");
+  }
+
+  const { error } = await supabase.from("turma_alunos").insert(payload);
+  if (error) {
+    esconderProcessando();
+    return alert("Não foi possível transferir os alunos. Tente novamente.");
+  }
+  mostrarProcessando(`Concluído — ${payload.length} aluno(s) incluído(s)${ignorados ? ` · ${ignorados} ignorado(s) por CPF repetido` : ""}`, "✅");
+  setTimeout(esconderProcessando, 7000);
+  fecharBlocoRepetirAlunos();
   await carregarAlunosDaTurma();
 }
 
@@ -2826,6 +2909,11 @@ ligarMascaraCampo("aluno-turma-cnpj-atestado", "cnpj");
 ligarMascaraCampo("aluno-turma-cnpj-faturamento", "cnpj");
 
 $("btn-salvar-aluno-turma").addEventListener("click", salvarAlunoTurma);
+$("btn-repetir-alunos-turma").addEventListener("click", abrirBlocoRepetirAlunos);
+$("btn-cancelar-repetir-alunos-turma").addEventListener("click", fecharBlocoRepetirAlunos);
+$("btn-transferir-alunos-turma").addEventListener("click", transferirAlunosParaTurmas);
+$("btn-repetir-alunos-marcar-todas").addEventListener("click", () => document.querySelectorAll("[data-repetir-aluno-turma]").forEach((el) => (el.checked = true)));
+$("btn-repetir-alunos-desmarcar-todas").addEventListener("click", () => document.querySelectorAll("[data-repetir-aluno-turma]").forEach((el) => (el.checked = false)));
 $("aluno-turma-localidade").addEventListener("change", aoTrocarLocalidadeAluno);
 $("btn-cancelar-edicao-aluno-turma").addEventListener("click", () => {
   esconderErro("aluno-turma-form-erro");
@@ -2915,15 +3003,17 @@ async function excluirLocalidadeTurma(id) {
   if (!error) await carregarLocalidadesDaTurma();
 }
 
-function mostrarStatusRepetirLocalidades(texto, icone) {
+// Overlay de progresso genérico (reaproveita o markup de "repetir localidades").
+function mostrarProcessando(texto, icone) {
   $("localidade-repetir-icone").textContent = icone;
   $("localidade-repetir-texto").textContent = texto;
   $("localidade-repetir-overlay").classList.remove("hidden");
 }
-
-function esconderStatusRepetirLocalidades() {
+function esconderProcessando() {
   $("localidade-repetir-overlay").classList.add("hidden");
 }
+function mostrarStatusRepetirLocalidades(texto, icone) { mostrarProcessando(texto, icone); }
+function esconderStatusRepetirLocalidades() { esconderProcessando(); }
 
 async function repetirLocalidadesTurma() {
   if (localidadesDaTurmaAtual.length === 0) return alert("Não há localidades cadastradas nesta turma para repetir.");
