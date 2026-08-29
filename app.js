@@ -186,6 +186,7 @@ let localidadesDaTurmaAtual = [];
 let editandoLocalidadeId = null;
 
 const URL_APP_ALUNO = "https://workfire-aluno.netlify.app";
+const URL_TEMPLATE_LISTA_PRESENCA = "templates/lista-presenca.xlsx";
 const TURMA_STATUS = ["Planejada", "A confirmar", "Agendada", "Confirmada", "Concluída", "Cancelada"];
 let turmaFiltroStatus = new Set(TURMA_STATUS);
 let turmaFiltroDataDe = "";
@@ -2114,6 +2115,7 @@ function renderizarListaTurmas() {
       <td class="px-3 py-2"><span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${corStatus[t.status] || ""}">${t.status}</span></td>
       <td class="px-3 py-2 text-right whitespace-nowrap">
         <button data-turma-alunos="${t.id}" class="text-xs font-medium text-slate-600 hover:text-slate-900 px-1.5 py-1">👥 Alunos</button>
+        <button data-turma-exportar="${t.id}" class="text-xs font-medium text-slate-600 hover:text-slate-900 px-1.5 py-1" title="Exportar lista de presença dos alunos desta turma">📄 Lista de presença</button>
         <button data-turma-localidades="${t.id}" class="text-xs font-medium text-slate-600 hover:text-slate-900 px-1.5 py-1">📍 Localidades</button>
         <button data-turma-qrcode="${t.id}" class="text-xs font-medium text-slate-600 hover:text-slate-900 px-1.5 py-1">📱 QR Code Alunos</button>
         ${podeAlterar ? `<button data-turma-editar="${t.id}" class="text-xs font-medium text-slate-600 hover:text-slate-900 px-1.5 py-1">✏️ Editar</button>` : ""}
@@ -2124,8 +2126,88 @@ function renderizarListaTurmas() {
   cont.querySelectorAll("[data-turma-editar]").forEach((btn) => btn.addEventListener("click", () => abrirEdicaoTurma(btn.getAttribute("data-turma-editar"))));
   cont.querySelectorAll("[data-turma-excluir]").forEach((btn) => btn.addEventListener("click", () => excluirTurma(btn.getAttribute("data-turma-excluir"))));
   cont.querySelectorAll("[data-turma-alunos]").forEach((btn) => btn.addEventListener("click", () => abrirPainelAlunosTurma(btn.getAttribute("data-turma-alunos"))));
+  cont.querySelectorAll("[data-turma-exportar]").forEach((btn) => btn.addEventListener("click", () => exportarListaPresencaTurma(btn.getAttribute("data-turma-exportar"))));
   cont.querySelectorAll("[data-turma-localidades]").forEach((btn) => btn.addEventListener("click", () => abrirPainelLocalidadesTurma(btn.getAttribute("data-turma-localidades"))));
   cont.querySelectorAll("[data-turma-qrcode]").forEach((btn) => btn.addEventListener("click", () => abrirQrCodeTurma(btn.getAttribute("data-turma-qrcode"))));
+}
+
+async function exportarListaPresencaTurma(turmaId) {
+  const t = turmasDoOrcamento.find((x) => x.id === turmaId);
+  const o = listaOrcamentosParaTurma.find((x) => x.id === turmaOrcamentoSelecionadoId);
+  if (!t || !o) return;
+
+  const confirmou = confirm(
+    "Confirmar a exportação dos dados dos alunos para a lista de presença?\n\n" +
+    `Orçamento: ${o.numero || "—"}\n` +
+    `Turma: ${t.identificacao || "—"}\n` +
+    `Empresa: ${o.empresas?.nome || "—"}`
+  );
+  if (!confirmou) return;
+
+  if (typeof XlsxPopulate === "undefined") {
+    alert("Não foi possível carregar o gerador de planilha. Verifique sua conexão e tente novamente.");
+    return;
+  }
+
+  try {
+    const [{ data: alunos, error: erroAlunos }, { data: locs }] = await Promise.all([
+      supabase.from("turma_alunos").select("*").eq("turma_id", turmaId).order("nome", { ascending: true }),
+      supabase.from("turma_localidades").select("id, nome").eq("turma_id", turmaId),
+    ]);
+    if (erroAlunos) throw erroAlunos;
+
+    const lista = alunos || [];
+    if (lista.length === 0) {
+      alert("Esta turma não possui alunos cadastrados.");
+      return;
+    }
+
+    const nomeLocalidade = {};
+    (locs || []).forEach((l) => { nomeLocalidade[l.id] = l.nome; });
+
+    const resp = await fetch(URL_TEMPLATE_LISTA_PRESENCA, { cache: "no-store" });
+    if (!resp.ok) throw new Error("template HTTP " + resp.status);
+    const buffer = await resp.arrayBuffer();
+
+    const wb = await XlsxPopulate.fromDataAsync(buffer);
+    const sheet = wb.sheet("Termo de Reserva") || wb.sheet(0);
+
+    sheet.cell("AB4").value(o.numero || "");
+    sheet.cell("D13").value(o.empresas?.cnpj ? MASCARAS.cnpj(String(o.empresas.cnpj)) : "");
+
+    const LINHA_INICIAL = 19;
+    lista.forEach((a, i) => {
+      const r = LINHA_INICIAL + i;
+      sheet.cell("B" + r).value(a.nome || "");
+      sheet.cell("O" + r).value(a.cpf ? MASCARAS.cpf(String(a.cpf)) : "");
+      sheet.cell("T" + r).value(nomeLocalidade[a.localidade_id] || "");
+      sheet.cell("AB" + r).value(a.cnpj_atestado ? MASCARAS.cnpj(String(a.cnpj_atestado)) : "");
+      sheet.cell("AE" + r).value(a.cnpj_faturamento ? MASCARAS.cnpj(String(a.cnpj_faturamento)) : "");
+    });
+
+    const blob = await wb.outputAsync();
+    const slug = (s) => String(s || "").replace(/[^\w.-]+/g, "_").replace(/^_+|_+$/g, "");
+    const nomeArquivo = `Lista_Presenca_${slug(o.numero) || "orcamento"}_Turma_${slug(t.identificacao) || "turma"}.xlsx`;
+
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = nomeArquivo;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+
+    if (lista.length > 40) {
+      alert(
+        `A turma possui ${lista.length} alunos, mas o modelo tem apenas 40 linhas numeradas. ` +
+        "Os alunos após o 40º foram incluídos nas linhas seguintes, sem numeração/formatação."
+      );
+    }
+  } catch (e) {
+    console.error("Falha ao exportar lista de presença:", e);
+    alert("Não foi possível gerar a lista de presença. Tente novamente.");
+  }
 }
 
 function abrirQrCodeTurma(turmaId) {
