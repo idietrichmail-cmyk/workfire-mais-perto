@@ -665,3 +665,102 @@ for each row execute function preencher_cnpj_aluno_turma();
 create policy "turma_alunos_anon_insert" on turma_alunos
   for insert to anon
   with check (true);
+
+-- =========================================================
+-- Acesso por artefato/rotina (migração
+-- permissao_por_artefato_tabelas_dependentes)
+--
+-- Conceder permissão a um módulo libera TODAS as tabelas que
+-- aquela rotina usa, no nível concedido, independentemente das
+-- permissões das outras rotinas. Papéis do mapa:
+--   own     -> CRUD completo segue o nível do módulo
+--   edita   -> select/insert/update seguem o módulo (sem delete)
+--   leitura -> apenas select (com pode_consultar do módulo)
+--
+-- Mapa módulo -> tabela -> papel:
+--   instrutores/empresas/centros_treinamento/tipos_treinamento/
+--     empresas_transporte      -> a própria tabela (own)
+--   usuarios_sistema           -> usuarios_sistema, permissoes (own)
+--   agendamentos               -> agendamentos (own);
+--                                 instrutores (edita — grava dias_status);
+--                                 tipos_treinamento, centros_treinamento, empresas (leitura)
+--   orcamentos                 -> orcamentos, orcamento_itens (own);
+--                                 turmas, turma_localidades (edita);
+--                                 empresas, tipos_treinamento, centros_treinamento,
+--                                 instrutores, empresas_transporte (leitura)
+--   turmas                     -> turmas, turma_alunos, turma_localidades (own);
+--                                 orcamentos, orcamento_itens, empresas,
+--                                 tipos_treinamento, centros_treinamento,
+--                                 instrutores, empresas_transporte (leitura)
+--   agendamento_turmas         -> turmas (edita);
+--                                 orcamentos, empresas, tipos_treinamento,
+--                                 centros_treinamento, instrutores (leitura)
+--
+-- Todas as políticas RLS da área de trabalho passaram a usar
+-- pode_acessar_tabela(auth.uid(), '<tabela>', '<select|insert|update|delete>').
+-- Preservados: leitura da própria linha em usuarios_sistema/permissoes
+-- (para montar o menu) e o INSERT anônimo em turma_alunos (app do aluno).
+-- Ver a definição completa na migração de mesmo nome.
+-- =========================================================
+
+create or replace function pode_acessar_tabela(p_uid uuid, p_tabela text, p_acao text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select is_admin_sistema(p_uid) or exists (
+    select 1
+    from (values
+      ('instrutores','instrutores','own'),
+      ('empresas','empresas','own'),
+      ('centros_treinamento','centros_treinamento','own'),
+      ('tipos_treinamento','tipos_treinamento','own'),
+      ('empresas_transporte','empresas_transporte','own'),
+      ('usuarios_sistema','usuarios_sistema','own'),
+      ('usuarios_sistema','permissoes','own'),
+      ('agendamentos','agendamentos','own'),
+      ('agendamentos','instrutores','edita'),
+      ('agendamentos','tipos_treinamento','leitura'),
+      ('agendamentos','centros_treinamento','leitura'),
+      ('agendamentos','empresas','leitura'),
+      ('orcamentos','orcamentos','own'),
+      ('orcamentos','orcamento_itens','own'),
+      ('orcamentos','turmas','edita'),
+      ('orcamentos','turma_localidades','edita'),
+      ('orcamentos','empresas','leitura'),
+      ('orcamentos','tipos_treinamento','leitura'),
+      ('orcamentos','centros_treinamento','leitura'),
+      ('orcamentos','instrutores','leitura'),
+      ('orcamentos','empresas_transporte','leitura'),
+      ('turmas','turmas','own'),
+      ('turmas','turma_alunos','own'),
+      ('turmas','turma_localidades','own'),
+      ('turmas','orcamentos','leitura'),
+      ('turmas','orcamento_itens','leitura'),
+      ('turmas','empresas','leitura'),
+      ('turmas','tipos_treinamento','leitura'),
+      ('turmas','centros_treinamento','leitura'),
+      ('turmas','instrutores','leitura'),
+      ('turmas','empresas_transporte','leitura'),
+      ('agendamento_turmas','turmas','edita'),
+      ('agendamento_turmas','orcamentos','leitura'),
+      ('agendamento_turmas','empresas','leitura'),
+      ('agendamento_turmas','tipos_treinamento','leitura'),
+      ('agendamento_turmas','centros_treinamento','leitura'),
+      ('agendamento_turmas','instrutores','leitura')
+    ) as mapa(modulo, tabela, papel)
+    join permissoes p on p.modulo = mapa.modulo
+    join usuarios_sistema us on us.id = p.usuario_id
+    where us.user_id = p_uid
+      and us.status = 'Ativo'
+      and mapa.tabela = p_tabela
+      and (
+           (p_acao = 'select' and p.pode_consultar)
+        or (p_acao = 'insert' and p.pode_incluir and mapa.papel in ('own','edita'))
+        or (p_acao = 'update' and p.pode_alterar and mapa.papel in ('own','edita'))
+        or (p_acao = 'delete' and p.pode_excluir and mapa.papel = 'own')
+      )
+  );
+$$;
