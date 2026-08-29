@@ -2500,7 +2500,6 @@ function renderizarListaAgendTurmas() {
     cont.innerHTML = `<tr><td colspan="8" class="text-center text-slate-500 text-sm py-16">Nenhuma turma cadastrada para este orçamento.</td></tr>`;
     return;
   }
-  const podeAlterarData = podeFazer("turmas", "alterar");
   const corStatus = {
     Planejada: "bg-amber-50 text-amber-700",
     "A confirmar": "bg-orange-50 text-orange-700",
@@ -2515,9 +2514,7 @@ function renderizarListaAgendTurmas() {
       <td class="px-3 py-2 font-mono text-slate-700">${t.identificacao || "—"}</td>
       <td class="px-3 py-2 text-slate-500">${t.tipo_dia || "—"}</td>
       <td class="px-3 py-2 text-slate-500">
-        ${podeAlterarData
-          ? `<input type="date" data-agend-turma-data="${t.id}" value="${t.data_inicio || ""}" class="text-xs rounded-md border border-slate-300 px-1.5 py-1" />`
-          : `${formatarDataAbrev(t.data_inicio)}${t.data_fim && t.data_fim !== t.data_inicio ? ` a ${formatarDataAbrev(t.data_fim)}` : ""}`}
+        <input type="date" data-agend-turma-data="${t.id}" value="${t.data_inicio || ""}" class="w-full min-w-[140px] text-xs rounded-md border border-slate-300 px-2 py-1.5" />
       </td>
       <td class="px-3 py-2"><span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${corStatus[t.status] || ""}">${t.status}</span></td>
       <td class="px-3 py-2 text-xs">${celulaCentroAgendTurma(t)}</td>
