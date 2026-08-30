@@ -426,6 +426,113 @@ $("btn-salvar-nova-senha").addEventListener("click", async () => {
 
 $("btn-cancelar-troca").addEventListener("click", () => mostrarTela(telaAposLoginParaTrocaSenha));
 
+// ---------------------------------------------------------
+// RECUPERAR SENHA — código de uso único enviado por e-mail (Supabase OTP)
+// ---------------------------------------------------------
+let recTelaOrigem = "tela-acesso-admin";
+let recEmail = "";
+
+function irParaRecuperarSenha(origem, emailPrefill) {
+  recTelaOrigem = origem;
+  esconderErro("rec-email-erro");
+  $("rec-email-ok").classList.add("hidden");
+  $("rec-email").value = (emailPrefill || "").trim();
+  mostrarTela("tela-rec-email");
+}
+$("btn-esqueci-senha-inst").addEventListener("click", () => irParaRecuperarSenha("tela-login", $("login-email").value));
+$("btn-esqueci-senha-sistema").addEventListener("click", () => irParaRecuperarSenha("tela-acesso-admin", $("admin-login-email").value));
+
+async function recVoltarAoLogin() {
+  try { await supabase.auth.signOut(); } catch (e) { /* sem sessão ainda */ }
+  mostrarTela(recTelaOrigem);
+}
+$("btn-rec-voltar-1").addEventListener("click", recVoltarAoLogin);
+$("btn-rec-voltar-2").addEventListener("click", recVoltarAoLogin);
+
+function mascararEmail(email) {
+  const [u, d] = email.split("@");
+  if (!d) return email;
+  const ini = u.slice(0, 2);
+  return `${ini}${"•".repeat(Math.max(1, u.length - 2))}@${d}`;
+}
+
+async function recEnviarCodigo(email) {
+  const { error } = await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: false } });
+  if (error) {
+    const m = (error.message || "").toLowerCase();
+    if (m.includes("otp") || m.includes("signups not allowed") || m.includes("not found")) {
+      return "Não há conta com esse e-mail, ou ela ainda não criou senha. Use \"Primeiro acesso\".";
+    }
+    if (m.includes("rate") || m.includes("too many") || m.includes("security purposes")) {
+      return "Muitas tentativas. Aguarde alguns minutos antes de pedir outro código.";
+    }
+    return "Não foi possível enviar o código. Tente novamente em instantes.";
+  }
+  return null;
+}
+
+$("btn-rec-enviar").addEventListener("click", async () => {
+  esconderErro("rec-email-erro");
+  $("rec-email-ok").classList.add("hidden");
+  const email = $("rec-email").value.trim().toLowerCase();
+  if (!email || !email.includes("@")) return mostrarErro("rec-email-erro", "Informe um e-mail válido.");
+  const btn = $("btn-rec-enviar");
+  btn.disabled = true; btn.textContent = "Enviando…";
+  const erro = await recEnviarCodigo(email);
+  btn.disabled = false; btn.textContent = "Enviar código";
+  if (erro) return mostrarErro("rec-email-erro", erro);
+  recEmail = email;
+  $("rec-email-mascara").textContent = mascararEmail(email);
+  $("rec-codigo").value = "";
+  esconderErro("rec-codigo-erro");
+  mostrarTela("tela-rec-codigo");
+});
+
+$("btn-rec-reenviar").addEventListener("click", async () => {
+  esconderErro("rec-codigo-erro");
+  const btn = $("btn-rec-reenviar");
+  btn.disabled = true; btn.textContent = "Reenviando…";
+  const erro = await recEnviarCodigo(recEmail);
+  btn.disabled = false; btn.textContent = "Reenviar código";
+  mostrarErro("rec-codigo-erro", erro || "Novo código enviado. Confira seu e-mail.");
+  if (!erro) $("rec-codigo-erro").className = "bg-teal-50 text-teal-700 text-xs rounded-md px-3 py-2";
+});
+
+$("btn-rec-confirmar").addEventListener("click", async () => {
+  esconderErro("rec-codigo-erro");
+  $("rec-codigo-erro").className = "hidden bg-rose-50 text-rose-600 text-xs rounded-md px-3 py-2";
+  const token = $("rec-codigo").value.replace(/\D/g, "");
+  if (token.length < 6) return mostrarErro("rec-codigo-erro", "Digite o código recebido por e-mail.");
+  const btn = $("btn-rec-confirmar");
+  btn.disabled = true; btn.textContent = "Confirmando…";
+  const { error } = await supabase.auth.verifyOtp({ email: recEmail, token, type: "email" });
+  btn.disabled = false; btn.textContent = "Confirmar código";
+  if (error) return mostrarErro("rec-codigo-erro", "Código inválido ou expirado. Peça um novo código.");
+  $("rec-senha-nova").value = "";
+  $("rec-senha-confirmar").value = "";
+  esconderErro("rec-senha-erro");
+  mostrarTela("tela-rec-senha");
+});
+
+$("btn-rec-salvar-senha").addEventListener("click", async () => {
+  esconderErro("rec-senha-erro");
+  const s1 = $("rec-senha-nova").value;
+  const s2 = $("rec-senha-confirmar").value;
+  if (s1.length < 6) return mostrarErro("rec-senha-erro", "A nova senha precisa ter pelo menos 6 caracteres.");
+  if (s1 !== s2) return mostrarErro("rec-senha-erro", "As senhas não coincidem.");
+  const btn = $("btn-rec-salvar-senha");
+  btn.disabled = true; btn.textContent = "Salvando…";
+  const { error } = await supabase.auth.updateUser({ password: s1 });
+  if (error) {
+    btn.disabled = false; btn.textContent = "Salvar nova senha";
+    return mostrarErro("rec-senha-erro", "Não foi possível salvar a senha. Tente novamente.");
+  }
+  await supabase.auth.signOut();
+  btn.disabled = false; btn.textContent = "Salvar nova senha";
+  alert("Senha alterada com sucesso. Faça login com a nova senha.");
+  mostrarTela(recTelaOrigem);
+});
+
 function traduzirErroAuth(error) {
   const msg = (error && error.message) || "";
   if (msg.includes("already registered")) return "Este e-mail já tem uma senha criada. Faça login normalmente.";
@@ -1046,12 +1153,13 @@ const CRUD_CONFIG = {
     campos: [
       { id: "nome", label: "Nome completo", obrigatorio: true },
       { id: "email", label: "E-mail (login)", tipo: "email", obrigatorio: true },
+      { id: "telefone", label: "Telefone (celular)", obrigatorio: true },
       { id: "role", label: "Perfil", tipo: "select", opcoes: [{ value: "usuario", label: "Usuário" }, { value: "admin", label: "Administrador" }], padrao: "usuario" },
       { id: "status", label: "Status", tipo: "select", opcoes: ["Ativo", "Inativo"], padrao: "Ativo" },
     ],
-    campoBusca: (i) => `${i.nome} ${i.email}`,
+    campoBusca: (i) => `${i.nome} ${i.email} ${i.telefone || ""}`,
     cardTitulo: (i) => i.nome,
-    cardLinhas: (i) => [i.email, i.role === "admin" ? "👑 Administrador" : "Usuário", i.user_id ? "✅ Já criou senha no app" : "⏳ Aguardando primeiro acesso"],
+    cardLinhas: (i) => [i.email, i.telefone && `📞 ${i.telefone}`, i.role === "admin" ? "👑 Administrador" : "Usuário", i.user_id ? "✅ Já criou senha no app" : "⏳ Aguardando primeiro acesso"].filter(Boolean),
   },
   tipos_atividade: {
     tabela: "tipos_atividade",
