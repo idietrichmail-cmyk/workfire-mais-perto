@@ -869,3 +869,15 @@ create policy "atividades_delete" on atividades for delete using (pode_acessar_t
 --       data_termino_realizado, percentual, observacoes, e só se for o responsável.
 --   atividade_anexos insert/delete e storage.objects insert/delete do bucket
 --     'atividades' passam a aceitar também o responsável da atividade.
+
+-- migração usuarios_sistema_telefone:
+--   usuarios_sistema.telefone text (nullable no banco; obrigatório no
+--   formulário de cadastro do app). Usado como contato e para o SMS futuro.
+--
+-- "Esqueci minha senha" (todas as telas de login: workfire-mais-perto x2,
+-- agenda-instrutores, workfire-monitor): usa o OTP de e-mail nativo do
+-- Supabase Auth — signInWithOtp({email, shouldCreateUser:false}) envia um
+-- código; verifyOtp({email, token, type:'email'}) abre sessão; updateUser
+-- ({password}) grava a nova senha; signOut e volta ao login.
+-- PASSO MANUAL no dashboard: Authentication > Emails > template "Magic Link"
+-- precisa conter {{ .Token }} para o código aparecer no e-mail.
