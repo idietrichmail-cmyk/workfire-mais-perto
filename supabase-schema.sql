@@ -829,3 +829,9 @@ create policy "atividades_delete" on atividades for delete using (pode_acessar_t
 --   ('atividades','atividades','own'),
 --   ('atividades','tipos_atividade','leitura'),
 --   ('atividades','usuarios_sistema','leitura')
+
+-- migração atividades_centro_treinamento_e_corporativo:
+--   atividades.centro_treinamento_id -> centros_treinamento (on delete set null)
+--   atividades.corporativo boolean not null default false
+--   check (not (corporativo and centro_treinamento_id is not null))  -- exclusivos
+--   pode_acessar_tabela: + ('atividades','centros_treinamento','leitura')

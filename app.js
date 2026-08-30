@@ -160,6 +160,7 @@ let listaEmpresasAtivas = [];
 // Listas de referência para o cadastro de Atividades (carregadas sob demanda)
 let atividadeRefUsuarios = [];
 let atividadeRefTipos = [];
+let atividadeRefCentros = [];
 
 let listaAgendamentos = [];
 let editandoAgendamentoId = null;
@@ -1071,13 +1072,28 @@ const CRUD_CONFIG = {
       "Cancelada": "bg-rose-50 text-rose-600",
     },
     carregarRefs: async () => {
-      const [{ data: us }, { data: ts }] = await Promise.all([
+      const [{ data: us }, { data: ts }, { data: cs }] = await Promise.all([
         supabase.from("usuarios_sistema").select("id, nome, email, status").order("nome"),
         supabase.from("tipos_atividade").select("id, nome, status").order("nome"),
+        supabase.from("centros_treinamento").select("id, nome, status").order("nome"),
       ]);
       atividadeRefUsuarios = us || [];
       atividadeRefTipos = ts || [];
+      atividadeRefCentros = cs || [];
     },
+    aoMontarForm: () => {
+      const chk = $("crud-campo-corporativo");
+      const sel = $("crud-campo-centro_treinamento_id");
+      if (!chk || !sel) return;
+      const sincronizar = () => {
+        sel.disabled = chk.checked;
+        if (chk.checked) sel.value = "";
+      };
+      chk.addEventListener("change", sincronizar);
+      sel.addEventListener("change", () => { if (sel.value) chk.checked = false; });
+      sincronizar();
+    },
+    ajustarPayload: (p) => { if (p.corporativo) p.centro_treinamento_id = null; },
     campos: [
       { id: "descricao", label: "Descritivo da atividade", tipo: "textarea", obrigatorio: true },
       {
@@ -1091,6 +1107,18 @@ const CRUD_CONFIG = {
         opcoesFn: () => [{ value: "", label: "— Selecione —" }].concat(
           atividadeRefUsuarios.filter((u) => u.status === "Ativo").map((u) => ({ value: u.id, label: u.nome }))
         ),
+      },
+      { id: "corporativo", label: "Corporativo (atividade não vinculada a um Centro de Treinamento)", tipo: "checkbox", padrao: false },
+      {
+        id: "centro_treinamento_id", label: "Centro de Treinamento", tipo: "select",
+        opcoesFn: () => [{ value: "", label: "— Selecione —" }].concat(
+          atividadeRefCentros.filter((c) => c.status === "Ativo").map((c) => ({ value: c.id, label: c.nome }))
+        ),
+        validar: (v) => {
+          const corp = document.getElementById("crud-campo-corporativo");
+          if (corp && corp.checked) return null;
+          return v ? null : "Selecione o Centro de Treinamento ou marque Corporativo.";
+        },
       },
       {
         id: "status", label: "Status", tipo: "select", padrao: "Planejada",
@@ -1110,8 +1138,10 @@ const CRUD_CONFIG = {
     cardLinhas: (i) => {
       const tipo = atividadeRefTipos.find((t) => t.id === i.tipo_atividade_id);
       const resp = atividadeRefUsuarios.find((u) => u.id === i.responsavel_id);
+      const centro = atividadeRefCentros.find((c) => c.id === i.centro_treinamento_id);
       return [
         tipo && `🗂️ ${tipo.nome}`,
+        i.corporativo ? "🏢 Corporativo" : (centro && `🏫 ${centro.nome}`),
         resp && `👤 Responsável: ${resp.nome}`,
         `📊 ${i.percentual || 0}% concluído`,
         (i.data_inicio_previsto || i.data_termino_previsto) && `📅 Previsto: ${i.data_inicio_previsto || "—"} → ${i.data_termino_previsto || "—"}`,
@@ -1138,6 +1168,12 @@ function renderCampoHtml(campo, valor) {
       <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">${campo.label}</label>
       <textarea id="crud-campo-${campo.id}" rows="3" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">${val}</textarea>
     </div>`;
+  }
+  if (campo.tipo === "checkbox") {
+    return `<label class="flex items-center gap-2 text-sm text-slate-700">
+      <input type="checkbox" id="crud-campo-${campo.id}" ${val ? "checked" : ""} class="rounded border-slate-300" />
+      <span>${campo.label}</span>
+    </label>`;
   }
   const atributoMascara = campo.mascara ? ` data-mascara="${campo.mascara}"` : "";
   if (campo.botaoAcao) {
@@ -1280,6 +1316,7 @@ function ligarBotoesAcaoCampos(cfg) {
     if (c.botaoAcao) $(c.botaoAcao.id).addEventListener("click", c.botaoAcao.onClick);
   });
   ligarMascaras(cfg);
+  if (cfg.aoMontarForm) cfg.aoMontarForm();
 }
 
 const MASCARAS = {
@@ -1401,8 +1438,10 @@ async function salvarCrud() {
   const payload = {};
   for (const campo of cfg.campos) {
     const el = $("crud-campo-" + campo.id);
-    let valor = typeof el.value === "string" ? el.value.trim() : el.value;
-    if (campo.obrigatorio && !valor) return mostrarErro("crud-form-erro", `Informe: ${campo.label}.`);
+    let valor = campo.tipo === "checkbox"
+      ? el.checked
+      : (typeof el.value === "string" ? el.value.trim() : el.value);
+    if (campo.obrigatorio && campo.tipo !== "checkbox" && !valor) return mostrarErro("crud-form-erro", `Informe: ${campo.label}.`);
     if (campo.validar) {
       const erroValidacao = campo.validar(valor);
       if (erroValidacao) return mostrarErro("crud-form-erro", erroValidacao);
@@ -1412,6 +1451,8 @@ async function salvarCrud() {
     else if (campo.tipo === "select" && valor === "") valor = null;
     payload[campo.id] = valor;
   }
+
+  if (cfg.ajustarPayload) cfg.ajustarPayload(payload);
 
   $("btn-salvar-crud").disabled = true;
   $("btn-salvar-crud").textContent = "Salvando…";
