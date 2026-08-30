@@ -161,6 +161,11 @@ let listaEmpresasAtivas = [];
 let atividadeRefUsuarios = [];
 let atividadeRefTipos = [];
 let atividadeRefCentros = [];
+let crudItemEmEdicao = null;         // linha sendo editada no painel CRUD (null = novo)
+let atividadeFotoPendente = null;    // File escolhido para a fotografia, ainda não enviado
+let atividadeFotoRemover = false;    // marcar remoção da fotografia atual
+let atividadeAnexosAbertaId = null;  // atividade cujo painel de anexos está aberto
+let anexosDaAtividadeAtual = [];
 
 let listaAgendamentos = [];
 let editandoAgendamentoId = null;
@@ -1081,17 +1086,91 @@ const CRUD_CONFIG = {
       atividadeRefTipos = ts || [];
       atividadeRefCentros = cs || [];
     },
-    aoMontarForm: () => {
+    aoMontarForm: (item) => {
       const chk = $("crud-campo-corporativo");
       const sel = $("crud-campo-centro_treinamento_id");
-      if (!chk || !sel) return;
-      const sincronizar = () => {
-        sel.disabled = chk.checked;
-        if (chk.checked) sel.value = "";
-      };
-      chk.addEventListener("change", sincronizar);
-      sel.addEventListener("change", () => { if (sel.value) chk.checked = false; });
-      sincronizar();
+      if (chk && sel) {
+        const sincronizar = () => {
+          sel.disabled = chk.checked;
+          if (chk.checked) sel.value = "";
+        };
+        chk.addEventListener("change", sincronizar);
+        sel.addEventListener("change", () => { if (sel.value) chk.checked = false; });
+        sincronizar();
+      }
+      // Fotografia
+      atividadeFotoPendente = null;
+      atividadeFotoRemover = false;
+      const input = $("atividade-foto-input");
+      const preview = $("atividade-foto-preview");
+      const img = $("atividade-foto-img");
+      const btnRem = $("atividade-foto-remover");
+      if (input) {
+        input.addEventListener("change", (e) => {
+          const f = e.target.files[0];
+          if (!f) return;
+          atividadeFotoPendente = f;
+          atividadeFotoRemover = false;
+          img.src = URL.createObjectURL(f);
+          preview.classList.remove("hidden");
+          btnRem.classList.remove("hidden");
+        });
+        btnRem.addEventListener("click", () => {
+          atividadeFotoPendente = null;
+          atividadeFotoRemover = true;
+          input.value = "";
+          preview.classList.add("hidden");
+          btnRem.classList.add("hidden");
+        });
+        if (item && item.foto_path) {
+          urlArquivoAtividade(item.foto_path).then((u) => {
+            if (u) { img.src = u; preview.classList.remove("hidden"); btnRem.classList.remove("hidden"); }
+          });
+        }
+      }
+      const btnAnx = $("atividade-abrir-anexos");
+      if (btnAnx && item) btnAnx.addEventListener("click", () => abrirPainelAtividadeAnexos(item.id));
+    },
+    camposExtraHtml: (item) => {
+      const dtHora = (s) => (s ? new Date(s).toLocaleString("pt-BR") : "—");
+      const nomeU = (id) => (atividadeRefUsuarios.find((u) => u.id === id) || {}).nome || "—";
+      const audit = item ? `
+        <div class="grid grid-cols-2 gap-2 text-[11px] text-slate-400 border-t border-slate-100 pt-3">
+          <p>Criada em<br><span class="text-slate-600">${dtHora(item.created_at)}</span></p>
+          <p>Criada por<br><span class="text-slate-600">${nomeU(item.criado_por)}</span></p>
+          <p>Última alteração<br><span class="text-slate-600">${dtHora(item.updated_at)}</span></p>
+          <p>Alterada por<br><span class="text-slate-600">${nomeU(item.alterado_por)}</span></p>
+        </div>` : "";
+      return `
+        <div>
+          <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Fotografia</label>
+          <div id="atividade-foto-preview" class="hidden mt-1"><img id="atividade-foto-img" alt="" class="max-h-44 rounded-md border border-slate-200" /></div>
+          <input type="file" id="atividade-foto-input" accept="image/*" class="mt-1 block w-full text-xs text-slate-600 file:mr-3 file:rounded-md file:border-0 file:bg-slate-900 file:px-3 file:py-1.5 file:text-white" />
+          <button type="button" id="atividade-foto-remover" class="hidden mt-1 text-xs text-rose-600 hover:underline">remover fotografia</button>
+        </div>
+        ${item
+          ? `<div><button type="button" id="atividade-abrir-anexos" class="w-full text-sm font-medium text-slate-700 border border-slate-300 hover:bg-slate-50 rounded-md py-2">📎 Anexos da atividade</button></div>`
+          : `<p class="text-[11px] text-slate-400">A fotografia é enviada ao salvar. Os anexos podem ser adicionados depois, pela edição.</p>`}
+        ${audit}`;
+    },
+    aoSalvar: async (linha) => {
+      if (atividadeFotoPendente) {
+        const ext = (atividadeFotoPendente.name.split(".").pop() || "jpg").toLowerCase();
+        const caminho = `${linha.id}/foto_${Date.now()}.${ext}`;
+        const { error } = await supabase.storage.from("atividades").upload(caminho, atividadeFotoPendente, { upsert: true });
+        if (error) throw error;
+        await supabase.from("atividades").update({ foto_path: caminho }).eq("id", linha.id);
+      } else if (atividadeFotoRemover && linha.foto_path) {
+        await supabase.storage.from("atividades").remove([linha.foto_path]);
+        await supabase.from("atividades").update({ foto_path: null }).eq("id", linha.id);
+      }
+      atividadeFotoPendente = null;
+      atividadeFotoRemover = false;
+    },
+    aoMontarTabela: (cont) => {
+      cont.querySelectorAll("[data-atividade-anexos]").forEach((btn) =>
+        btn.addEventListener("click", () => abrirPainelAtividadeAnexos(btn.getAttribute("data-atividade-anexos")))
+      );
     },
     ajustarPayload: (p) => { if (p.corporativo) p.centro_treinamento_id = null; },
     renderTabela: (lista, { podeAlterar, podeExcluir }) => {
@@ -1106,6 +1185,7 @@ const CRUD_CONFIG = {
       <table class="w-full text-xs bg-white border border-slate-200 rounded-lg">
         <thead>
           <tr class="bg-slate-50 text-left text-slate-500 uppercase tracking-wide text-[10px]">
+            <th class="px-3 py-2 font-medium">OS</th>
             <th class="px-3 py-2 font-medium">Atividade</th>
             <th class="px-3 py-2 font-medium">Tipo</th>
             <th class="px-3 py-2 font-medium">Responsável</th>
@@ -1122,6 +1202,7 @@ const CRUD_CONFIG = {
         <tbody class="divide-y divide-slate-100">
           ${lista.map((i) => `
           <tr class="hover:bg-slate-50 align-top">
+            <td class="px-3 py-2 font-mono text-slate-700 whitespace-nowrap">${i.os || "—"}</td>
             <td class="px-3 py-2"><div class="min-w-[200px] max-w-[340px] whitespace-normal text-slate-800">${i.descricao || "—"}</div></td>
             <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${tipoNome(i.tipo_atividade_id)}</td>
             <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${respNome(i.responsavel_id)}</td>
@@ -1133,6 +1214,7 @@ const CRUD_CONFIG = {
             <td class="px-3 py-2 text-slate-500 whitespace-nowrap">${d(i.data_inicio_realizado)}</td>
             <td class="px-3 py-2 text-slate-500 whitespace-nowrap">${d(i.data_termino_realizado)}</td>
             <td class="px-3 py-2 text-right whitespace-nowrap">
+              <button data-atividade-anexos="${i.id}" class="text-slate-500 hover:text-slate-800 mr-2" title="Anexos">📎</button>
               ${podeAlterar ? `<button data-crud-editar="${i.id}" class="text-slate-500 hover:text-slate-800 mr-2">✏️</button>` : ""}
               ${podeExcluir ? `<button data-crud-excluir="${i.id}" class="text-rose-500 hover:text-rose-700">🗑️</button>` : ""}
             </td>
@@ -1206,6 +1288,7 @@ const CRUD_CONFIG = {
       return out;
     },
     campos: [
+      { id: "os", label: "OS (Ordem de Serviço)", display: true },
       { id: "descricao", label: "Descritivo da atividade", tipo: "textarea", obrigatorio: true },
       {
         id: "tipo_atividade_id", label: "Tipo de atividade", tipo: "select", obrigatorio: true,
@@ -1264,6 +1347,12 @@ const CRUD_CONFIG = {
 
 function renderCampoHtml(campo, valor) {
   const val = valor == null ? "" : valor;
+  if (campo.display) {
+    return `<div>
+      <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">${campo.label}</label>
+      <p class="mt-1 w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">${val === "" ? "—" : val}</p>
+    </div>`;
+  }
   if (campo.tipo === "select") {
     const fonte = campo.opcoesFn ? campo.opcoesFn() : campo.opcoes;
     const opcoes = fonte.map((o) => (typeof o === "string" ? { value: o, label: o } : o));
@@ -1357,6 +1446,7 @@ function renderizarListaCrud() {
     cont.querySelectorAll("[data-crud-excluir]").forEach((btn) =>
       btn.addEventListener("click", () => excluirCrud(btn.getAttribute("data-crud-excluir")))
     );
+    if (cfg.aoMontarTabela) cfg.aoMontarTabela(cont);
     return;
   }
 
@@ -1432,11 +1522,13 @@ function montarBlocoPermissoes(cfg, item) {
 
 function abrirNovoCrud() {
   crudEditandoId = null;
+  crudItemEmEdicao = null;
   const cfg = CRUD_CONFIG[crudModuloId];
   esconderErro("crud-form-erro");
   $("painel-crud-titulo").textContent = "Novo " + cfg.titulo.toLowerCase();
   $("btn-salvar-crud").textContent = "Cadastrar";
-  $("crud-campos").innerHTML = cfg.campos.map((c) => renderCampoHtml(c, c.padrao)).join("");
+  $("crud-campos").innerHTML = cfg.campos.map((c) => renderCampoHtml(c, c.padrao)).join("")
+    + (cfg.camposExtraHtml ? cfg.camposExtraHtml(null) : "");
   ligarBotoesAcaoCampos(cfg);
   montarBlocoPermissoes(cfg, null);
   $("painel-crud").classList.remove("hidden");
@@ -1447,10 +1539,12 @@ function abrirEdicaoCrud(id) {
   const cfg = CRUD_CONFIG[crudModuloId];
   const item = crudLista.find((i) => i.id === id);
   if (!item) return;
+  crudItemEmEdicao = item;
   esconderErro("crud-form-erro");
   $("painel-crud-titulo").textContent = "Editar " + cfg.titulo.toLowerCase();
   $("btn-salvar-crud").textContent = "Salvar alterações";
-  $("crud-campos").innerHTML = cfg.campos.map((c) => renderCampoHtml(c, item[c.id])).join("");
+  $("crud-campos").innerHTML = cfg.campos.map((c) => renderCampoHtml(c, item[c.id])).join("")
+    + (cfg.camposExtraHtml ? cfg.camposExtraHtml(item) : "");
   ligarBotoesAcaoCampos(cfg);
   montarBlocoPermissoes(cfg, item);
   $("painel-crud").classList.remove("hidden");
@@ -1461,7 +1555,7 @@ function ligarBotoesAcaoCampos(cfg) {
     if (c.botaoAcao) $(c.botaoAcao.id).addEventListener("click", c.botaoAcao.onClick);
   });
   ligarMascaras(cfg);
-  if (cfg.aoMontarForm) cfg.aoMontarForm();
+  if (cfg.aoMontarForm) cfg.aoMontarForm(crudItemEmEdicao);
 }
 
 const MASCARAS = {
@@ -1582,6 +1676,7 @@ async function salvarCrud() {
   const cfg = CRUD_CONFIG[crudModuloId];
   const payload = {};
   for (const campo of cfg.campos) {
+    if (campo.display) continue;
     const el = $("crud-campo-" + campo.id);
     let valor = campo.tipo === "checkbox"
       ? el.checked
@@ -1622,7 +1717,18 @@ async function salvarCrud() {
     await salvarPermissoesForm(linha.id);
   }
 
+  if (cfg.aoSalvar) {
+    try {
+      await cfg.aoSalvar(linha, { novo: !crudEditandoId });
+    } catch (e) {
+      $("btn-salvar-crud").disabled = false;
+      $("btn-salvar-crud").textContent = crudEditandoId ? "Salvar alterações" : "Cadastrar";
+      return mostrarErro("crud-form-erro", "Registro salvo, mas houve falha ao enviar o arquivo. Tente novamente pela edição.");
+    }
+  }
+
   $("btn-salvar-crud").disabled = false;
+  $("btn-salvar-crud").textContent = crudEditandoId ? "Salvar alterações" : "Cadastrar";
   $("painel-crud").classList.add("hidden");
   await carregarModuloCrud(crudModuloId);
 }
@@ -1637,6 +1743,111 @@ async function excluirCrud(id) {
   const { error } = await supabase.from(cfg.tabela).delete().eq("id", id);
   if (!error) await carregarModuloCrud(crudModuloId);
 }
+
+// ===========================================================
+// Anexos e fotografia da Atividade (bucket "atividades")
+// ===========================================================
+async function urlArquivoAtividade(path) {
+  if (!path) return null;
+  const { data, error } = await supabase.storage.from("atividades").createSignedUrl(path, 60 * 60);
+  return error ? null : data.signedUrl;
+}
+
+async function abrirPainelAtividadeAnexos(atividadeId) {
+  atividadeAnexosAbertaId = atividadeId;
+  const a = (crudLista || []).find((x) => x.id === atividadeId);
+  $("painel-atividade-anexos-titulo").textContent = `Anexos — OS ${a?.os || ""}`;
+  $("painel-atividade-anexos-descricao").textContent = a?.descricao || "";
+  esconderErro("anexo-atividade-form-erro");
+  $("anexo-atividade-descricao").value = "";
+  $("anexo-atividade-input").value = "";
+  const podeIncluir = podeFazer("atividades", "incluir");
+  $("bloco-novo-anexo-atividade").classList.toggle("hidden", !podeIncluir);
+  $("painel-atividade-anexos").classList.remove("hidden");
+  await carregarAnexosAtividade();
+}
+
+async function carregarAnexosAtividade() {
+  const { data } = await supabase
+    .from("atividade_anexos").select("*").eq("atividade_id", atividadeAnexosAbertaId)
+    .order("created_at", { ascending: false });
+  anexosDaAtividadeAtual = data || [];
+  renderizarListaAnexosAtividade();
+}
+
+function renderizarListaAnexosAtividade() {
+  const podeExcluir = podeFazer("atividades", "excluir");
+  const dtHora = (s) => (s ? new Date(s).toLocaleString("pt-BR") : "—");
+  const nomeU = (id) => (atividadeRefUsuarios.find((u) => u.id === id) || {}).nome || "—";
+  const corpo = $("anexo-atividade-lista");
+  if (anexosDaAtividadeAtual.length === 0) {
+    corpo.innerHTML = `<tr><td colspan="4" class="text-center text-slate-400 text-xs py-6">Nenhum anexo cadastrado.</td></tr>`;
+    return;
+  }
+  corpo.innerHTML = anexosDaAtividadeAtual.map((x) => `
+    <tr class="border-t border-slate-100">
+      <td class="py-1.5 pr-2">${x.descricao || "—"}</td>
+      <td class="py-1.5 pr-2 whitespace-nowrap">${dtHora(x.created_at)}</td>
+      <td class="py-1.5 pr-2 whitespace-nowrap">${nomeU(x.criado_por)}</td>
+      <td class="py-1.5 text-right whitespace-nowrap">
+        <button data-anexo-abrir="${x.id}" class="text-slate-500 hover:text-slate-800 text-xs mr-2">abrir</button>
+        ${podeExcluir ? `<button data-anexo-excluir="${x.id}" class="text-rose-500 hover:text-rose-700 text-xs">🗑️</button>` : ""}
+      </td>
+    </tr>
+  `).join("");
+  corpo.querySelectorAll("[data-anexo-abrir]").forEach((btn) => btn.addEventListener("click", async () => {
+    const x = anexosDaAtividadeAtual.find((a) => a.id === btn.getAttribute("data-anexo-abrir"));
+    const u = await urlArquivoAtividade(x?.arquivo_path);
+    if (u) window.open(u, "_blank");
+  }));
+  corpo.querySelectorAll("[data-anexo-excluir]").forEach((btn) =>
+    btn.addEventListener("click", () => excluirAnexoAtividade(btn.getAttribute("data-anexo-excluir")))
+  );
+}
+
+async function salvarAnexoAtividade() {
+  esconderErro("anexo-atividade-form-erro");
+  const descricao = $("anexo-atividade-descricao").value.trim();
+  const file = $("anexo-atividade-input").files[0];
+  if (!descricao) return mostrarErro("anexo-atividade-form-erro", "Informe o descritivo do anexo.");
+  if (!file) return mostrarErro("anexo-atividade-form-erro", "Selecione o arquivo do anexo.");
+
+  const btn = $("btn-salvar-anexo-atividade");
+  btn.disabled = true;
+  btn.textContent = "Enviando…";
+
+  const ext = (file.name.split(".").pop() || "bin").toLowerCase();
+  const caminho = `${atividadeAnexosAbertaId}/anexo_${Date.now()}.${ext}`;
+  let falhou = false;
+  const { error: erroUp } = await supabase.storage.from("atividades").upload(caminho, file, { upsert: true });
+  if (erroUp) {
+    falhou = true;
+  } else {
+    const { error: erroIns } = await supabase.from("atividade_anexos").insert({
+      atividade_id: atividadeAnexosAbertaId, descricao, arquivo_path: caminho,
+    });
+    if (erroIns) falhou = true;
+  }
+  btn.disabled = false;
+  btn.textContent = "+ Adicionar anexo";
+  if (falhou) return mostrarErro("anexo-atividade-form-erro", "Não foi possível salvar o anexo. Tente novamente.");
+
+  $("anexo-atividade-descricao").value = "";
+  $("anexo-atividade-input").value = "";
+  await carregarAnexosAtividade();
+}
+
+async function excluirAnexoAtividade(id) {
+  const x = anexosDaAtividadeAtual.find((a) => a.id === id);
+  if (!confirmarExclusao(`o anexo "${x?.descricao || ""}"`.trim())) return;
+  if (x?.arquivo_path) await supabase.storage.from("atividades").remove([x.arquivo_path]);
+  const { error } = await supabase.from("atividade_anexos").delete().eq("id", id);
+  if (!error) await carregarAnexosAtividade();
+}
+
+$("btn-salvar-anexo-atividade").addEventListener("click", salvarAnexoAtividade);
+$("btn-fechar-painel-atividade-anexos").addEventListener("click", () => $("painel-atividade-anexos").classList.add("hidden"));
+$("painel-atividade-anexos-overlay").addEventListener("click", () => $("painel-atividade-anexos").classList.add("hidden"));
 
 // ===========================================================
 // Auxiliares compartilhados por Agendamentos / Orçamentos / Turmas

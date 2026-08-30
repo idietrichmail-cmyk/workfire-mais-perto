@@ -835,3 +835,21 @@ create policy "atividades_delete" on atividades for delete using (pode_acessar_t
 --   atividades.corporativo boolean not null default false
 --   check (not (corporativo and centro_treinamento_id is not null))  -- exclusivos
 --   pode_acessar_tabela: + ('atividades','centros_treinamento','leitura')
+
+-- migração atividades_os_foto_anexos_auditoria:
+--   atividades: + os text (unique; AAAA + 5 seq/ano, via trigger BEFORE INSERT
+--     atividades_before_insert com pg_advisory_xact_lock),
+--     + foto_path text (bucket storage "atividades", caminho "<atividade_id>/foto_*"),
+--     + criado_por / alterado_por uuid -> usuarios_sistema, + updated_at timestamptz.
+--   Triggers atividades_before_insert / atividades_before_update (security definer)
+--     preenchem os/criado_por/created_at (imutáveis no update) e alterado_por/updated_at
+--     resolvendo usuarios_sistema.id a partir de auth.uid().
+--   atividade_anexos (id, atividade_id -> atividades on delete cascade, descricao,
+--     arquivo_path, criado_por -> usuarios_sistema, created_at). Trigger
+--     atividade_anexos_before_insert preenche criado_por/created_at. RLS segue o
+--     módulo 'atividades' via pode_acessar_tabela.
+--   storage bucket privado 'atividades' + policies em storage.objects
+--     (bucket_id='atividades' and pode_acessar_tabela(auth.uid(),'atividades',<ação>)).
+--   Frontend: engine CRUD ganha campo.display (somente leitura), cfg.camposExtraHtml,
+--     cfg.aoSalvar (upload da foto pós-save), cfg.aoMontarTabela; painel
+--     #painel-atividade-anexos p/ CRUD dos anexos.
