@@ -853,3 +853,19 @@ create policy "atividades_delete" on atividades for delete using (pode_acessar_t
 --   Frontend: engine CRUD ganha campo.display (somente leitura), cfg.camposExtraHtml,
 --     cfg.aoSalvar (upload da foto pós-save), cfg.aoMontarTabela; painel
 --     #painel-atividade-anexos p/ CRUD dos anexos.
+
+-- migração atividades_permissoes_monitor:
+--   permissoes: + pode_acessar_monitor / pode_mudar_responsavel /
+--     pode_concluir_cancelar (bool, só fazem sentido em modulo='atividades').
+--   atividades: + observacoes text.
+--   Funções: meu_usuario_sistema_id(uid), perm_atividades(uid, flag),
+--     pode_editar_atividade(uid, atividade_id).
+--   RLS atividades_update: editor pleno (admin OU pode_incluir OU pode_alterar
+--     em 'atividades', via pode_acessar_tabela) OU responsavel_id = meu id.
+--   Trigger atividades_before_update passa a impor:
+--     * mudar responsavel_id  -> exige admin OU pode_mudar_responsavel
+--     * status -> 'Concluída'/'Cancelada' -> exige admin OU pode_concluir_cancelar
+--     * quem não é editor pleno só altera as colunas data_inicio_realizado,
+--       data_termino_realizado, percentual, observacoes, e só se for o responsável.
+--   atividade_anexos insert/delete e storage.objects insert/delete do bucket
+--     'atividades' passam a aceitar também o responsável da atividade.

@@ -232,6 +232,12 @@ function podeFazer(modulo, acao) {
   return !!(p && p["pode_" + acao]);
 }
 
+// Controles extras do módulo Atividades (colunas próprias de permissoes)
+function podeAtividades(flag) {
+  if (usuarioSistemaAtual && usuarioSistemaAtual.role === "admin") return true;
+  return !!(permissoesAtual.atividades && permissoesAtual.atividades["pode_" + flag]);
+}
+
 // ---------------------------------------------------------
 // Inicialização
 // ---------------------------------------------------------
@@ -1130,6 +1136,13 @@ const CRUD_CONFIG = {
       }
       const btnAnx = $("atividade-abrir-anexos");
       if (btnAnx && item) btnAnx.addEventListener("click", () => abrirPainelAtividadeAnexos(item.id));
+
+      // Ao editar, trava a troca de responsável sem a permissão específica
+      const selResp = $("crud-campo-responsavel_id");
+      if (selResp && item && !podeAtividades("mudar_responsavel")) {
+        selResp.disabled = true;
+        selResp.title = "Você não tem permissão para mudar o responsável.";
+      }
     },
     camposExtraHtml: (item) => {
       const dtHora = (s) => (s ? new Date(s).toLocaleString("pt-BR") : "—");
@@ -1316,12 +1329,21 @@ const CRUD_CONFIG = {
       },
       {
         id: "status", label: "Status", tipo: "select", padrao: "Planejada",
-        opcoes: ["Planejada", "Aguardando Materiais", "Em Execução", "Concluída", "Cancelada"],
+        opcoesFn: () => {
+          const base = ["Planejada", "Aguardando Materiais", "Em Execução"];
+          const restritas = ["Concluída", "Cancelada"];
+          const atual = crudItemEmEdicao && crudItemEmEdicao.status;
+          const lista = podeAtividades("concluir_cancelar")
+            ? base.concat(restritas)
+            : base.concat(restritas.filter((s) => s === atual));
+          return lista.map((s) => ({ value: s, label: s }));
+        },
       },
       {
         id: "percentual", label: "% de evolução (atualizado pelo responsável)", tipo: "number", min: 0, max: 100, padrao: 0,
         validar: (v) => (v === "" || v == null ? null : (Number(v) < 0 || Number(v) > 100 ? "O percentual deve estar entre 0 e 100." : null)),
       },
+      { id: "observacoes", label: "Observações", tipo: "textarea" },
       { id: "data_inicio_previsto", label: "Data de início previsto", tipo: "date" },
       { id: "data_termino_previsto", label: "Data de término previsto", tipo: "date" },
       { id: "data_inicio_realizado", label: "Data de início realizado", tipo: "date" },
@@ -1505,6 +1527,18 @@ async function carregarPermissoesParaForm(usuarioId) {
         <input type="checkbox" data-perm-modulo="${m.id}" data-perm-acao="excluir" ${p.pode_excluir ? "checked" : ""} />
       </div>`;
     }).join("")}
+    <div class="px-3 py-3 bg-slate-50 space-y-1.5">
+      <p class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Atividades — controles adicionais</p>
+      ${[
+        ["pode_acessar_monitor", "Acessar o app Monitor (workfire-monitor)"],
+        ["pode_mudar_responsavel", "Mudar o responsável de uma atividade"],
+        ["pode_concluir_cancelar", "Concluir ou cancelar atividades"],
+      ].map(([campo, rotulo]) => `
+        <label class="flex items-center gap-2 text-slate-700">
+          <input type="checkbox" data-permx="${campo}" ${(existentes["atividades"] || {})[campo] ? "checked" : ""} />
+          <span>${rotulo}</span>
+        </label>`).join("")}
+    </div>
   `;
 }
 
@@ -1660,14 +1694,22 @@ $("btn-cancelar-painel-crud").addEventListener("click", () => $("painel-crud").c
 $("painel-crud-overlay").addEventListener("click", () => $("painel-crud").classList.add("hidden"));
 
 async function salvarPermissoesForm(usuarioId) {
-  const linhas = MODULOS.map((m) => ({
-    usuario_id: usuarioId,
-    modulo: m.id,
-    pode_consultar: !!qs(`[data-perm-modulo="${m.id}"][data-perm-acao="consultar"]`)?.checked,
-    pode_incluir: !!qs(`[data-perm-modulo="${m.id}"][data-perm-acao="incluir"]`)?.checked,
-    pode_alterar: !!qs(`[data-perm-modulo="${m.id}"][data-perm-acao="alterar"]`)?.checked,
-    pode_excluir: !!qs(`[data-perm-modulo="${m.id}"][data-perm-acao="excluir"]`)?.checked,
-  }));
+  const linhas = MODULOS.map((m) => {
+    const linha = {
+      usuario_id: usuarioId,
+      modulo: m.id,
+      pode_consultar: !!qs(`[data-perm-modulo="${m.id}"][data-perm-acao="consultar"]`)?.checked,
+      pode_incluir: !!qs(`[data-perm-modulo="${m.id}"][data-perm-acao="incluir"]`)?.checked,
+      pode_alterar: !!qs(`[data-perm-modulo="${m.id}"][data-perm-acao="alterar"]`)?.checked,
+      pode_excluir: !!qs(`[data-perm-modulo="${m.id}"][data-perm-acao="excluir"]`)?.checked,
+    };
+    if (m.id === "atividades") {
+      linha.pode_acessar_monitor = !!qs('[data-permx="pode_acessar_monitor"]')?.checked;
+      linha.pode_mudar_responsavel = !!qs('[data-permx="pode_mudar_responsavel"]')?.checked;
+      linha.pode_concluir_cancelar = !!qs('[data-permx="pode_concluir_cancelar"]')?.checked;
+    }
+    return linha;
+  });
   await supabase.from("permissoes").upsert(linhas, { onConflict: "usuario_id,modulo" });
 }
 
