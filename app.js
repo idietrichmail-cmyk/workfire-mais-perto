@@ -1094,6 +1094,52 @@ const CRUD_CONFIG = {
       sincronizar();
     },
     ajustarPayload: (p) => { if (p.corporativo) p.centro_treinamento_id = null; },
+    renderTabela: (lista, { podeAlterar, podeExcluir }) => {
+      const tipoNome = (id) => (atividadeRefTipos.find((t) => t.id === id) || {}).nome || "—";
+      const respNome = (id) => (atividadeRefUsuarios.find((u) => u.id === id) || {}).nome || "—";
+      const centroTxt = (i) => i.corporativo
+        ? "🏢 Corporativo"
+        : ((atividadeRefCentros.find((c) => c.id === i.centro_treinamento_id) || {}).nome || "—");
+      const badge = (s) => `<span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${CRUD_CONFIG.atividades.corStatus[s] || "bg-slate-100 text-slate-600"}">${s}</span>`;
+      const d = (x) => x || "—";
+      return `
+      <table class="w-full text-xs bg-white border border-slate-200 rounded-lg">
+        <thead>
+          <tr class="bg-slate-50 text-left text-slate-500 uppercase tracking-wide text-[10px]">
+            <th class="px-3 py-2 font-medium">Atividade</th>
+            <th class="px-3 py-2 font-medium">Tipo</th>
+            <th class="px-3 py-2 font-medium">Responsável</th>
+            <th class="px-3 py-2 font-medium">Centro</th>
+            <th class="px-3 py-2 font-medium">Status</th>
+            <th class="px-3 py-2 font-medium">%</th>
+            <th class="px-3 py-2 font-medium">Início prev.</th>
+            <th class="px-3 py-2 font-medium">Térm. prev.</th>
+            <th class="px-3 py-2 font-medium">Início real.</th>
+            <th class="px-3 py-2 font-medium">Térm. real.</th>
+            <th class="px-3 py-2"></th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          ${lista.map((i) => `
+          <tr class="hover:bg-slate-50 align-top">
+            <td class="px-3 py-2"><div class="min-w-[200px] max-w-[340px] whitespace-normal text-slate-800">${i.descricao || "—"}</div></td>
+            <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${tipoNome(i.tipo_atividade_id)}</td>
+            <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${respNome(i.responsavel_id)}</td>
+            <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${centroTxt(i)}</td>
+            <td class="px-3 py-2 whitespace-nowrap">${badge(i.status)}</td>
+            <td class="px-3 py-2 text-slate-600">${i.percentual || 0}%</td>
+            <td class="px-3 py-2 text-slate-500 whitespace-nowrap">${d(i.data_inicio_previsto)}</td>
+            <td class="px-3 py-2 text-slate-500 whitespace-nowrap">${d(i.data_termino_previsto)}</td>
+            <td class="px-3 py-2 text-slate-500 whitespace-nowrap">${d(i.data_inicio_realizado)}</td>
+            <td class="px-3 py-2 text-slate-500 whitespace-nowrap">${d(i.data_termino_realizado)}</td>
+            <td class="px-3 py-2 text-right whitespace-nowrap">
+              ${podeAlterar ? `<button data-crud-editar="${i.id}" class="text-slate-500 hover:text-slate-800 mr-2">✏️</button>` : ""}
+              ${podeExcluir ? `<button data-crud-excluir="${i.id}" class="text-rose-500 hover:text-rose-700">🗑️</button>` : ""}
+            </td>
+          </tr>`).join("")}
+        </tbody>
+      </table>`;
+    },
     renderFiltros: () => {
       const rotulos = {
         data_inicio_previsto: "Início previsto",
@@ -1300,6 +1346,21 @@ function renderizarListaCrud() {
   const podeExcluir = podeFazer(crudModuloId, "excluir");
   const cont = $("crud-lista");
 
+  const vazio = `<div class="bg-white border border-dashed border-slate-300 rounded-lg py-16 text-center text-slate-500 text-sm">Nenhum registro encontrado.</div>`;
+
+  if (cfg.renderTabela) {
+    cont.className = "overflow-x-auto";
+    cont.innerHTML = lista.length === 0 ? vazio : cfg.renderTabela(lista, { podeAlterar, podeExcluir });
+    cont.querySelectorAll("[data-crud-editar]").forEach((btn) =>
+      btn.addEventListener("click", () => abrirEdicaoCrud(btn.getAttribute("data-crud-editar")))
+    );
+    cont.querySelectorAll("[data-crud-excluir]").forEach((btn) =>
+      btn.addEventListener("click", () => excluirCrud(btn.getAttribute("data-crud-excluir")))
+    );
+    return;
+  }
+
+  cont.className = "grid sm:grid-cols-2 xl:grid-cols-3 gap-4";
   if (lista.length === 0) {
     cont.innerHTML = `<div class="col-span-full bg-white border border-dashed border-slate-300 rounded-lg py-16 text-center text-slate-500 text-sm">Nenhum registro encontrado.</div>`;
     return;
