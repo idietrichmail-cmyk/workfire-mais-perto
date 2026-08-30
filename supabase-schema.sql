@@ -764,3 +764,68 @@ as $$
       )
   );
 $$;
+
+-- =========================================================
+-- Rotina de Atividades (migração atividades_e_tipos_atividade)
+--
+-- tipos_atividade: tabela acessória (cadastro), selecionada no
+-- cadastro de atividades. Colunas: nome, descricao, status.
+--
+-- atividades: tipo_atividade_id -> tipos_atividade (on delete restrict),
+--   responsavel_id -> usuarios_sistema (on delete set null; usuário
+--   responsável por manter a informação atualizada e o percentual),
+--   descricao (descritivo), data_inicio_previsto, data_termino_previsto,
+--   data_inicio_realizado, data_termino_realizado (date),
+--   percentual int 0..100 (evolução, atualizada pelo responsável),
+--   status in ('Planejada','Aguardando Materiais','Em Execução',
+--              'Concluída','Cancelada') default 'Planejada'.
+--
+-- Módulos no app (MODULOS) e no mapa de pode_acessar_tabela:
+--   tipos_atividade -> own tipos_atividade
+--   atividades      -> own atividades; leitura tipos_atividade, usuarios_sistema
+-- Políticas RLS de ambas as tabelas usam pode_acessar_tabela().
+-- No frontend as duas rotinas usam a engine genérica CRUD_CONFIG
+-- (com opcoesFn p/ selects dinâmicos, tipo:"date" e corStatus).
+-- =========================================================
+
+create table if not exists tipos_atividade (
+  id uuid primary key default gen_random_uuid(),
+  nome text not null,
+  descricao text,
+  status text not null default 'Ativo',
+  created_at timestamptz not null default now()
+);
+
+create table if not exists atividades (
+  id uuid primary key default gen_random_uuid(),
+  tipo_atividade_id uuid references tipos_atividade(id) on delete restrict,
+  responsavel_id uuid references usuarios_sistema(id) on delete set null,
+  descricao text,
+  data_inicio_previsto date,
+  data_termino_previsto date,
+  data_inicio_realizado date,
+  data_termino_realizado date,
+  percentual integer not null default 0 check (percentual between 0 and 100),
+  status text not null default 'Planejada'
+    check (status in ('Planejada','Aguardando Materiais','Em Execução','Concluída','Cancelada')),
+  created_at timestamptz not null default now()
+);
+
+alter table tipos_atividade enable row level security;
+alter table atividades enable row level security;
+
+create policy "tipos_atividade_select" on tipos_atividade for select using (pode_acessar_tabela(auth.uid(),'tipos_atividade','select'));
+create policy "tipos_atividade_insert" on tipos_atividade for insert with check (pode_acessar_tabela(auth.uid(),'tipos_atividade','insert'));
+create policy "tipos_atividade_update" on tipos_atividade for update using (pode_acessar_tabela(auth.uid(),'tipos_atividade','update'));
+create policy "tipos_atividade_delete" on tipos_atividade for delete using (pode_acessar_tabela(auth.uid(),'tipos_atividade','delete'));
+
+create policy "atividades_select" on atividades for select using (pode_acessar_tabela(auth.uid(),'atividades','select'));
+create policy "atividades_insert" on atividades for insert with check (pode_acessar_tabela(auth.uid(),'atividades','insert'));
+create policy "atividades_update" on atividades for update using (pode_acessar_tabela(auth.uid(),'atividades','update'));
+create policy "atividades_delete" on atividades for delete using (pode_acessar_tabela(auth.uid(),'atividades','delete'));
+
+-- pode_acessar_tabela passa a incluir no mapa:
+--   ('tipos_atividade','tipos_atividade','own'),
+--   ('atividades','atividades','own'),
+--   ('atividades','tipos_atividade','leitura'),
+--   ('atividades','usuarios_sistema','leitura')

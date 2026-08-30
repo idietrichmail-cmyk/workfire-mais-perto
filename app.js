@@ -157,6 +157,10 @@ let listaTiposAtivos = [];
 let listaCentrosAtivos = [];
 let listaEmpresasAtivas = [];
 
+// Listas de referência para o cadastro de Atividades (carregadas sob demanda)
+let atividadeRefUsuarios = [];
+let atividadeRefTipos = [];
+
 let listaAgendamentos = [];
 let editandoAgendamentoId = null;
 let agInstrutorSelecionado = null;
@@ -207,11 +211,13 @@ const MODULOS = [
   { id: "centros_treinamento", label: "Centros de Treinamento", icone: "🏫", grupo: "Cadastros" },
   { id: "tipos_treinamento", label: "Treinamentos", icone: "🏷️", grupo: "Cadastros" },
   { id: "empresas_transporte", label: "Empresas de Transporte", icone: "🚐", grupo: "Cadastros" },
+  { id: "tipos_atividade", label: "Tipos de Atividade", icone: "🗂️", grupo: "Cadastros" },
   { id: "usuarios_sistema", label: "Usuários do Sistema", icone: "🔑", grupo: "Cadastros" },
   { id: "agendamentos", label: "Agendar Treinamento", icone: "🗓️", grupo: "Operações" },
   { id: "orcamentos", label: "Orçamentos", icone: "💰", grupo: "Operações" },
   { id: "turmas", label: "Turmas por Orçamento", icone: "🎓", grupo: "Operações" },
   { id: "agendamento_turmas", label: "Agendamento de Turmas", icone: "📆", grupo: "Operações" },
+  { id: "atividades", label: "Atividades", icone: "📋", grupo: "Operações" },
 ];
 
 function podeFazer(modulo, acao) {
@@ -1035,16 +1041,95 @@ const CRUD_CONFIG = {
     cardTitulo: (i) => i.nome,
     cardLinhas: (i) => [i.email, i.role === "admin" ? "👑 Administrador" : "Usuário", i.user_id ? "✅ Já criou senha no app" : "⏳ Aguardando primeiro acesso"],
   },
+  tipos_atividade: {
+    tabela: "tipos_atividade",
+    titulo: "Tipo de Atividade",
+    descricao: "Categorias usadas para classificar as atividades no cadastro de Atividades.",
+    buscaPlaceholder: "Buscar por nome",
+    ordenarPor: "nome",
+    campos: [
+      { id: "nome", label: "Nome do tipo", obrigatorio: true },
+      { id: "descricao", label: "Descrição", tipo: "textarea" },
+      { id: "status", label: "Status", tipo: "select", opcoes: ["Ativo", "Inativo"], padrao: "Ativo" },
+    ],
+    campoBusca: (i) => `${i.nome} ${i.descricao || ""}`,
+    cardTitulo: (i) => i.nome,
+    cardLinhas: (i) => [i.descricao].filter(Boolean),
+  },
+  atividades: {
+    tabela: "atividades",
+    titulo: "Atividade",
+    descricao: "Atividades dos usuários do sistema: responsável, prazos previstos/realizados e evolução.",
+    buscaPlaceholder: "Buscar por descrição ou tipo",
+    ordenarPor: "created_at",
+    ordenarAsc: false,
+    corStatus: {
+      "Planejada": "bg-slate-100 text-slate-600",
+      "Aguardando Materiais": "bg-amber-50 text-amber-700",
+      "Em Execução": "bg-blue-50 text-blue-700",
+      "Concluída": "bg-teal-50 text-teal-700",
+      "Cancelada": "bg-rose-50 text-rose-600",
+    },
+    carregarRefs: async () => {
+      const [{ data: us }, { data: ts }] = await Promise.all([
+        supabase.from("usuarios_sistema").select("id, nome, email, status").order("nome"),
+        supabase.from("tipos_atividade").select("id, nome, status").order("nome"),
+      ]);
+      atividadeRefUsuarios = us || [];
+      atividadeRefTipos = ts || [];
+    },
+    campos: [
+      { id: "descricao", label: "Descritivo da atividade", tipo: "textarea", obrigatorio: true },
+      {
+        id: "tipo_atividade_id", label: "Tipo de atividade", tipo: "select", obrigatorio: true,
+        opcoesFn: () => [{ value: "", label: "— Selecione —" }].concat(
+          atividadeRefTipos.filter((t) => t.status === "Ativo").map((t) => ({ value: t.id, label: t.nome }))
+        ),
+      },
+      {
+        id: "responsavel_id", label: "Responsável por manter atualizado", tipo: "select", obrigatorio: true,
+        opcoesFn: () => [{ value: "", label: "— Selecione —" }].concat(
+          atividadeRefUsuarios.filter((u) => u.status === "Ativo").map((u) => ({ value: u.id, label: u.nome }))
+        ),
+      },
+      {
+        id: "status", label: "Status", tipo: "select", padrao: "Planejada",
+        opcoes: ["Planejada", "Aguardando Materiais", "Em Execução", "Concluída", "Cancelada"],
+      },
+      {
+        id: "percentual", label: "% de evolução (atualizado pelo responsável)", tipo: "number", min: 0, max: 100, padrao: 0,
+        validar: (v) => (v === "" || v == null ? null : (Number(v) < 0 || Number(v) > 100 ? "O percentual deve estar entre 0 e 100." : null)),
+      },
+      { id: "data_inicio_previsto", label: "Data de início previsto", tipo: "date" },
+      { id: "data_termino_previsto", label: "Data de término previsto", tipo: "date" },
+      { id: "data_inicio_realizado", label: "Data de início realizado", tipo: "date" },
+      { id: "data_termino_realizado", label: "Data de término realizado", tipo: "date" },
+    ],
+    campoBusca: (i) => `${i.descricao || ""} ${(atividadeRefTipos.find((t) => t.id === i.tipo_atividade_id) || {}).nome || ""}`,
+    cardTitulo: (i) => ((i.descricao || "").length > 80 ? (i.descricao || "").slice(0, 80) + "…" : (i.descricao || "")) || "Atividade",
+    cardLinhas: (i) => {
+      const tipo = atividadeRefTipos.find((t) => t.id === i.tipo_atividade_id);
+      const resp = atividadeRefUsuarios.find((u) => u.id === i.responsavel_id);
+      return [
+        tipo && `🗂️ ${tipo.nome}`,
+        resp && `👤 Responsável: ${resp.nome}`,
+        `📊 ${i.percentual || 0}% concluído`,
+        (i.data_inicio_previsto || i.data_termino_previsto) && `📅 Previsto: ${i.data_inicio_previsto || "—"} → ${i.data_termino_previsto || "—"}`,
+        (i.data_inicio_realizado || i.data_termino_realizado) && `✅ Realizado: ${i.data_inicio_realizado || "—"} → ${i.data_termino_realizado || "—"}`,
+      ].filter(Boolean);
+    },
+  },
 };
 
 function renderCampoHtml(campo, valor) {
   const val = valor == null ? "" : valor;
   if (campo.tipo === "select") {
-    const opcoes = campo.opcoes.map((o) => (typeof o === "string" ? { value: o, label: o } : o));
+    const fonte = campo.opcoesFn ? campo.opcoesFn() : campo.opcoes;
+    const opcoes = fonte.map((o) => (typeof o === "string" ? { value: o, label: o } : o));
     return `<div>
       <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">${campo.label}</label>
       <select id="crud-campo-${campo.id}" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">
-        ${opcoes.map((o) => `<option value="${o.value}" ${o.value === val ? "selected" : ""}>${o.label}</option>`).join("")}
+        ${opcoes.map((o) => `<option value="${o.value}" ${String(o.value) === String(val) ? "selected" : ""}>${o.label}</option>`).join("")}
       </select>
     </div>`;
   }
@@ -1065,9 +1150,12 @@ function renderCampoHtml(campo, valor) {
       <p id="${campo.botaoAcao.id}-status" class="text-[11px] mt-1"></p>
     </div>`;
   }
+  const atributosNum = campo.tipo === "number"
+    ? `${campo.min != null ? ` min="${campo.min}"` : ""}${campo.max != null ? ` max="${campo.max}"` : ""}`
+    : "";
   return `<div>
     <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">${campo.label}</label>
-    <input id="crud-campo-${campo.id}"${atributoMascara} type="${campo.tipo || "text"}" value="${String(val).replace(/"/g, "&quot;")}" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
+    <input id="crud-campo-${campo.id}"${atributoMascara}${atributosNum} type="${campo.tipo || "text"}" value="${String(val).replace(/"/g, "&quot;")}" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
   </div>`;
 }
 
@@ -1075,7 +1163,8 @@ async function carregarModuloCrud(id) {
   crudModuloId = id;
   const cfg = CRUD_CONFIG[id];
   $("admin-descricao-pagina").textContent = cfg.descricao;
-  const { data, error } = await supabase.from(cfg.tabela).select("*").order(cfg.ordenarPor);
+  if (cfg.carregarRefs) await cfg.carregarRefs();
+  const { data, error } = await supabase.from(cfg.tabela).select("*").order(cfg.ordenarPor, { ascending: cfg.ordenarAsc !== false });
   crudLista = error ? [] : data;
   $("crud-busca").value = "";
   $("crud-busca").placeholder = cfg.buscaPlaceholder;
@@ -1097,10 +1186,10 @@ function renderizarListaCrud() {
   }
 
   cont.innerHTML = lista.map((item) => `
-    <div class="bg-white rounded-lg border border-slate-200 border-t-4 ${item.status === "Inativo" ? "border-t-rose-400" : "border-t-teal-600"} p-4 flex flex-col gap-2 shadow-sm">
+    <div class="bg-white rounded-lg border border-slate-200 border-t-4 ${(item.status === "Inativo" || item.status === "Cancelada") ? "border-t-rose-400" : "border-t-teal-600"} p-4 flex flex-col gap-2 shadow-sm">
       <div class="flex items-start justify-between">
         <p class="font-serif text-lg text-slate-900 leading-tight">${cfg.cardTitulo(item)}</p>
-        ${item.status ? `<span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${item.status === "Ativo" ? "bg-teal-50 text-teal-700" : "bg-rose-50 text-rose-600"}">${item.status}</span>` : ""}
+        ${item.status ? `<span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${(cfg.corStatus && cfg.corStatus[item.status]) || (item.status === "Ativo" ? "bg-teal-50 text-teal-700" : "bg-rose-50 text-rose-600")}">${item.status}</span>` : ""}
       </div>
       <div class="text-xs text-slate-500 space-y-1">${cfg.cardLinhas(item).map((l) => `<p>${l}</p>`).join("")}</div>
       <div class="flex gap-2 mt-2 pt-2 border-t border-slate-100">
@@ -1319,6 +1408,8 @@ async function salvarCrud() {
       if (erroValidacao) return mostrarErro("crud-form-erro", erroValidacao);
     }
     if (campo.tipo === "number") valor = valor === "" ? null : Number(valor);
+    else if (campo.tipo === "date") valor = valor === "" ? null : valor;
+    else if (campo.tipo === "select" && valor === "") valor = null;
     payload[campo.id] = valor;
   }
 
