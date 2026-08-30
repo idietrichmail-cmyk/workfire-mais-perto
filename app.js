@@ -1094,6 +1094,71 @@ const CRUD_CONFIG = {
       sincronizar();
     },
     ajustarPayload: (p) => { if (p.corporativo) p.centro_treinamento_id = null; },
+    renderFiltros: () => {
+      const rotulos = {
+        data_inicio_previsto: "Início previsto",
+        data_termino_previsto: "Término previsto",
+        data_inicio_realizado: "Início realizado",
+        data_termino_realizado: "Término realizado",
+      };
+      const ops = (arr) => arr.filter((x) => x.status === "Ativo").map((x) => `<option value="${x.id}">${x.nome}</option>`).join("");
+      const selBase = "rounded-md border border-slate-300 px-2 py-1.5 bg-white";
+      const dtBase = "w-full rounded-md border border-slate-300 px-2 py-1";
+      return `
+      <div class="grid gap-2 md:grid-cols-3 xl:grid-cols-4 text-[11px] text-slate-500">
+        <label class="flex flex-col gap-1 uppercase tracking-wide">Status
+          <select data-filtro="status" class="${selBase}">
+            <option value="">Todos</option>
+            ${["Planejada", "Aguardando Materiais", "Em Execução", "Concluída", "Cancelada"].map((s) => `<option value="${s}">${s}</option>`).join("")}
+          </select>
+        </label>
+        <label class="flex flex-col gap-1 uppercase tracking-wide">Responsável
+          <select data-filtro="responsavel_id" class="${selBase}"><option value="">Todos</option>${ops(atividadeRefUsuarios)}</select>
+        </label>
+        <label class="flex flex-col gap-1 uppercase tracking-wide">Tipo de atividade
+          <select data-filtro="tipo_atividade_id" class="${selBase}"><option value="">Todos</option>${ops(atividadeRefTipos)}</select>
+        </label>
+        <label class="flex flex-col gap-1 uppercase tracking-wide">Centro de Treinamento
+          <select data-filtro="centro_treinamento_id" class="${selBase}">
+            <option value="">Todos</option>
+            <option value="__corp__">🏢 Corporativo</option>
+            ${ops(atividadeRefCentros)}
+          </select>
+        </label>
+        ${Object.keys(rotulos).map((campo) => `
+        <label class="flex flex-col gap-1 uppercase tracking-wide">${rotulos[campo]}
+          <div class="flex items-center gap-1">
+            <input type="date" data-filtro="${campo}__de" class="${dtBase}" title="de" />
+            <span class="normal-case">a</span>
+            <input type="date" data-filtro="${campo}__ate" class="${dtBase}" title="até" />
+          </div>
+        </label>`).join("")}
+        <div class="flex items-end">
+          <button id="crud-filtros-limpar" type="button" class="normal-case text-amber-700 hover:underline">limpar filtros</button>
+        </div>
+      </div>`;
+    },
+    aplicarFiltros: (lista) => {
+      const v = (k) => {
+        const el = document.querySelector(`#crud-filtros [data-filtro="${k}"]`);
+        return el ? el.value : "";
+      };
+      let out = lista;
+      ["status", "responsavel_id", "tipo_atividade_id"].forEach((k) => {
+        const val = v(k);
+        if (val) out = out.filter((i) => i[k] === val);
+      });
+      const centro = v("centro_treinamento_id");
+      if (centro === "__corp__") out = out.filter((i) => i.corporativo);
+      else if (centro) out = out.filter((i) => i.centro_treinamento_id === centro);
+      ["data_inicio_previsto", "data_termino_previsto", "data_inicio_realizado", "data_termino_realizado"].forEach((campo) => {
+        const de = v(campo + "__de");
+        const ate = v(campo + "__ate");
+        if (de) out = out.filter((i) => i[campo] && i[campo] >= de);
+        if (ate) out = out.filter((i) => i[campo] && i[campo] <= ate);
+      });
+      return out;
+    },
     campos: [
       { id: "descricao", label: "Descritivo da atividade", tipo: "textarea", obrigatorio: true },
       {
@@ -1205,13 +1270,32 @@ async function carregarModuloCrud(id) {
   $("crud-busca").value = "";
   $("crud-busca").placeholder = cfg.buscaPlaceholder;
   $("btn-crud-novo").classList.toggle("hidden", !podeFazer(id, "incluir"));
+
+  const elFiltros = $("crud-filtros");
+  if (cfg.renderFiltros) {
+    elFiltros.innerHTML = cfg.renderFiltros();
+    elFiltros.classList.remove("hidden");
+    elFiltros.querySelectorAll("input, select").forEach((el) => {
+      el.addEventListener(el.tagName === "SELECT" || el.type === "date" ? "change" : "input", renderizarListaCrud);
+    });
+    const limpar = $("crud-filtros-limpar");
+    if (limpar) limpar.addEventListener("click", () => {
+      elFiltros.querySelectorAll("input, select").forEach((el) => { el.value = ""; });
+      renderizarListaCrud();
+    });
+  } else {
+    elFiltros.classList.add("hidden");
+    elFiltros.innerHTML = "";
+  }
+
   renderizarListaCrud();
 }
 
 function renderizarListaCrud() {
   const cfg = CRUD_CONFIG[crudModuloId];
   const busca = $("crud-busca").value.toLowerCase();
-  const lista = crudLista.filter((item) => cfg.campoBusca(item).toLowerCase().includes(busca));
+  let lista = crudLista.filter((item) => cfg.campoBusca(item).toLowerCase().includes(busca));
+  if (cfg.aplicarFiltros) lista = cfg.aplicarFiltros(lista);
   const podeAlterar = podeFazer(crudModuloId, "alterar");
   const podeExcluir = podeFazer(crudModuloId, "excluir");
   const cont = $("crud-lista");
