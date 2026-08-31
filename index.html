@@ -176,13 +176,13 @@
   </div>
 </div>
 
-<!-- ===================== RECUPERAR SENHA — 1) PEDIR CÓDIGO POR E-MAIL ===================== -->
+<!-- ===================== RECUPERAR SENHA — 1) SOLICITAR AO ADMINISTRADOR ===================== -->
 <div id="tela-rec-email" class="tela hidden min-h-screen bg-slate-950 flex items-center justify-center p-6">
   <div class="w-full max-w-sm bg-white rounded-[2rem] shadow-2xl overflow-hidden border border-slate-800">
     <div class="bg-slate-900 px-6 pt-9 pb-10 text-center">
-      <div class="w-12 h-12 rounded-full bg-teal-600 mx-auto flex items-center justify-center mb-3 text-xl">✉️</div>
+      <div class="w-12 h-12 rounded-full bg-teal-600 mx-auto flex items-center justify-center mb-3 text-xl">🔑</div>
       <h1 class="font-serif text-xl text-white">Recuperar senha</h1>
-      <p class="text-slate-400 text-xs mt-1">Enviaremos um código para o seu e-mail cadastrado</p>
+      <p class="text-slate-400 text-xs mt-1">O administrador precisa liberar a redefinição da sua senha</p>
     </div>
     <div class="px-6 py-6 space-y-4">
       <div id="rec-email-erro" class="hidden bg-rose-50 text-rose-600 text-xs rounded-md px-3 py-2"></div>
@@ -191,43 +191,27 @@
         <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">E-mail cadastrado</label>
         <input id="rec-email" type="email" autocapitalize="none" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" placeholder="seuemail@email.com" />
       </div>
-      <button id="btn-rec-enviar" class="w-full bg-teal-700 hover:bg-teal-800 text-white text-sm font-semibold py-2.5 rounded-md">Enviar código</button>
-      <button id="btn-rec-voltar-1" class="w-full text-center text-[11px] text-slate-400 hover:text-slate-700 pt-1">← Voltar ao login</button>
+      <button id="btn-rec-solicitar" class="w-full bg-teal-700 hover:bg-teal-800 text-white text-sm font-semibold py-2.5 rounded-md">Solicitar redefinição ao administrador</button>
+      <button id="btn-rec-ir-redefinir" class="w-full text-center text-[11px] text-teal-600 hover:text-teal-700 pt-1">O administrador já liberou → redefinir minha senha</button>
+      <button id="btn-rec-voltar-1" class="w-full text-center text-[11px] text-slate-400 hover:text-slate-700">← Voltar ao login</button>
     </div>
   </div>
 </div>
 
-<!-- ===================== RECUPERAR SENHA — 2) CONFIRMAR CÓDIGO ===================== -->
-<div id="tela-rec-codigo" class="tela hidden min-h-screen bg-slate-950 flex items-center justify-center p-6">
-  <div class="w-full max-w-sm bg-white rounded-[2rem] shadow-2xl overflow-hidden border border-slate-800">
-    <div class="bg-slate-900 px-6 pt-9 pb-10 text-center">
-      <div class="w-12 h-12 rounded-full bg-teal-600 mx-auto flex items-center justify-center mb-3 text-xl">🔢</div>
-      <h1 class="font-serif text-xl text-white">Confirmar código</h1>
-      <p class="text-slate-400 text-xs mt-1">Digite o código que enviamos para <span id="rec-email-mascara" class="text-white"></span></p>
-    </div>
-    <div class="px-6 py-6 space-y-4">
-      <div id="rec-codigo-erro" class="hidden bg-rose-50 text-rose-600 text-xs rounded-md px-3 py-2"></div>
-      <div>
-        <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Código</label>
-        <input id="rec-codigo" inputmode="numeric" autocomplete="one-time-code" maxlength="8" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-center tracking-[0.4em] text-lg focus:outline-none focus:ring-2 focus:ring-teal-500" placeholder="______" />
-      </div>
-      <button id="btn-rec-confirmar" class="w-full bg-teal-700 hover:bg-teal-800 text-white text-sm font-semibold py-2.5 rounded-md">Confirmar código</button>
-      <button id="btn-rec-reenviar" class="w-full text-center text-[11px] text-teal-600 hover:text-teal-700 pt-1">Reenviar código</button>
-      <button id="btn-rec-voltar-2" class="w-full text-center text-[11px] text-slate-400 hover:text-slate-700">← Voltar ao login</button>
-    </div>
-  </div>
-</div>
-
-<!-- ===================== RECUPERAR SENHA — 3) NOVA SENHA ===================== -->
+<!-- ===================== RECUPERAR SENHA — 2) DEFINIR NOVA SENHA (após liberação) ===================== -->
 <div id="tela-rec-senha" class="tela hidden min-h-screen bg-slate-950 flex items-center justify-center p-6">
   <div class="w-full max-w-sm bg-white rounded-[2rem] shadow-2xl overflow-hidden border border-slate-800">
     <div class="bg-slate-900 px-6 pt-9 pb-10 text-center">
       <div class="w-12 h-12 rounded-full bg-teal-600 mx-auto flex items-center justify-center mb-3 text-xl">🔑</div>
-      <h1 class="font-serif text-xl text-white">Criar nova senha</h1>
-      <p class="text-slate-400 text-xs mt-1">Defina a nova senha da sua conta</p>
+      <h1 class="font-serif text-xl text-white">Redefinir senha</h1>
+      <p class="text-slate-400 text-xs mt-1">Disponível por 24h após a liberação do administrador</p>
     </div>
     <div class="px-6 py-6 space-y-4">
       <div id="rec-senha-erro" class="hidden bg-rose-50 text-rose-600 text-xs rounded-md px-3 py-2"></div>
+      <div>
+        <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">E-mail cadastrado</label>
+        <input id="rec-red-email" type="email" autocapitalize="none" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" placeholder="seuemail@email.com" />
+      </div>
       <div>
         <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Nova senha</label>
         <input id="rec-senha-nova" type="password" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" placeholder="Mínimo 6 caracteres" />
@@ -236,7 +220,8 @@
         <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Confirmar nova senha</label>
         <input id="rec-senha-confirmar" type="password" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
       </div>
-      <button id="btn-rec-salvar-senha" class="w-full bg-teal-700 hover:bg-teal-800 text-white text-sm font-semibold py-2.5 rounded-md">Salvar nova senha</button>
+      <button id="btn-rec-salvar-senha" class="w-full bg-teal-700 hover:bg-teal-800 text-white text-sm font-semibold py-2.5 rounded-md">Redefinir senha</button>
+      <button id="btn-rec-voltar-2" class="w-full text-center text-[11px] text-slate-400 hover:text-slate-700">← Voltar ao login</button>
     </div>
   </div>
 </div>

@@ -427,109 +427,75 @@ $("btn-salvar-nova-senha").addEventListener("click", async () => {
 $("btn-cancelar-troca").addEventListener("click", () => mostrarTela(telaAposLoginParaTrocaSenha));
 
 // ---------------------------------------------------------
-// RECUPERAR SENHA — código de uso único enviado por e-mail (Supabase OTP)
+// RECUPERAR SENHA — solicitação ao administrador + redefinição liberada
+//   1) usuário pede -> solicitar_redefinicao_senha (RPC)
+//   2) admin libera no cadastro (reset_senha_liberado_em)
+//   3) usuário define a nova senha -> Edge Function "redefinir-senha"
 // ---------------------------------------------------------
 let recTelaOrigem = "tela-acesso-admin";
-let recEmail = "";
 
 function irParaRecuperarSenha(origem, emailPrefill) {
   recTelaOrigem = origem;
   esconderErro("rec-email-erro");
   $("rec-email-ok").classList.add("hidden");
   $("rec-email").value = (emailPrefill || "").trim();
+  $("rec-red-email").value = (emailPrefill || "").trim();
   mostrarTela("tela-rec-email");
 }
 $("btn-esqueci-senha-inst").addEventListener("click", () => irParaRecuperarSenha("tela-login", $("login-email").value));
 $("btn-esqueci-senha-sistema").addEventListener("click", () => irParaRecuperarSenha("tela-acesso-admin", $("admin-login-email").value));
 
-async function recVoltarAoLogin() {
-  try { await supabase.auth.signOut(); } catch (e) { /* sem sessão ainda */ }
-  mostrarTela(recTelaOrigem);
-}
-$("btn-rec-voltar-1").addEventListener("click", recVoltarAoLogin);
-$("btn-rec-voltar-2").addEventListener("click", recVoltarAoLogin);
+$("btn-rec-voltar-1").addEventListener("click", () => mostrarTela(recTelaOrigem));
+$("btn-rec-voltar-2").addEventListener("click", () => mostrarTela(recTelaOrigem));
 
-function mascararEmail(email) {
-  const [u, d] = email.split("@");
-  if (!d) return email;
-  const ini = u.slice(0, 2);
-  return `${ini}${"•".repeat(Math.max(1, u.length - 2))}@${d}`;
-}
+$("btn-rec-ir-redefinir").addEventListener("click", () => {
+  esconderErro("rec-senha-erro");
+  $("rec-red-email").value = ($("rec-email").value || "").trim();
+  $("rec-senha-nova").value = "";
+  $("rec-senha-confirmar").value = "";
+  mostrarTela("tela-rec-senha");
+});
 
-async function recEnviarCodigo(email) {
-  const { error } = await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: false } });
-  if (error) {
-    const m = (error.message || "").toLowerCase();
-    if (m.includes("otp") || m.includes("signups not allowed") || m.includes("not found")) {
-      return "Não há conta com esse e-mail, ou ela ainda não criou senha. Use \"Primeiro acesso\".";
-    }
-    if (m.includes("rate") || m.includes("too many") || m.includes("security purposes")) {
-      return "Muitas tentativas. Aguarde alguns minutos antes de pedir outro código.";
-    }
-    return "Não foi possível enviar o código. Tente novamente em instantes.";
-  }
-  return null;
-}
-
-$("btn-rec-enviar").addEventListener("click", async () => {
+$("btn-rec-solicitar").addEventListener("click", async () => {
   esconderErro("rec-email-erro");
   $("rec-email-ok").classList.add("hidden");
   const email = $("rec-email").value.trim().toLowerCase();
   if (!email || !email.includes("@")) return mostrarErro("rec-email-erro", "Informe um e-mail válido.");
-  const btn = $("btn-rec-enviar");
-  btn.disabled = true; btn.textContent = "Enviando…";
-  const erro = await recEnviarCodigo(email);
-  btn.disabled = false; btn.textContent = "Enviar código";
-  if (erro) return mostrarErro("rec-email-erro", erro);
-  recEmail = email;
-  $("rec-email-mascara").textContent = mascararEmail(email);
-  $("rec-codigo").value = "";
-  esconderErro("rec-codigo-erro");
-  mostrarTela("tela-rec-codigo");
-});
-
-$("btn-rec-reenviar").addEventListener("click", async () => {
-  esconderErro("rec-codigo-erro");
-  const btn = $("btn-rec-reenviar");
-  btn.disabled = true; btn.textContent = "Reenviando…";
-  const erro = await recEnviarCodigo(recEmail);
-  btn.disabled = false; btn.textContent = "Reenviar código";
-  mostrarErro("rec-codigo-erro", erro || "Novo código enviado. Confira seu e-mail.");
-  if (!erro) $("rec-codigo-erro").className = "bg-teal-50 text-teal-700 text-xs rounded-md px-3 py-2";
-});
-
-$("btn-rec-confirmar").addEventListener("click", async () => {
-  esconderErro("rec-codigo-erro");
-  $("rec-codigo-erro").className = "hidden bg-rose-50 text-rose-600 text-xs rounded-md px-3 py-2";
-  const token = $("rec-codigo").value.replace(/\D/g, "");
-  if (token.length < 6) return mostrarErro("rec-codigo-erro", "Digite o código recebido por e-mail.");
-  const btn = $("btn-rec-confirmar");
-  btn.disabled = true; btn.textContent = "Confirmando…";
-  const { error } = await supabase.auth.verifyOtp({ email: recEmail, token, type: "email" });
-  btn.disabled = false; btn.textContent = "Confirmar código";
-  if (error) return mostrarErro("rec-codigo-erro", "Código inválido ou expirado. Peça um novo código.");
-  $("rec-senha-nova").value = "";
-  $("rec-senha-confirmar").value = "";
-  esconderErro("rec-senha-erro");
-  mostrarTela("tela-rec-senha");
+  const btn = $("btn-rec-solicitar");
+  btn.disabled = true; btn.textContent = "Enviando pedido…";
+  const { error } = await supabase.rpc("solicitar_redefinicao_senha", { p_email: email });
+  btn.disabled = false; btn.textContent = "Solicitar redefinição ao administrador";
+  if (error) return mostrarErro("rec-email-erro", "Não foi possível registrar o pedido. Tente novamente.");
+  $("rec-red-email").value = email;
+  $("rec-email-ok").textContent = "Pedido registrado. Assim que o administrador liberar a redefinição, volte aqui e toque em \"O administrador já liberou\".";
+  $("rec-email-ok").classList.remove("hidden");
 });
 
 $("btn-rec-salvar-senha").addEventListener("click", async () => {
   esconderErro("rec-senha-erro");
+  const email = $("rec-red-email").value.trim().toLowerCase();
   const s1 = $("rec-senha-nova").value;
   const s2 = $("rec-senha-confirmar").value;
+  if (!email || !email.includes("@")) return mostrarErro("rec-senha-erro", "Informe o e-mail cadastrado.");
   if (s1.length < 6) return mostrarErro("rec-senha-erro", "A nova senha precisa ter pelo menos 6 caracteres.");
   if (s1 !== s2) return mostrarErro("rec-senha-erro", "As senhas não coincidem.");
   const btn = $("btn-rec-salvar-senha");
-  btn.disabled = true; btn.textContent = "Salvando…";
-  const { error } = await supabase.auth.updateUser({ password: s1 });
-  if (error) {
-    btn.disabled = false; btn.textContent = "Salvar nova senha";
-    return mostrarErro("rec-senha-erro", "Não foi possível salvar a senha. Tente novamente.");
+  btn.disabled = true; btn.textContent = "Redefinindo…";
+  let out = {};
+  try {
+    const resp = await fetch(`${SUPABASE_URL}/functions/v1/redefinir-senha`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "apikey": SUPABASE_ANON_KEY, "Authorization": `Bearer ${SUPABASE_ANON_KEY}` },
+      body: JSON.stringify({ email, senha: s1 }),
+    });
+    out = await resp.json().catch(() => ({}));
+    btn.disabled = false; btn.textContent = "Redefinir senha";
+    if (!resp.ok) return mostrarErro("rec-senha-erro", out.error || "Não foi possível redefinir a senha.");
+  } catch (e) {
+    btn.disabled = false; btn.textContent = "Redefinir senha";
+    return mostrarErro("rec-senha-erro", "Falha de conexão. Tente novamente.");
   }
-  await supabase.auth.signOut();
-  btn.disabled = false; btn.textContent = "Salvar nova senha";
-  alert("Senha alterada com sucesso. Faça login com a nova senha.");
+  alert("Senha redefinida com sucesso. Faça login com a nova senha.");
   mostrarTela(recTelaOrigem);
 });
 
@@ -816,10 +782,15 @@ function renderizarListaAdmin() {
         ${inst.carga_horaria ? `<p>Carga horária: ${inst.carga_horaria}h/mês</p>` : ""}
         <p>📌 ${c.disponivel} disponíveis · 📘 ${c.agendado} agendados${c.aguardando > 0 ? ` · ⏳ ${c.aguardando} aguardando` : ""}</p>
         <p>${inst.user_id ? "✅ Já criou senha no app" : "⏳ Aguardando primeiro acesso"}</p>
+        ${inst.reset_senha_liberado_em ? `<p class="text-teal-700">🔓 Redefinição de senha liberada</p>`
+          : (inst.reset_senha_solicitado_em ? `<p class="text-amber-700 font-medium">🔑 Redefinição de senha SOLICITADA</p>` : "")}
       </div>
-      <div class="flex gap-2 mt-2 pt-2 border-t border-slate-100">
+      <div class="flex flex-wrap gap-2 mt-2 pt-2 border-t border-slate-100">
         ${podeAlterarInst ? `<button data-editar="${inst.id}" class="flex-1 text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-50 rounded-md py-1.5">✏️ Editar</button>` : ""}
         ${podeExcluirInst ? `<button data-excluir="${inst.id}" class="flex-1 text-xs font-medium text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-md py-1.5">🗑️ Excluir</button>` : ""}
+        ${podeAlterarInst && (inst.reset_senha_solicitado_em || inst.reset_senha_liberado_em)
+          ? `<button data-liberar-reset="${inst.id}" data-liberado="${inst.reset_senha_liberado_em ? "1" : ""}" class="w-full text-xs font-medium ${inst.reset_senha_liberado_em ? "text-rose-600 hover:underline" : "text-white bg-teal-700 hover:bg-teal-800 rounded-md py-1.5"}">${inst.reset_senha_liberado_em ? "Cancelar liberação de senha" : "🔓 Liberar redefinição de senha"}</button>`
+          : ""}
       </div>
     </div>
   `;
@@ -830,6 +801,18 @@ function renderizarListaAdmin() {
   );
   container.querySelectorAll("[data-excluir]").forEach((btn) =>
     btn.addEventListener("click", () => excluirInstrutor(btn.getAttribute("data-excluir")))
+  );
+  container.querySelectorAll("[data-liberar-reset]").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      const id = btn.getAttribute("data-liberar-reset");
+      const jaLiberado = btn.getAttribute("data-liberado") === "1";
+      btn.disabled = true;
+      const { error } = await supabase.from("instrutores")
+        .update({ reset_senha_liberado_em: jaLiberado ? null : new Date().toISOString() }).eq("id", id);
+      if (error) { btn.disabled = false; return alert("Não foi possível atualizar. " + (error.message || "")); }
+      if (!jaLiberado) alert("Redefinição liberada. Avise o instrutor: na tela de login, \"Esqueci minha senha\" → \"O administrador já liberou\" → definir a nova senha (validade 24h).");
+      await carregarListaAdmin();
+    })
   );
 }
 
@@ -1159,7 +1142,49 @@ const CRUD_CONFIG = {
     ],
     campoBusca: (i) => `${i.nome} ${i.email} ${i.telefone || ""}`,
     cardTitulo: (i) => i.nome,
-    cardLinhas: (i) => [i.email, i.telefone && `📞 ${i.telefone}`, i.role === "admin" ? "👑 Administrador" : "Usuário", i.user_id ? "✅ Já criou senha no app" : "⏳ Aguardando primeiro acesso"].filter(Boolean),
+    cardLinhas: (i) => [
+      i.email,
+      i.telefone && `📞 ${i.telefone}`,
+      i.role === "admin" ? "👑 Administrador" : "Usuário",
+      i.user_id ? "✅ Já criou senha no app" : "⏳ Aguardando primeiro acesso",
+      i.reset_senha_liberado_em ? "🔓 Redefinição de senha liberada"
+        : (i.reset_senha_solicitado_em ? "🔑 Redefinição de senha SOLICITADA" : null),
+    ].filter(Boolean),
+    camposExtraHtml: (item) => {
+      if (!item) return "";
+      const fmt = (s) => (s ? new Date(s).toLocaleString("pt-BR") : null);
+      const sol = fmt(item.reset_senha_solicitado_em);
+      const lib = fmt(item.reset_senha_liberado_em);
+      return `
+        <div class="border-t border-slate-100 pt-3">
+          <p class="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">Redefinição de senha</p>
+          <p class="text-[11px] ${sol ? "text-amber-700" : "text-slate-400"}">${sol ? `🔑 Solicitada em ${sol}` : "Nenhum pedido pendente."}</p>
+          ${lib ? `<p class="text-[11px] text-teal-700">🔓 Liberada em ${lib} — o usuário pode redefinir a senha por 24h</p>` : ""}
+          <div class="mt-2 flex flex-wrap gap-2">
+            <button type="button" id="btn-liberar-reset" class="text-xs font-medium text-white bg-teal-700 hover:bg-teal-800 rounded-md px-3 py-1.5">Liberar redefinição de senha</button>
+            ${lib ? `<button type="button" id="btn-cancelar-reset" class="text-xs font-medium text-rose-600 hover:underline">cancelar liberação</button>` : ""}
+          </div>
+        </div>`;
+    },
+    aoMontarForm: (item) => {
+      if (!item) return;
+      const recarregar = async () => { $("painel-crud").classList.add("hidden"); await carregarModuloCrud(crudModuloId); };
+      const bLib = $("btn-liberar-reset");
+      if (bLib) bLib.addEventListener("click", async () => {
+        bLib.disabled = true;
+        const { error } = await supabase.from("usuarios_sistema")
+          .update({ reset_senha_liberado_em: new Date().toISOString() }).eq("id", item.id);
+        bLib.disabled = false;
+        if (error) return alert("Não foi possível liberar. " + (error.message || ""));
+        alert("Redefinição liberada. Avise o usuário: na tela de login, \"Esqueci minha senha\" → \"O administrador já liberou\" → definir a nova senha (validade 24h).");
+        await recarregar();
+      });
+      const bCanc = $("btn-cancelar-reset");
+      if (bCanc) bCanc.addEventListener("click", async () => {
+        await supabase.from("usuarios_sistema").update({ reset_senha_liberado_em: null }).eq("id", item.id);
+        await recarregar();
+      });
+    },
   },
   tipos_atividade: {
     tabela: "tipos_atividade",

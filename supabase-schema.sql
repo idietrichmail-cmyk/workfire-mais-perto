@@ -881,3 +881,16 @@ create policy "atividades_delete" on atividades for delete using (pode_acessar_t
 -- ({password}) grava a nova senha; signOut e volta ao login.
 -- PASSO MANUAL no dashboard: Authentication > Emails > template "Magic Link"
 -- precisa conter {{ .Token }} para o código aparecer no e-mail.
+
+-- migração reset_senha_via_admin (substitui o OTP de e-mail):
+--   usuarios_sistema/instrutores: + reset_senha_solicitado_em, reset_senha_liberado_em (timestamptz).
+--   solicitar_redefinicao_senha(p_email text)  [security definer, grant anon]
+--     marca reset_senha_solicitado_em nas linhas Ativas com user_id (não revela se existe).
+--   Fluxo: usuário clica "Esqueci minha senha" -> solicita -> admin abre o cadastro
+--     (Usuários do Sistema / Instrutores em workfire-mais-perto) e clica
+--     "Liberar redefinição de senha" (update reset_senha_liberado_em = now()) ->
+--     usuário abre "O administrador já liberou" e define a nova senha.
+--   Edge Function "redefinir-senha" (verify_jwt=false, usa SERVICE_ROLE):
+--     POST {email, senha}; valida reset_senha_liberado_em < 24h; chama
+--     auth.admin.updateUserById; limpa os dois campos. Chamada por fetch
+--     com header apikey = anon key.
