@@ -1802,23 +1802,26 @@ $("btn-cancelar-painel-crud").addEventListener("click", () => $("painel-crud").c
 $("painel-crud-overlay").addEventListener("click", () => $("painel-crud").classList.add("hidden"));
 
 async function salvarPermissoesForm(usuarioId) {
-  const linhas = MODULOS.map((m) => {
-    const linha = {
-      usuario_id: usuarioId,
-      modulo: m.id,
-      pode_consultar: !!qs(`[data-perm-modulo="${m.id}"][data-perm-acao="consultar"]`)?.checked,
-      pode_incluir: !!qs(`[data-perm-modulo="${m.id}"][data-perm-acao="incluir"]`)?.checked,
-      pode_alterar: !!qs(`[data-perm-modulo="${m.id}"][data-perm-acao="alterar"]`)?.checked,
-      pode_excluir: !!qs(`[data-perm-modulo="${m.id}"][data-perm-acao="excluir"]`)?.checked,
-    };
-    if (m.id === "atividades") {
-      linha.pode_acessar_monitor = !!qs('[data-permx="pode_acessar_monitor"]')?.checked;
-      linha.pode_mudar_responsavel = !!qs('[data-permx="pode_mudar_responsavel"]')?.checked;
-      linha.pode_concluir_cancelar = !!qs('[data-permx="pode_concluir_cancelar"]')?.checked;
-    }
-    return linha;
-  });
-  await supabase.from("permissoes").upsert(linhas, { onConflict: "usuario_id,modulo" });
+  // Todas as linhas precisam ter o MESMO conjunto de chaves — o upsert em
+  // lote do PostgREST falha se um objeto do array tiver chaves a mais.
+  const permx = (flag) => !!qs(`[data-permx="${flag}"]`)?.checked;
+  const linhas = MODULOS.map((m) => ({
+    usuario_id: usuarioId,
+    modulo: m.id,
+    pode_consultar: !!qs(`[data-perm-modulo="${m.id}"][data-perm-acao="consultar"]`)?.checked,
+    pode_incluir: !!qs(`[data-perm-modulo="${m.id}"][data-perm-acao="incluir"]`)?.checked,
+    pode_alterar: !!qs(`[data-perm-modulo="${m.id}"][data-perm-acao="alterar"]`)?.checked,
+    pode_excluir: !!qs(`[data-perm-modulo="${m.id}"][data-perm-acao="excluir"]`)?.checked,
+    pode_acessar_monitor: m.id === "atividades" && permx("pode_acessar_monitor"),
+    pode_mudar_responsavel: m.id === "atividades" && permx("pode_mudar_responsavel"),
+    pode_concluir_cancelar: m.id === "atividades" && permx("pode_concluir_cancelar"),
+  }));
+  const { error } = await supabase.from("permissoes").upsert(linhas, { onConflict: "usuario_id,modulo" });
+  if (error) {
+    console.error("Falha ao gravar permissões:", error);
+    mostrarErro("crud-form-erro", "Usuário salvo, mas as permissões não foram gravadas: " + (error.message || "erro desconhecido"));
+    throw error;
+  }
 }
 
 async function salvarCrud() {
@@ -1864,7 +1867,13 @@ async function salvarCrud() {
   }
 
   if (crudModuloId === "usuarios_sistema" && payload.role !== "admin") {
-    await salvarPermissoesForm(linha.id);
+    try {
+      await salvarPermissoesForm(linha.id);
+    } catch (e) {
+      $("btn-salvar-crud").disabled = false;
+      $("btn-salvar-crud").textContent = crudEditandoId ? "Salvar alterações" : "Cadastrar";
+      return; // erro já exibido em salvarPermissoesForm
+    }
   }
 
   if (cfg.aoSalvar) {
