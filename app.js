@@ -1154,6 +1154,32 @@ const CRUD_CONFIG = {
     campoBusca: (i) => i.descricao || "",
     cardTitulo: (i) => i.descricao,
     cardLinhas: (i) => [`📦 ${materialContagemPorTipo[i.id] || 0} material(is) cadastrado(s)`],
+    renderTabela: (lista, { podeAlterar, podeExcluir }) => {
+      const badge = (s) => `<span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${s === "Inativo" ? "bg-rose-50 text-rose-600" : "bg-teal-50 text-teal-700"}">${s || "—"}</span>`;
+      return `
+      <table class="w-full text-xs bg-white border border-slate-200 rounded-lg">
+        <thead>
+          <tr class="bg-slate-50 text-left text-slate-500 uppercase tracking-wide text-[10px]">
+            <th class="px-3 py-2 font-medium">Descritivo</th>
+            <th class="px-3 py-2 font-medium">Materiais</th>
+            <th class="px-3 py-2 font-medium">Status</th>
+            <th class="px-3 py-2"></th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          ${lista.map((i) => `
+          <tr class="hover:bg-slate-50">
+            <td class="px-3 py-2 text-slate-800">${i.descricao || "—"}</td>
+            <td class="px-3 py-2 text-slate-600">${materialContagemPorTipo[i.id] || 0}</td>
+            <td class="px-3 py-2 whitespace-nowrap">${badge(i.status)}</td>
+            <td class="px-3 py-2 text-right whitespace-nowrap">
+              ${podeAlterar ? `<button data-crud-editar="${i.id}" class="text-slate-500 hover:text-slate-800 mr-2">✏️</button>` : ""}
+              ${podeExcluir ? `<button data-crud-excluir="${i.id}" class="text-rose-500 hover:text-rose-700">🗑️</button>` : ""}
+            </td>
+          </tr>`).join("")}
+        </tbody>
+      </table>`;
+    },
   },
   fornecedores: {
     tabela: "fornecedores",
@@ -1221,6 +1247,46 @@ const CRUD_CONFIG = {
         brl(i.valor_unitario_ultima_compra) && `💰 Últ. compra: ${brl(i.valor_unitario_ultima_compra)}${i.data_ultima_compra ? " em " + i.data_ultima_compra : ""}`,
         forn && `🚚 ${forn.nome}`,
       ].filter(Boolean);
+    },
+    renderTabela: (lista, { podeAlterar, podeExcluir }) => {
+      const tipoNome = (id) => (materialRefTipos.find((t) => t.id === id) || {}).descricao || "—";
+      const fornNome = (id) => (materialRefFornecedores.find((f) => f.id === id) || {}).nome || "—";
+      const brl = (v) => (v == null || v === "" ? "—" : Number(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }));
+      const dta = (s) => (s ? String(s).slice(0, 10).split("-").reverse().join("/") : "—");
+      const badge = (s) => `<span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${s === "Inativo" ? "bg-rose-50 text-rose-600" : "bg-teal-50 text-teal-700"}">${s || "—"}</span>`;
+      return `
+      <table class="w-full text-xs bg-white border border-slate-200 rounded-lg">
+        <thead>
+          <tr class="bg-slate-50 text-left text-slate-500 uppercase tracking-wide text-[10px]">
+            <th class="px-3 py-2 font-medium">Material</th>
+            <th class="px-3 py-2 font-medium">Tipo</th>
+            <th class="px-3 py-2 font-medium">Unid.</th>
+            <th class="px-3 py-2 font-medium">Estoque</th>
+            <th class="px-3 py-2 font-medium">Valor últ. compra</th>
+            <th class="px-3 py-2 font-medium">Data últ. compra</th>
+            <th class="px-3 py-2 font-medium">Fornecedor</th>
+            <th class="px-3 py-2 font-medium">Status</th>
+            <th class="px-3 py-2"></th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          ${lista.map((i) => `
+          <tr class="hover:bg-slate-50 align-top">
+            <td class="px-3 py-2"><div class="min-w-[180px] max-w-[320px] whitespace-normal text-slate-800">${i.descricao || "—"}</div></td>
+            <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${tipoNome(i.tipo_material_id)}</td>
+            <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${i.unidade_medida || "—"}</td>
+            <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${i.quantidade_estoque != null ? i.quantidade_estoque : "—"}</td>
+            <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${brl(i.valor_unitario_ultima_compra)}</td>
+            <td class="px-3 py-2 text-slate-500 whitespace-nowrap">${dta(i.data_ultima_compra)}</td>
+            <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${fornNome(i.fornecedor_ultima_compra_id)}</td>
+            <td class="px-3 py-2 whitespace-nowrap">${badge(i.status)}</td>
+            <td class="px-3 py-2 text-right whitespace-nowrap">
+              ${podeAlterar ? `<button data-crud-editar="${i.id}" class="text-slate-500 hover:text-slate-800 mr-2">✏️</button>` : ""}
+              ${podeExcluir ? `<button data-crud-excluir="${i.id}" class="text-rose-500 hover:text-rose-700">🗑️</button>` : ""}
+            </td>
+          </tr>`).join("")}
+        </tbody>
+      </table>`;
     },
   },
   usuarios_sistema: {
