@@ -161,6 +161,11 @@ let listaEmpresasAtivas = [];
 let atividadeRefUsuarios = [];
 let atividadeRefTipos = [];
 let atividadeRefCentros = [];
+// Listas de referência para o cadastro de Materiais
+let materialRefTipos = [];
+let materialRefFornecedores = [];
+let materialContagemPorTipo = {};
+
 let crudItemEmEdicao = null;         // linha sendo editada no painel CRUD (null = novo)
 let atividadeFotoPendente = null;    // File escolhido para a fotografia, ainda não enviado
 let atividadeFotoRemover = false;    // marcar remoção da fotografia atual
@@ -218,6 +223,9 @@ const MODULOS = [
   { id: "tipos_treinamento", label: "Treinamentos", icone: "🏷️", grupo: "Cadastros" },
   { id: "empresas_transporte", label: "Empresas de Transporte", icone: "🚐", grupo: "Cadastros" },
   { id: "tipos_atividade", label: "Tipos de Atividade", icone: "🗂️", grupo: "Cadastros" },
+  { id: "tipos_material", label: "Tipos de Material", icone: "🧰", grupo: "Cadastros" },
+  { id: "fornecedores", label: "Fornecedores", icone: "🚚", grupo: "Cadastros" },
+  { id: "materiais", label: "Materiais", icone: "📦", grupo: "Cadastros" },
   { id: "usuarios_sistema", label: "Usuários do Sistema", icone: "🔑", grupo: "Cadastros" },
   { id: "agendamentos", label: "Agendar Treinamento", icone: "🗓️", grupo: "Operações" },
   { id: "orcamentos", label: "Orçamentos", icone: "💰", grupo: "Operações" },
@@ -1125,6 +1133,95 @@ const CRUD_CONFIG = {
     campoBusca: (i) => i.nome,
     cardTitulo: (i) => i.nome,
     cardLinhas: () => [],
+  },
+  tipos_material: {
+    tabela: "tipos_material",
+    titulo: "Tipo de Material",
+    descricao: "Categorias de materiais usadas no cadastro de Materiais.",
+    buscaPlaceholder: "Buscar por descrição",
+    ordenarPor: "descricao",
+    carregarRefs: async () => {
+      const { data } = await supabase.from("materiais").select("tipo_material_id");
+      materialContagemPorTipo = {};
+      (data || []).forEach((m) => {
+        if (m.tipo_material_id) materialContagemPorTipo[m.tipo_material_id] = (materialContagemPorTipo[m.tipo_material_id] || 0) + 1;
+      });
+    },
+    campos: [
+      { id: "descricao", label: "Descritivo do tipo", obrigatorio: true },
+      { id: "status", label: "Status", tipo: "select", opcoes: ["Ativo", "Inativo"], padrao: "Ativo" },
+    ],
+    campoBusca: (i) => i.descricao || "",
+    cardTitulo: (i) => i.descricao,
+    cardLinhas: (i) => [`📦 ${materialContagemPorTipo[i.id] || 0} material(is) cadastrado(s)`],
+  },
+  fornecedores: {
+    tabela: "fornecedores",
+    titulo: "Fornecedor",
+    descricao: "Fornecedores de materiais.",
+    buscaPlaceholder: "Buscar por nome ou CNPJ",
+    ordenarPor: "nome",
+    campos: [
+      { id: "nome", label: "Nome / Razão social", obrigatorio: true },
+      { id: "cnpj", label: "CNPJ", mascara: "cnpj" },
+      { id: "contato_nome", label: "Nome do contato" },
+      { id: "contato_email", label: "E-mail do contato", tipo: "email" },
+      { id: "contato_telefone", label: "Telefone do contato" },
+      { id: "endereco", label: "Endereço" },
+      { id: "observacoes", label: "Observações", tipo: "textarea" },
+      { id: "status", label: "Status", tipo: "select", opcoes: ["Ativo", "Inativo"], padrao: "Ativo" },
+    ],
+    campoBusca: (i) => `${i.nome} ${i.cnpj || ""}`,
+    cardTitulo: (i) => i.nome,
+    cardLinhas: (i) => [i.cnpj && `CNPJ: ${i.cnpj}`, i.contato_nome, i.contato_email, i.contato_telefone].filter(Boolean),
+  },
+  materiais: {
+    tabela: "materiais",
+    titulo: "Material",
+    descricao: "Materiais em estoque, com tipo, unidade, quantidade e dados da última compra.",
+    buscaPlaceholder: "Buscar por descrição ou tipo",
+    ordenarPor: "descricao",
+    carregarRefs: async () => {
+      const [{ data: tm }, { data: fo }] = await Promise.all([
+        supabase.from("tipos_material").select("id, descricao, status").order("descricao"),
+        supabase.from("fornecedores").select("id, nome, status").order("nome"),
+      ]);
+      materialRefTipos = tm || [];
+      materialRefFornecedores = fo || [];
+    },
+    campos: [
+      { id: "descricao", label: "Descritivo do material", tipo: "textarea", obrigatorio: true },
+      {
+        id: "tipo_material_id", label: "Tipo de material", tipo: "select", obrigatorio: true,
+        opcoesFn: () => [{ value: "", label: "— Selecione —" }].concat(
+          materialRefTipos.filter((t) => t.status === "Ativo").map((t) => ({ value: t.id, label: t.descricao }))
+        ),
+      },
+      { id: "unidade_medida", label: "Unidade de medida (ex.: un, cx, kg, L, m)", obrigatorio: true },
+      { id: "quantidade_estoque", label: "Quantidade em estoque", tipo: "number", min: 0 },
+      { id: "valor_unitario_ultima_compra", label: "Valor unitário da última compra (R$)", tipo: "number", min: 0 },
+      { id: "data_ultima_compra", label: "Data da última compra", tipo: "date" },
+      {
+        id: "fornecedor_ultima_compra_id", label: "Fornecedor da última compra", tipo: "select",
+        opcoesFn: () => [{ value: "", label: "— Selecione —" }].concat(
+          materialRefFornecedores.filter((f) => f.status === "Ativo").map((f) => ({ value: f.id, label: f.nome }))
+        ),
+      },
+      { id: "status", label: "Status", tipo: "select", opcoes: ["Ativo", "Inativo"], padrao: "Ativo" },
+    ],
+    campoBusca: (i) => `${i.descricao || ""} ${(materialRefTipos.find((t) => t.id === i.tipo_material_id) || {}).descricao || ""}`,
+    cardTitulo: (i) => ((i.descricao || "").length > 80 ? (i.descricao || "").slice(0, 80) + "…" : (i.descricao || "")) || "Material",
+    cardLinhas: (i) => {
+      const tipo = materialRefTipos.find((t) => t.id === i.tipo_material_id);
+      const forn = materialRefFornecedores.find((f) => f.id === i.fornecedor_ultima_compra_id);
+      const brl = (v) => (v == null || v === "" ? null : Number(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }));
+      return [
+        tipo && `🧰 ${tipo.descricao}`,
+        (i.quantidade_estoque != null) && `📦 Estoque: ${i.quantidade_estoque}${i.unidade_medida ? " " + i.unidade_medida : ""}`,
+        brl(i.valor_unitario_ultima_compra) && `💰 Últ. compra: ${brl(i.valor_unitario_ultima_compra)}${i.data_ultima_compra ? " em " + i.data_ultima_compra : ""}`,
+        forn && `🚚 ${forn.nome}`,
+      ].filter(Boolean);
+    },
   },
   usuarios_sistema: {
     tabela: "usuarios_sistema",

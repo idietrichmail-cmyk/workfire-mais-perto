@@ -894,3 +894,15 @@ create policy "atividades_delete" on atividades for delete using (pode_acessar_t
 --     POST {email, senha}; valida reset_senha_liberado_em < 24h; chama
 --     auth.admin.updateUserById; limpa os dois campos. Chamada por fetch
 --     com header apikey = anon key.
+
+-- migração materiais_tipos_material_fornecedores:
+--   tipos_material (descricao, status)
+--   fornecedores (nome, cnpj, contato_nome/email/telefone, endereco, observacoes, status)
+--   materiais (tipo_material_id -> tipos_material on delete restrict, descricao,
+--     unidade_medida, quantidade_estoque numeric, valor_unitario_ultima_compra numeric,
+--     data_ultima_compra date, fornecedor_ultima_compra_id -> fornecedores on delete set null,
+--     status)
+--   pode_acessar_tabela: + tipos_material/fornecedores own; materiais own +
+--     leitura tipos_material e fornecedores. Módulos no MODULOS (grupo Cadastros).
+--   Frontend: 3 entradas na engine CRUD_CONFIG (opcoesFn p/ tipo e fornecedor;
+--     Tipos de Material mostra a contagem de materiais do tipo via carregarRefs).
