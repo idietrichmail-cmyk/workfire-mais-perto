@@ -166,6 +166,18 @@ let materialRefTipos = [];
 let materialRefFornecedores = [];
 let materialContagemPorTipo = {};
 
+// Requisições de Compra
+let reqRefCentros = [], reqRefUsuarios = [], reqRefAprovadores = [], reqRefMateriais = [], reqRefAtividades = [];
+let reqItensAtual = [];
+let requisicaoAtividadePreset = null;
+
+function podeAprovarRequisicao() {
+  if (usuarioSistemaAtual && usuarioSistemaAtual.role === "admin") return true;
+  return !!(permissoesAtual.requisicoes_compra && permissoesAtual.requisicoes_compra.pode_aprovar_requisicao);
+}
+const fmtBRL = (v) => (v == null || v === "" ? "R$ 0,00" : Number(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }));
+const fmtDataHoraBR = (s) => (s ? new Date(s).toLocaleString("pt-BR") : "—");
+
 let crudItemEmEdicao = null;         // linha sendo editada no painel CRUD (null = novo)
 let atividadeFotoPendente = null;    // File escolhido para a fotografia, ainda não enviado
 let atividadeFotoRemover = false;    // marcar remoção da fotografia atual
@@ -232,6 +244,7 @@ const MODULOS = [
   { id: "turmas", label: "Turmas por Orçamento", icone: "🎓", grupo: "Operações" },
   { id: "agendamento_turmas", label: "Agendamento de Turmas", icone: "📆", grupo: "Operações" },
   { id: "atividades", label: "Atividades", icone: "📋", grupo: "Operações" },
+  { id: "requisicoes_compra", label: "Requisições de Compra", icone: "🛒", grupo: "Operações" },
 ];
 
 function podeFazer(modulo, acao) {
@@ -1289,6 +1302,172 @@ const CRUD_CONFIG = {
       </table>`;
     },
   },
+  requisicoes_compra: {
+    tabela: "requisicoes_compra",
+    titulo: "Requisição de Compra",
+    descricao: "Requisições de compra de materiais, vinculadas a uma OS. Valores são a soma dos itens.",
+    buscaPlaceholder: "Buscar por número ou OS",
+    ordenarPor: "created_at",
+    ordenarAsc: false,
+    corStatus: {
+      "Planejada": "bg-slate-100 text-slate-600",
+      "Aprovada": "bg-teal-50 text-teal-700",
+      "Compra Parcial": "bg-amber-50 text-amber-700",
+      "Compra Total": "bg-blue-50 text-blue-700",
+    },
+    carregarRefs: async () => {
+      const [{ data: ce }, { data: us }, { data: mt }, { data: at }, { data: perms }, { data: admins }] = await Promise.all([
+        supabase.from("centros_treinamento").select("id, nome, status").eq("status", "Ativo").order("nome"),
+        supabase.from("usuarios_sistema").select("id, nome, status").eq("status", "Ativo").order("nome"),
+        supabase.from("materiais").select("id, descricao, unidade_medida, status").eq("status", "Ativo").order("descricao"),
+        supabase.from("atividades").select("id, os, descricao").order("os", { ascending: false }),
+        supabase.from("permissoes").select("usuario_id").eq("modulo", "requisicoes_compra").eq("pode_aprovar_requisicao", true),
+        supabase.from("usuarios_sistema").select("id").eq("role", "admin"),
+      ]);
+      reqRefCentros = ce || [];
+      reqRefUsuarios = us || [];
+      reqRefMateriais = mt || [];
+      reqRefAtividades = at || [];
+      const idsAprov = new Set([...(perms || []).map((p) => p.usuario_id), ...(admins || []).map((a) => a.id)]);
+      reqRefAprovadores = reqRefUsuarios.filter((u) => idsAprov.has(u.id));
+    },
+    campos: [
+      { id: "numero", label: "Número", display: true },
+      {
+        id: "atividade_id", label: "OS (Ordem de Serviço)", tipo: "select",
+        opcoesFn: () => [{ value: "", label: "— Nenhuma —" }].concat(
+          reqRefAtividades.map((a) => ({ value: a.id, label: `${a.os || "?"} — ${(a.descricao || "").slice(0, 50)}` }))
+        ),
+      },
+      { id: "corporativo", label: "Corporativo (não vinculada a um Centro de Treinamento)", tipo: "checkbox", padrao: false },
+      {
+        id: "centro_treinamento_id", label: "Centro de Treinamento", tipo: "select",
+        opcoesFn: () => [{ value: "", label: "— Selecione —" }].concat(reqRefCentros.map((c) => ({ value: c.id, label: c.nome }))),
+        validar: (v) => {
+          const corp = document.getElementById("crud-campo-corporativo");
+          if (corp && corp.checked) return null;
+          return v ? null : "Selecione o Centro de Treinamento ou marque Corporativo.";
+        },
+      },
+      {
+        id: "solicitante_id", label: "Usuário solicitante", tipo: "select", obrigatorio: true,
+        opcoesFn: () => [{ value: "", label: "— Selecione —" }].concat(reqRefUsuarios.map((u) => ({ value: u.id, label: u.nome }))),
+      },
+      {
+        id: "aprovador_id", label: "Usuário aprovador", tipo: "select",
+        opcoesFn: () => [{ value: "", label: "— Selecione —" }].concat(reqRefAprovadores.map((u) => ({ value: u.id, label: u.nome }))),
+      },
+      {
+        id: "status", label: "Status", tipo: "select", padrao: "Planejada",
+        opcoesFn: () => {
+          const todas = ["Planejada", "Aprovada", "Compra Parcial", "Compra Total"];
+          const atual = crudItemEmEdicao && crudItemEmEdicao.status;
+          const lista = podeAprovarRequisicao() ? todas : todas.filter((s) => s !== "Aprovada" || s === atual);
+          return lista.map((s) => ({ value: s, label: s }));
+        },
+      },
+      { id: "observacoes", label: "Observações", tipo: "textarea" },
+      { id: "data_criacao", label: "Data de criação", display: true, formato: fmtDataHoraBR },
+      { id: "data_aprovacao", label: "Data de aprovação", display: true, formato: fmtDataHoraBR },
+      { id: "valor_estimado", label: "Valor estimado (total dos itens)", display: true, formato: fmtBRL },
+      { id: "valor_realizado", label: "Valor realizado (total dos itens)", display: true, formato: fmtBRL },
+    ],
+    ajustarPayload: (p) => { if (p.corporativo) p.centro_treinamento_id = null; },
+    aoMontarForm: (item) => {
+      const chk = $("crud-campo-corporativo");
+      const sel = $("crud-campo-centro_treinamento_id");
+      if (chk && sel) {
+        const sync = () => { sel.disabled = chk.checked; if (chk.checked) sel.value = ""; };
+        chk.addEventListener("change", sync);
+        sel.addEventListener("change", () => { if (sel.value) chk.checked = false; });
+        if (!item && requisicaoAtividadePreset) {
+          const a = $("crud-campo-atividade_id");
+          if (a) { a.value = requisicaoAtividadePreset.id || ""; a.disabled = true; }
+          chk.checked = !!requisicaoAtividadePreset.corporativo;
+          sel.value = requisicaoAtividadePreset.centro_treinamento_id || "";
+        }
+        sync();
+      }
+      if (!item) {
+        const s = $("crud-campo-solicitante_id");
+        if (s && usuarioSistemaAtual && !s.value) s.value = usuarioSistemaAtual.id;
+      }
+      if (requisicaoAtividadePreset) requisicaoAtividadePreset = null;
+
+      if (item) {
+        $("req-item-material").innerHTML = `<option value="">— Material —</option>` +
+          reqRefMateriais.map((m) => `<option value="${m.id}">${m.descricao}${m.unidade_medida ? " (" + m.unidade_medida + ")" : ""}</option>`).join("");
+        carregarReqItens(item.id);
+        const bAdd = $("btn-req-item-add");
+        if (bAdd) bAdd.addEventListener("click", () => adicionarReqItem(item.id));
+        const bApr = $("btn-req-aprovar");
+        if (bApr) bApr.addEventListener("click", () => aprovarRequisicao(item.id));
+      }
+    },
+    camposExtraHtml: (item) => {
+      if (!item) return `<p class="text-[11px] text-slate-400">Salve a requisição para depois adicionar os materiais.</p>`;
+      const aprovada = item.status === "Aprovada";
+      return `
+        <div class="border-t border-slate-100 pt-3">
+          <p class="text-xs font-medium text-slate-500 uppercase tracking-wide mb-2">Materiais da requisição</p>
+          <div id="req-itens-lista" class="space-y-1.5 mb-3 text-xs"></div>
+          <div class="grid grid-cols-2 gap-2">
+            <select id="req-item-material" class="col-span-2 rounded-md border border-slate-300 px-2 py-1.5 text-sm"></select>
+            <input id="req-item-qtd" type="number" min="0" step="any" placeholder="Quantidade" class="rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
+            <input id="req-item-vest" type="number" min="0" step="any" placeholder="Valor estimado (R$)" class="rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
+            <input id="req-item-vreal" type="number" min="0" step="any" placeholder="Valor realizado (R$)" class="rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
+            <button type="button" id="btn-req-item-add" class="rounded-md bg-slate-900 hover:bg-slate-800 text-white text-xs font-medium px-3 py-1.5">+ Adicionar material</button>
+          </div>
+          <p id="req-itens-totais" class="text-[11px] font-medium text-slate-600 mt-2"></p>
+        </div>
+        ${!aprovada && podeAprovarRequisicao()
+          ? `<div><button type="button" id="btn-req-aprovar" class="w-full text-sm font-medium text-white bg-teal-700 hover:bg-teal-800 rounded-md py-2">✅ Aprovar requisição</button></div>`
+          : ""}
+        ${aprovada ? `<p class="text-[11px] text-teal-700">Aprovada${item.data_aprovacao ? " em " + fmtDataHoraBR(item.data_aprovacao) : ""}.</p>` : ""}`;
+    },
+    campoBusca: (i) => `${i.numero || ""} ${(reqRefAtividades.find((a) => a.id === i.atividade_id) || {}).os || ""}`,
+    cardTitulo: (i) => i.numero || "Requisição",
+    cardLinhas: () => [],
+    renderTabela: (lista, { podeAlterar, podeExcluir }) => {
+      const os = (id) => (reqRefAtividades.find((a) => a.id === id) || {}).os || "—";
+      const centro = (i) => i.corporativo ? "🏢 Corporativo" : ((reqRefCentros.find((c) => c.id === i.centro_treinamento_id) || {}).nome || "—");
+      const nomeU = (id) => (reqRefUsuarios.find((u) => u.id === id) || {}).nome || "—";
+      const badge = (s) => `<span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${CRUD_CONFIG.requisicoes_compra.corStatus[s] || "bg-slate-100 text-slate-600"}">${s}</span>`;
+      return `
+      <table class="w-full text-xs bg-white border border-slate-200 rounded-lg">
+        <thead>
+          <tr class="bg-slate-50 text-left text-slate-500 uppercase tracking-wide text-[10px]">
+            <th class="px-3 py-2 font-medium">Número</th>
+            <th class="px-3 py-2 font-medium">OS</th>
+            <th class="px-3 py-2 font-medium">Centro</th>
+            <th class="px-3 py-2 font-medium">Solicitante</th>
+            <th class="px-3 py-2 font-medium">Aprovador</th>
+            <th class="px-3 py-2 font-medium">Status</th>
+            <th class="px-3 py-2 font-medium">Valor estimado</th>
+            <th class="px-3 py-2 font-medium">Valor realizado</th>
+            <th class="px-3 py-2"></th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          ${lista.map((i) => `
+          <tr class="hover:bg-slate-50">
+            <td class="px-3 py-2 font-mono text-slate-700 whitespace-nowrap">${i.numero || "—"}</td>
+            <td class="px-3 py-2 font-mono text-slate-600 whitespace-nowrap">${os(i.atividade_id)}</td>
+            <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${centro(i)}</td>
+            <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${nomeU(i.solicitante_id)}</td>
+            <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${i.aprovador_id ? nomeU(i.aprovador_id) : "—"}</td>
+            <td class="px-3 py-2 whitespace-nowrap">${badge(i.status)}</td>
+            <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${fmtBRL(i.valor_estimado)}</td>
+            <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${fmtBRL(i.valor_realizado)}</td>
+            <td class="px-3 py-2 text-right whitespace-nowrap">
+              ${podeAlterar ? `<button data-crud-editar="${i.id}" class="text-slate-500 hover:text-slate-800 mr-2">✏️</button>` : ""}
+              ${podeExcluir ? `<button data-crud-excluir="${i.id}" class="text-rose-500 hover:text-rose-700">🗑️</button>` : ""}
+            </td>
+          </tr>`).join("")}
+        </tbody>
+      </table>`;
+    },
+  },
   usuarios_sistema: {
     tabela: "usuarios_sistema",
     titulo: "Usuário do Sistema",
@@ -1480,6 +1659,9 @@ const CRUD_CONFIG = {
       cont.querySelectorAll("[data-atividade-anexos]").forEach((btn) =>
         btn.addEventListener("click", () => abrirPainelAtividadeAnexos(btn.getAttribute("data-atividade-anexos")))
       );
+      cont.querySelectorAll("[data-atividade-requisicao]").forEach((btn) =>
+        btn.addEventListener("click", () => criarRequisicaoDaAtividade(btn.getAttribute("data-atividade-requisicao")))
+      );
     },
     ajustarPayload: (p) => { if (p.corporativo) p.centro_treinamento_id = null; },
     renderTabela: (lista, { podeAlterar, podeExcluir }) => {
@@ -1523,6 +1705,7 @@ const CRUD_CONFIG = {
             <td class="px-3 py-2 text-slate-500 whitespace-nowrap">${d(i.data_inicio_realizado)}</td>
             <td class="px-3 py-2 text-slate-500 whitespace-nowrap">${d(i.data_termino_realizado)}</td>
             <td class="px-3 py-2 text-right whitespace-nowrap">
+              <button data-atividade-requisicao="${i.id}" class="text-slate-500 hover:text-slate-800 mr-2" title="Requisição de compra">🛒</button>
               <button data-atividade-anexos="${i.id}" class="text-slate-500 hover:text-slate-800 mr-2" title="Anexos">📎</button>
               ${podeAlterar ? `<button data-crud-editar="${i.id}" class="text-slate-500 hover:text-slate-800 mr-2">✏️</button>` : ""}
               ${podeExcluir ? `<button data-crud-excluir="${i.id}" class="text-rose-500 hover:text-rose-700">🗑️</button>` : ""}
@@ -1666,9 +1849,10 @@ const CRUD_CONFIG = {
 function renderCampoHtml(campo, valor) {
   const val = valor == null ? "" : valor;
   if (campo.display) {
+    const txt = campo.formato ? campo.formato(valor) : (val === "" ? "—" : val);
     return `<div>
       <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">${campo.label}</label>
-      <p class="mt-1 w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">${val === "" ? "—" : val}</p>
+      <p class="mt-1 w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">${txt}</p>
     </div>`;
   }
   if (campo.tipo === "select") {
@@ -1834,6 +2018,13 @@ async function carregarPermissoesParaForm(usuarioId) {
           <input type="checkbox" data-permx="${campo}" ${(existentes["atividades"] || {})[campo] ? "checked" : ""} />
           <span>${rotulo}</span>
         </label>`).join("")}
+    </div>
+    <div class="px-3 py-3 bg-slate-50 space-y-1.5">
+      <p class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Requisições de Compra — controle adicional</p>
+      <label class="flex items-center gap-2 text-slate-700">
+        <input type="checkbox" data-permx="pode_aprovar_requisicao" ${(existentes["requisicoes_compra"] || {}).pode_aprovar_requisicao ? "checked" : ""} />
+        <span>Aprovar requisições de compra</span>
+      </label>
     </div>
   `;
 }
@@ -2003,6 +2194,7 @@ async function salvarPermissoesForm(usuarioId) {
     pode_acessar_monitor: m.id === "atividades" && permx("pode_acessar_monitor"),
     pode_mudar_responsavel: m.id === "atividades" && permx("pode_mudar_responsavel"),
     pode_concluir_cancelar: m.id === "atividades" && permx("pode_concluir_cancelar"),
+    pode_aprovar_requisicao: m.id === "requisicoes_compra" && permx("pode_aprovar_requisicao"),
   }));
   const { error } = await supabase.from("permissoes").upsert(linhas, { onConflict: "usuario_id,modulo" });
   if (error) {
@@ -2089,6 +2281,82 @@ async function excluirCrud(id) {
   if (!confirmarExclusao(rotulo)) return;
   const { error } = await supabase.from(cfg.tabela).delete().eq("id", id);
   if (!error) await carregarModuloCrud(crudModuloId);
+}
+
+// ===========================================================
+// Itens e aprovação da Requisição de Compra
+// ===========================================================
+async function carregarReqItens(requisicaoId) {
+  const { data } = await supabase.from("requisicao_compra_itens").select("*").eq("requisicao_id", requisicaoId).order("created_at");
+  reqItensAtual = data || [];
+  renderReqItens();
+}
+
+function renderReqItens() {
+  const cont = $("req-itens-lista");
+  if (!cont) return;
+  const nomeMat = (id) => (reqRefMateriais.find((m) => m.id === id) || {}).descricao || "—";
+  const unMat = (id) => (reqRefMateriais.find((m) => m.id === id) || {}).unidade_medida || "";
+  if (reqItensAtual.length === 0) {
+    cont.innerHTML = `<p class="text-slate-400">Nenhum material adicionado.</p>`;
+  } else {
+    cont.innerHTML = reqItensAtual.map((it) => `
+      <div class="flex items-start justify-between gap-2 border-b border-slate-100 pb-1">
+        <div>
+          <p class="text-slate-700">${nomeMat(it.material_id)}${it.quantidade != null ? ` · ${it.quantidade}${unMat(it.material_id) ? " " + unMat(it.material_id) : ""}` : ""}</p>
+          <p class="text-slate-400">Est.: ${fmtBRL(it.valor_estimado)} · Real.: ${fmtBRL(it.valor_realizado)}</p>
+        </div>
+        <button data-req-item-del="${it.id}" class="text-rose-500 hover:text-rose-700 shrink-0">🗑️</button>
+      </div>`).join("");
+    cont.querySelectorAll("[data-req-item-del]").forEach((b) =>
+      b.addEventListener("click", () => excluirReqItem(b.getAttribute("data-req-item-del")))
+    );
+  }
+  const est = reqItensAtual.reduce((s, i) => s + Number(i.valor_estimado || 0), 0);
+  const real = reqItensAtual.reduce((s, i) => s + Number(i.valor_realizado || 0), 0);
+  if ($("req-itens-totais")) $("req-itens-totais").textContent = `Total estimado: ${fmtBRL(est)} · Total realizado: ${fmtBRL(real)}`;
+}
+
+async function adicionarReqItem(requisicaoId) {
+  const materialId = $("req-item-material").value;
+  if (!materialId) return mostrarErro("crud-form-erro", "Selecione o material do item.");
+  esconderErro("crud-form-erro");
+  const qtd = $("req-item-qtd").value === "" ? null : Number($("req-item-qtd").value);
+  const vEst = $("req-item-vest").value === "" ? 0 : Number($("req-item-vest").value);
+  const vReal = $("req-item-vreal").value === "" ? 0 : Number($("req-item-vreal").value);
+  const { error } = await supabase.from("requisicao_compra_itens").insert({
+    requisicao_id: requisicaoId, material_id: materialId, quantidade: qtd, valor_estimado: vEst, valor_realizado: vReal,
+  });
+  if (error) return mostrarErro("crud-form-erro", "Não foi possível adicionar o material.");
+  $("req-item-material").value = ""; $("req-item-qtd").value = ""; $("req-item-vest").value = ""; $("req-item-vreal").value = "";
+  await carregarReqItens(requisicaoId);
+}
+
+async function excluirReqItem(id) {
+  const it = reqItensAtual.find((x) => x.id === id);
+  if (!confirmarExclusao(`o item "${(reqRefMateriais.find((m) => m.id === (it || {}).material_id) || {}).descricao || ""}"`.trim())) return;
+  const { error } = await supabase.from("requisicao_compra_itens").delete().eq("id", id);
+  if (!error && it) await carregarReqItens(it.requisicao_id);
+}
+
+async function aprovarRequisicao(id) {
+  if (!confirm("Aprovar esta requisição de compra?")) return;
+  const { error } = await supabase.from("requisicoes_compra").update({ status: "Aprovada" }).eq("id", id);
+  if (error) return mostrarErro("crud-form-erro", error.message || "Não foi possível aprovar.");
+  $("painel-crud").classList.add("hidden");
+  await carregarModuloCrud("requisicoes_compra");
+}
+
+async function criarRequisicaoDaAtividade(atividadeId) {
+  const at = (crudLista || []).find((a) => a.id === atividadeId);
+  const { data: jaExiste } = await supabase.from("requisicoes_compra").select("id").eq("atividade_id", atividadeId).limit(1);
+  irParaModulo("requisicoes_compra");
+  await carregarModuloCrud("requisicoes_compra");
+  requisicaoAtividadePreset = at
+    ? { id: at.id, os: at.os, corporativo: at.corporativo, centro_treinamento_id: at.centro_treinamento_id }
+    : { id: atividadeId };
+  if (jaExiste && jaExiste.length) abrirEdicaoCrud(jaExiste[0].id);
+  else abrirNovoCrud();
 }
 
 // ===========================================================

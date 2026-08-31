@@ -906,3 +906,21 @@ create policy "atividades_delete" on atividades for delete using (pode_acessar_t
 --     leitura tipos_material e fornecedores. Módulos no MODULOS (grupo Cadastros).
 --   Frontend: 3 entradas na engine CRUD_CONFIG (opcoesFn p/ tipo e fornecedor;
 --     Tipos de Material mostra a contagem de materiais do tipo via carregarRefs).
+
+-- migração requisicoes_compra:
+--   permissoes.pode_aprovar_requisicao (bool; usado em modulo='requisicoes_compra').
+--   requisicoes_compra (numero REC+ano+6seq via trigger; atividade_id -> atividades,
+--     corporativo/centro exclusivos, solicitante_id/aprovador_id -> usuarios_sistema,
+--     data_criacao/data_aprovacao, status Planejada/Aprovada/Compra Parcial/Compra Total,
+--     valor_estimado/valor_realizado = soma dos itens via trigger).
+--   requisicao_compra_itens (requisicao_id -> on delete cascade, material_id -> materiais
+--     on delete restrict, quantidade, valor_estimado, valor_realizado).
+--   Triggers: requisicoes_compra_before_insert (numero+solicitante+criado_por),
+--     requisicoes_compra_before_update (numero/criador imutáveis; status->'Aprovada'
+--     exige perm_aprovar_requisicao(uid) e carimba data_aprovacao/aprovador_id),
+--     requisicao_itens_recalcular (after ins/upd/del nos itens -> soma no header).
+--   pode_acessar_tabela: módulo requisicoes_compra own (requisicoes_compra,
+--     requisicao_compra_itens) + leitura materiais/tipos_material/centros_treinamento/
+--     usuarios_sistema/atividades.
+--   Frontend: rotina CRUD (grupo Operações) com editor de itens embutido; botão 🛒
+--     na tabela de Atividades cria/abre a requisição da OS.
