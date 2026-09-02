@@ -1072,6 +1072,36 @@ const CRUD_CONFIG = {
     campoBusca: (i) => `${i.nome} ${i.cnpj || ""}`,
     cardTitulo: (i) => i.nome,
     cardLinhas: (i) => [i.cnpj && `CNPJ: ${i.cnpj}`, i.cnpj_grupo_economico && `Grupo: ${i.cnpj_grupo_economico}`, i.contato_nome, i.contato_email, i.contato_telefone].filter(Boolean),
+    renderTabela: (lista, { podeAlterar, podeExcluir }) => {
+      const badge = (s) => `<span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${s === "Inativo" ? "bg-rose-50 text-rose-600" : "bg-teal-50 text-teal-700"}">${s || "—"}</span>`;
+      return `
+      <table class="w-full text-xs bg-white border border-slate-200 rounded-lg">
+        <thead>
+          <tr class="bg-slate-50 text-left text-slate-500 uppercase tracking-wide text-[10px]">
+            <th class="px-3 py-2 font-medium">Empresa</th>
+            <th class="px-3 py-2 font-medium">CNPJ</th>
+            <th class="px-3 py-2 font-medium">Grupo econômico</th>
+            <th class="px-3 py-2 font-medium">Contato</th>
+            <th class="px-3 py-2 font-medium">Status</th>
+            <th class="px-3 py-2"></th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          ${lista.map((i) => `
+          <tr class="hover:bg-slate-50">
+            <td class="px-3 py-2 text-slate-800 font-medium">${i.nome || "—"}</td>
+            <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${i.cnpj || "—"}</td>
+            <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${i.cnpj_grupo_economico || "—"}</td>
+            <td class="px-3 py-2 text-slate-600">${[i.contato_nome, i.contato_telefone, i.contato_email].filter(Boolean).join(" · ") || "—"}</td>
+            <td class="px-3 py-2 whitespace-nowrap">${badge(i.status)}</td>
+            <td class="px-3 py-2 text-right whitespace-nowrap">
+              ${podeAlterar ? `<button data-crud-editar="${i.id}" class="text-slate-500 hover:text-slate-800 mr-2">✏️</button>` : ""}
+              ${podeExcluir ? `<button data-crud-excluir="${i.id}" class="text-rose-500 hover:text-rose-700">🗑️</button>` : ""}
+            </td>
+          </tr>`).join("")}
+        </tbody>
+      </table>`;
+    },
   },
   centros_treinamento: {
     tabela: "centros_treinamento",
@@ -2280,7 +2310,16 @@ async function excluirCrud(id) {
   const rotulo = item ? `${cfg.titulo.toLowerCase()} "${cfg.cardTitulo(item)}"` : `este registro (${cfg.titulo.toLowerCase()})`;
   if (!confirmarExclusao(rotulo)) return;
   const { error } = await supabase.from(cfg.tabela).delete().eq("id", id);
-  if (!error) await carregarModuloCrud(crudModuloId);
+  if (error) {
+    const vinculo = error.code === "23503" || /foreign key|violates foreign key/i.test(error.message || "");
+    alert(
+      vinculo
+        ? `Não é possível excluir ${rotulo}: há registros vinculados (por exemplo, orçamentos ou agendamentos).\n\nPara tirá-lo de uso sem apagar o histórico, altere o Status para "Inativo".`
+        : `Não foi possível excluir ${rotulo}. Tente novamente.`
+    );
+    return;
+  }
+  await carregarModuloCrud(crudModuloId);
 }
 
 // ===========================================================
