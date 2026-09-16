@@ -191,6 +191,10 @@ let agMesCalendario = new Date();
 let agDatasSelecionadas = new Set();
 let agendamentoOriginalDatas = [];
 let agendamentoInstrutorOriginalId = null;
+let agAbaAtiva = "lista"; // "lista" | "negativas"
+let listaNegativas = []; // achatado a partir de datas_status/negativas_resolvidas de listaAgendamentos
+let negativaEmSubstituicao = null; // { agendamentoId, data } quando o painel foi aberto a partir de uma negativa
+let agDataForcada = null; // data que deve ficar selecionável mesmo fora da disponibilidade do novo instrutor
 
 let listaOrcamentos = [];
 let editandoOrcamentoId = null;
@@ -2518,7 +2522,7 @@ function preencherSelect(id, itens, valueKey, labelFn, opcaoVazia) {
 async function carregarAgendamentos() {
   $("admin-descricao-pagina").textContent = "Agende treinamentos vinculando instrutor, tipo, centro e datas.";
   const [{ data: ags }, { data: insts }, { data: tipos }, { data: centros }, { data: empresas }] = await Promise.all([
-    supabase.from("agendamentos").select("*, instrutores(nome), tipos_treinamento(nome), centros_treinamento(nome), empresas(nome)").order("created_at", { ascending: false }),
+    supabase.from("agendamentos").select("*, instrutores(nome, email), tipos_treinamento(nome), centros_treinamento(nome), empresas(nome)").order("created_at", { ascending: false }),
     supabase.from("instrutores").select("*").eq("status", "Ativo").order("nome"),
     supabase.from("tipos_treinamento").select("*").eq("status", "Ativo").order("nome"),
     supabase.from("centros_treinamento").select("*").eq("status", "Ativo").order("nome"),
@@ -2530,7 +2534,123 @@ async function carregarAgendamentos() {
   listaCentrosAtivos = centros || [];
   listaEmpresasAtivas = empresas || [];
   $("btn-ag-novo").classList.toggle("hidden", !podeFazer("agendamentos", "incluir"));
+  computarListaNegativas();
+  renderizarAbasAgendamentos();
   renderizarListaAgendamentos();
+  renderizarListaNegativas();
+}
+
+// Achata datas_status (só as negadas) de todos os agendamentos numa lista única,
+// cruzando com negativas_resolvidas para saber o que já foi tratado pelo operador.
+function computarListaNegativas() {
+  const negativas = [];
+  listaAgendamentos.forEach((a) => {
+    const datasStatus = a.datas_status || {};
+    const resolvidas = a.negativas_resolvidas || {};
+    Object.entries(datasStatus).forEach(([data, info]) => {
+      if (!info || info.status !== "negado") return;
+      const resolucao = resolvidas[data] || null;
+      negativas.push({
+        agendamentoId: a.id,
+        instrutorNome: a.instrutores?.nome || "Instrutor removido",
+        instrutorEmail: a.instrutores?.email || "",
+        data,
+        justificativa: info.justificativa || "",
+        tipoNome: a.tipos_treinamento?.nome || "—",
+        centroNome: a.centros_treinamento?.nome || "",
+        empresaNome: a.empresas?.nome || "",
+        tipoId: a.tipo_treinamento_id,
+        centroId: a.centro_treinamento_id,
+        empresaId: a.empresa_id,
+        resolvida: !!resolucao,
+        resolvidoEm: resolucao?.resolvido_em || null,
+        novoAgendamentoId: resolucao?.novo_agendamento_id || null,
+      });
+    });
+  });
+  negativas.sort((x, y) => {
+    if (x.resolvida !== y.resolvida) return x.resolvida ? 1 : -1;
+    return x.data < y.data ? -1 : x.data > y.data ? 1 : 0;
+  });
+  listaNegativas = negativas;
+}
+
+function renderizarAbasAgendamentos() {
+  const pendentes = listaNegativas.filter((n) => !n.resolvida).length;
+  const badge = $("ag-negativas-badge");
+  badge.textContent = String(pendentes);
+  badge.classList.toggle("hidden", pendentes === 0);
+
+  const ativa = "border-slate-900 text-slate-900";
+  const inativa = "border-transparent text-slate-500 hover:text-slate-800";
+  $("ag-aba-lista").className = `inline-flex items-center gap-2 text-sm font-medium px-3 py-2 border-b-2 -mb-px ${agAbaAtiva === "lista" ? ativa : inativa}`;
+  $("ag-aba-negativas").className = `inline-flex items-center gap-2 text-sm font-medium px-3 py-2 border-b-2 -mb-px ${agAbaAtiva === "negativas" ? ativa : inativa}`;
+  $("ag-conteudo-lista").classList.toggle("hidden", agAbaAtiva !== "lista");
+  $("ag-conteudo-negativas").classList.toggle("hidden", agAbaAtiva !== "negativas");
+}
+
+document.querySelectorAll("[data-ag-aba]").forEach((btn) =>
+  btn.addEventListener("click", () => {
+    agAbaAtiva = btn.getAttribute("data-ag-aba");
+    renderizarAbasAgendamentos();
+  })
+);
+
+function renderizarListaNegativas() {
+  const podeAlterar = podeFazer("agendamentos", "alterar");
+  const podeIncluir = podeFazer("agendamentos", "incluir");
+  const cont = $("ag-negativas-lista");
+  if (listaNegativas.length === 0) {
+    cont.innerHTML = `<div class="bg-white border border-dashed border-slate-300 rounded-lg py-16 text-center text-slate-500 text-sm">Nenhuma negativa registrada.</div>`;
+    return;
+  }
+  cont.innerHTML = listaNegativas.map((n, idx) => `
+    <div class="bg-white rounded-lg border ${n.resolvida ? "border-slate-200 opacity-60" : "border-rose-200"} p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center gap-2 flex-wrap">
+          <p class="font-serif text-lg text-slate-900 leading-tight">${n.instrutorNome}</p>
+          <span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${n.resolvida ? "bg-slate-100 text-slate-500" : "bg-rose-50 text-rose-600"}">${n.resolvida ? "Resolvida" : "Pendente"}</span>
+        </div>
+        <p class="text-sm text-amber-700 font-medium mt-1">🗓️ ${formatarDataAbrev(n.data)} · 🏷️ ${n.tipoNome}</p>
+        <div class="text-xs text-slate-500 space-y-0.5 mt-1">
+          ${n.centroNome ? `<p>🏫 ${n.centroNome}</p>` : ""}
+          ${n.empresaNome ? `<p>🏢 ${n.empresaNome}</p>` : ""}
+          <p class="text-slate-600">💬 ${n.justificativa || "Sem justificativa informada."}</p>
+          ${n.resolvida ? `<p class="text-slate-400">✔️ Resolvida em ${new Date(n.resolvidoEm).toLocaleDateString("pt-BR")}</p>` : ""}
+        </div>
+      </div>
+      ${!n.resolvida ? `
+      <div class="flex sm:flex-col gap-2 shrink-0">
+        ${podeIncluir ? `<button data-negativa-substituir="${idx}" class="text-xs font-medium bg-slate-900 hover:bg-slate-800 text-white rounded-md px-3 py-1.5 whitespace-nowrap">🔁 Substituir instrutor</button>` : ""}
+        ${podeAlterar ? `<button data-negativa-resolver="${idx}" class="text-xs font-medium text-slate-500 hover:text-slate-800 hover:bg-slate-50 rounded-md px-3 py-1.5 whitespace-nowrap">✔️ Marcar como resolvida</button>` : ""}
+      </div>` : ""}
+    </div>`).join("");
+  cont.querySelectorAll("[data-negativa-substituir]").forEach((btn) =>
+    btn.addEventListener("click", () => abrirSubstituicaoNegativa(listaNegativas[Number(btn.getAttribute("data-negativa-substituir"))]))
+  );
+  cont.querySelectorAll("[data-negativa-resolver]").forEach((btn) =>
+    btn.addEventListener("click", () => marcarNegativaResolvidaManual(listaNegativas[Number(btn.getAttribute("data-negativa-resolver"))]))
+  );
+}
+
+// Marca a negativa como resolvida sem criar um novo agendamento (ex: operador
+// já resolveu por fora, ou decidiu cancelar aquela data).
+async function marcarNegativaResolvidaManual(n) {
+  if (!confirm(`Marcar a negativa de ${n.instrutorNome} em ${formatarDataAbrev(n.data)} como resolvida?\n\nIsso não cria um novo agendamento — use "Substituir instrutor" se ainda precisa alocar alguém.`)) return;
+  const a = listaAgendamentos.find((x) => x.id === n.agendamentoId);
+  const resolvidas = { ...((a && a.negativas_resolvidas) || {}) };
+  resolvidas[n.data] = { resolvido_em: new Date().toISOString(), novo_agendamento_id: null };
+  const { error } = await supabase.from("agendamentos").update({ negativas_resolvidas: resolvidas }).eq("id", n.agendamentoId);
+  if (!error) await carregarAgendamentos();
+}
+
+// Abre o painel de "Agendar treinamento" pré-preenchido para alocar um novo
+// instrutor na mesma data/tipo/centro/empresa da negativa selecionada.
+function abrirSubstituicaoNegativa(n) {
+  negativaEmSubstituicao = { agendamentoId: n.agendamentoId, data: n.data };
+  abrirNovoAgendamento({ tipoId: n.tipoId, centroId: n.centroId, empresaId: n.empresaId, data: n.data });
+  $("ag-aviso-substituicao").textContent = `Substituindo ${n.instrutorNome} em ${formatarDataAbrev(n.data)} (negou: "${n.justificativa || "sem justificativa"}"). Escolha o novo instrutor abaixo.`;
+  $("ag-aviso-substituicao").classList.remove("hidden");
 }
 
 function renderizarListaAgendamentos() {
@@ -2591,7 +2711,7 @@ function renderizarCalendarioAgendamento() {
     const statusOriginal = obterStatusDia(diasStatus, dataStr);
     const selecionado = agDatasSelecionadas.has(dataStr);
     const pertenceEdicao = mesmoInstrutorDaEdicao && agendamentoOriginalDatas.includes(dataStr);
-    const selecionavel = statusOriginal === "disponivel" || pertenceEdicao || selecionado;
+    const selecionavel = statusOriginal === "disponivel" || pertenceEdicao || selecionado || dataStr === agDataForcada;
 
     const btn = document.createElement("button");
     btn.type = "button";
@@ -2639,25 +2759,31 @@ $("ag-instrutor").addEventListener("change", () => {
   atualizarContagemAgDatas();
 });
 
-function abrirNovoAgendamento() {
+function abrirNovoAgendamento(prefill) {
   editandoAgendamentoId = null;
   agendamentoOriginalDatas = [];
   agendamentoInstrutorOriginalId = null;
+  if (!prefill) negativaEmSubstituicao = null; // preservado quando chamado por abrirSubstituicaoNegativa
+  agDataForcada = (prefill && prefill.data) || null;
   esconderErro("ag-form-erro");
+  $("ag-aviso-substituicao").classList.add("hidden");
   preencherSelect("ag-instrutor", listaInstrutoresAtivos, "id", (i) => i.nome, "— Selecione —");
   preencherSelect("ag-tipo", listaTiposAtivos, "id", (i) => i.nome, "— Selecione —");
   preencherSelect("ag-centro", listaCentrosAtivos, "id", (i) => i.nome, "— Selecione —");
   preencherSelect("ag-empresa", listaEmpresasAtivas, "id", (i) => i.nome, "— Nenhuma —");
+  $("ag-tipo").value = (prefill && prefill.tipoId) || "";
+  $("ag-centro").value = (prefill && prefill.centroId) || "";
+  $("ag-empresa").value = (prefill && prefill.empresaId) || "";
   $("ag-horario").value = "";
   $("ag-status").value = "Aguardando";
   $("ag-observacoes").value = "";
   agInstrutorSelecionado = null;
-  agDatasSelecionadas = new Set();
-  agMesCalendario = new Date();
+  agDatasSelecionadas = agDataForcada ? new Set([agDataForcada]) : new Set();
+  agMesCalendario = agDataForcada ? new Date(agDataForcada) : new Date();
   $("ag-sem-instrutor").classList.remove("hidden");
   $("ag-calendario").classList.add("hidden");
   atualizarContagemAgDatas();
-  $("painel-agendamento-titulo").textContent = "Agendar treinamento";
+  $("painel-agendamento-titulo").textContent = prefill ? "Substituir instrutor" : "Agendar treinamento";
   $("btn-salvar-agendamento").textContent = "Salvar agendamento";
   $("painel-agendamento").classList.remove("hidden");
 }
@@ -2668,7 +2794,10 @@ function abrirEdicaoAgendamento(id) {
   editandoAgendamentoId = id;
   agendamentoOriginalDatas = a.datas || [];
   agendamentoInstrutorOriginalId = a.instrutor_id;
+  negativaEmSubstituicao = null;
+  agDataForcada = null;
   esconderErro("ag-form-erro");
+  $("ag-aviso-substituicao").classList.add("hidden");
   preencherSelect("ag-instrutor", listaInstrutoresAtivos, "id", (i) => i.nome, "— Selecione —");
   preencherSelect("ag-tipo", listaTiposAtivos, "id", (i) => i.nome, "— Selecione —");
   preencherSelect("ag-centro", listaCentrosAtivos, "id", (i) => i.nome, "— Selecione —");
@@ -2723,9 +2852,11 @@ async function salvarAgendamento() {
   $("btn-salvar-agendamento").disabled = true;
   $("btn-salvar-agendamento").textContent = "Salvando…";
 
-  let erro;
+  let erro, novoAgendamento;
   if (editandoAgendamentoId) {
     ({ error: erro } = await supabase.from("agendamentos").update(payload).eq("id", editandoAgendamentoId));
+  } else if (negativaEmSubstituicao) {
+    ({ data: novoAgendamento, error: erro } = await supabase.from("agendamentos").insert(payload).select().single());
   } else {
     ({ error: erro } = await supabase.from("agendamentos").insert(payload));
   }
@@ -2734,6 +2865,18 @@ async function salvarAgendamento() {
     $("btn-salvar-agendamento").disabled = false;
     $("btn-salvar-agendamento").textContent = editandoAgendamentoId ? "Salvar alterações" : "Salvar agendamento";
     return mostrarErro("ag-form-erro", "Não foi possível salvar. Tente novamente.");
+  }
+
+  // Substituição de negativa: grava a resolução no agendamento original,
+  // apontando para o novo agendamento recém-criado. Não mexe em datas nem
+  // em datas_status do agendamento original — a negativa continua registrada.
+  if (negativaEmSubstituicao && novoAgendamento) {
+    const original = listaAgendamentos.find((x) => x.id === negativaEmSubstituicao.agendamentoId);
+    const resolvidas = { ...((original && original.negativas_resolvidas) || {}) };
+    resolvidas[negativaEmSubstituicao.data] = { resolvido_em: new Date().toISOString(), novo_agendamento_id: novoAgendamento.id };
+    await supabase.from("agendamentos").update({ negativas_resolvidas: resolvidas }).eq("id", negativaEmSubstituicao.agendamentoId);
+    negativaEmSubstituicao = null;
+    agDataForcada = null;
   }
 
   // Reflete o agendamento no calendário do instrutor: libera datas removidas

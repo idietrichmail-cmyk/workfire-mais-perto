@@ -924,3 +924,25 @@ create policy "atividades_delete" on atividades for delete using (pode_acessar_t
 --     usuarios_sistema/atividades.
 --   Frontend: rotina CRUD (grupo Operações) com editor de itens embutido; botão 🛒
 --     na tabela de Atividades cria/abre a requisição da OS.
+
+-- migração agendamentos_negativas_resolvidas (workfire-mais-perto):
+--   datas_status (jsonb, default '{}') já existia em agendamentos, adicionada pelo
+--   app agenda-instrutores: uma entrada por data respondida pelo instrutor, ex.
+--   {"2026-09-26": {"status": "negado", "justificativa": "..."}}. Datas de `datas`
+--   ainda ausentes em datas_status = pendentes de resposta do instrutor.
+--   + negativas_resolvidas jsonb not null default '{}' — controle do operador sobre
+--     as datas negadas já tratadas, ex.
+--     {"2026-09-26": {"resolvido_em": "2026-09-20T14:00:00Z", "novo_agendamento_id": "uuid|null"}}.
+--     Não remove nada de datas/datas_status — só registra que aquela negativa foi
+--     endereçada (seja criando um novo agendamento para outro instrutor, seja
+--     manualmente pelo operador).
+--   RLS de agendamentos (select/update) já tinha as policies
+--     agendamentos_select_proprio_instrutor / agendamentos_update_proprio_instrutor
+--     (instrutor só enxerga/atualiza as próprias linhas); nada mudou aqui — o
+--     acesso do operador continua via pode_acessar_tabela(auth.uid(), 'agendamentos', ...).
+--   Frontend (secao-agendamentos): aba "Negativas de instrutores" ao lado da lista
+--     de agendamentos, com contador de pendências. Cada negativa mostra instrutor,
+--     data, justificativa, turma/centro/empresa. Botão "Substituir instrutor" abre
+--     o painel de Agendar treinamento pré-preenchido (tipo/centro/empresa/data) e,
+--     ao salvar, grava negativas_resolvidas apontando para o novo agendamento.
+--     Botão "Marcar como resolvida" resolve manualmente, sem criar agendamento novo.

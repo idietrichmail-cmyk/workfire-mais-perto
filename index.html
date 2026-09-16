@@ -377,11 +377,26 @@
 
       <!-- ---------- OPERAÇÃO: AGENDAR TREINAMENTO ---------- -->
       <section id="secao-agendamentos" class="hidden">
-        <div class="flex flex-col sm:flex-row gap-3 sm:items-center justify-between mb-5">
-          <input id="ag-busca" placeholder="Buscar por instrutor, tipo ou empresa" class="flex-1 max-w-xs text-sm rounded-md border border-slate-300 bg-white px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-500" />
-          <button id="btn-ag-novo" class="inline-flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium px-4 py-2 rounded-md">+ Agendar treinamento</button>
+        <div class="flex gap-1 mb-6 border-b border-slate-200">
+          <button id="ag-aba-lista" data-ag-aba="lista" class="inline-flex items-center gap-2 text-sm font-medium px-3 py-2 border-b-2 -mb-px">📋 Agendamentos</button>
+          <button id="ag-aba-negativas" data-ag-aba="negativas" class="inline-flex items-center gap-2 text-sm font-medium px-3 py-2 border-b-2 -mb-px">
+            🚫 Negativas de instrutores
+            <span id="ag-negativas-badge" class="hidden text-[11px] font-semibold bg-rose-500 text-white rounded-full px-2 py-0.5 leading-none">0</span>
+          </button>
         </div>
-        <div id="ag-lista" class="grid sm:grid-cols-2 xl:grid-cols-3 gap-4"></div>
+
+        <div id="ag-conteudo-lista">
+          <div class="flex flex-col sm:flex-row gap-3 sm:items-center justify-between mb-5">
+            <input id="ag-busca" placeholder="Buscar por instrutor, tipo ou empresa" class="flex-1 max-w-xs text-sm rounded-md border border-slate-300 bg-white px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-500" />
+            <button id="btn-ag-novo" class="inline-flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium px-4 py-2 rounded-md">+ Agendar treinamento</button>
+          </div>
+          <div id="ag-lista" class="grid sm:grid-cols-2 xl:grid-cols-3 gap-4"></div>
+        </div>
+
+        <div id="ag-conteudo-negativas" class="hidden">
+          <p class="text-sm text-slate-500 mb-5 max-w-xl">Datas que o instrutor negou pelo celular. Decida por quem substituir e marque como resolvida — o histórico de quem negou e por quê fica registrado.</p>
+          <div id="ag-negativas-lista" class="flex flex-col gap-3"></div>
+        </div>
       </section>
 
       <!-- ---------- OPERAÇÃO: ORÇAMENTOS ---------- -->
@@ -1017,6 +1032,7 @@
         <button id="btn-fechar-painel-agendamento" class="text-slate-400 hover:text-slate-700 text-xl">×</button>
       </div>
       <div id="ag-form-erro" class="hidden bg-rose-50 text-rose-600 text-sm rounded-md px-3 py-2 mb-4"></div>
+      <div id="ag-aviso-substituicao" class="hidden bg-amber-50 text-amber-800 text-sm rounded-md px-3 py-2 mb-4"></div>
       <div class="space-y-4">
         <div>
           <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Instrutor</label>
