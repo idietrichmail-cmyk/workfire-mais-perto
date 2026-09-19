@@ -527,6 +527,14 @@
             </select>
           </div>
           <div>
+            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Data início</label>
+            <input type="date" id="cct-data-inicio" class="mt-1 block rounded-md border border-slate-300 px-3 py-2 text-sm" />
+          </div>
+          <div>
+            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Data término</label>
+            <input type="date" id="cct-data-fim" class="mt-1 block rounded-md border border-slate-300 px-3 py-2 text-sm" />
+          </div>
+          <div>
             <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Mostrar</label>
             <select id="cct-filtro-status" class="mt-1 rounded-md border border-slate-300 px-3 py-2 text-sm">
               <option value="Aguardando confirmação">Aguardando confirmação</option>
@@ -535,6 +543,7 @@
               <option value="">Todas</option>
             </select>
           </div>
+          <button id="btn-cct-limpar-datas" type="button" class="text-xs text-amber-700 hover:underline pb-2">limpar datas</button>
           <div id="cct-resumo" class="text-xs text-slate-500"></div>
         </div>
         <div id="cct-resultado" class="hidden mb-3 text-sm rounded-md px-3 py-2"></div>

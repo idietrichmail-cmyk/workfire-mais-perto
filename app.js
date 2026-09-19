@@ -4094,14 +4094,23 @@ async function carregarConfirmacaoCtInit() {
   preencherSelect("cct-centro-select", listaCentrosAtivos, "id", (c) => c.nome, "— Selecione —");
   $("cct-centro-select").value = listaCentrosAtivos.length === 1 ? listaCentrosAtivos[0].id : "";
   $("cct-filtro-status").value = "Aguardando confirmação";
+  $("cct-data-inicio").value = "";
+  $("cct-data-fim").value = "";
   $("cct-resultado").classList.add("hidden");
   await carregarListaConfirmacaoCt();
 }
 
-async function carregarListaConfirmacaoCt() {
+async function carregarListaConfirmacaoCt(forcar = true) {
   const centroId = $("cct-centro-select").value;
   const filtro = $("cct-filtro-status").value;
+  const dataIni = $("cct-data-inicio").value;
+  const dataFim = $("cct-data-fim").value;
   const cont = $("cct-lista");
+  if (dataIni && dataFim && dataFim < dataIni) {
+    cont.innerHTML = `<tr><td colspan="9" class="text-center text-rose-600 text-sm py-16">A data de término não pode ser anterior à data de início.</td></tr>`;
+    $("cct-resumo").textContent = "";
+    return;
+  }
   if (!centroId) {
     cctLista = [];
     $("cct-resumo").textContent = "";
@@ -4116,19 +4125,27 @@ async function carregarListaConfirmacaoCt() {
     .order("data_inicio", { ascending: true, nullsFirst: false });
   if (filtro) q = q.eq("agenda_ct", filtro);
   else q = q.neq("agenda_ct", "Não aplicável");
+  if (dataIni) q = q.gte("data_inicio", dataIni);
+  if (dataFim) q = q.lte("data_inicio", dataFim);
   const { data, error } = await q;
   if (error) {
     cont.innerHTML = `<tr><td colspan="9" class="text-center text-rose-600 text-sm py-16">Não foi possível carregar as turmas: ${error.message}</td></tr>`;
     return;
   }
+  let ags = [];
+  if ((data || []).length) {
+    const r = await supabase.from("agendamentos").select("turma_id, instrutor_id, datas, datas_status").in("turma_id", data.map((t) => t.id));
+    ags = r.data || [];
+  }
+  // na atualização automática, só re-renderiza se algo mudou
+  if (!forcar && !dadosMudaram(`cct:${centroId}:${filtro}:${dataIni}:${dataFim}`, { data, ags })) return;
+  if (forcar) dadosMudaram(`cct:${centroId}:${filtro}:${dataIni}:${dataFim}`, { data, ags });
   cctLista = data || [];
   cctAgendamentos.clear();
-  if (cctLista.length) {
-    const { data: ags } = await supabase.from("agendamentos").select("turma_id, instrutor_id, datas, datas_status").in("turma_id", cctLista.map((t) => t.id));
-    (ags || []).forEach((a) => cctAgendamentos.set(`${a.turma_id}|${a.instrutor_id}`, a));
-  }
+  ags.forEach((a) => cctAgendamentos.set(`${a.turma_id}|${a.instrutor_id}`, a));
   const pendentes = cctLista.filter((t) => t.agenda_ct === "Aguardando confirmação").length;
-  $("cct-resumo").textContent = filtro ? `${cctLista.length} turma(s)` : `${cctLista.length} turma(s) · ${pendentes} aguardando confirmação`;
+  const periodo = dataIni || dataFim ? ` · período ${dataIni ? formatarDataBr(dataIni) : "…"} a ${dataFim ? formatarDataBr(dataFim) : "…"}` : "";
+  $("cct-resumo").textContent = (filtro ? `${cctLista.length} turma(s)` : `${cctLista.length} turma(s) · ${pendentes} aguardando confirmação`) + periodo;
   renderizarListaConfirmacaoCt();
 }
 
@@ -4193,6 +4210,13 @@ async function responderConfirmacaoCt(turmaId, confirmar) {
 }
 $("cct-centro-select").addEventListener("change", carregarListaConfirmacaoCt);
 $("cct-filtro-status").addEventListener("change", carregarListaConfirmacaoCt);
+$("cct-data-inicio").addEventListener("change", carregarListaConfirmacaoCt);
+$("cct-data-fim").addEventListener("change", carregarListaConfirmacaoCt);
+$("btn-cct-limpar-datas").addEventListener("click", () => {
+  $("cct-data-inicio").value = "";
+  $("cct-data-fim").value = "";
+  carregarListaConfirmacaoCt();
+});
 
 // ===========================================================
 // Alunos por Turma
@@ -4664,3 +4688,155 @@ $("btn-excluir-localidades-todas-turmas").addEventListener("click", excluirLocal
 iniciar();
 
 })();
+
+// ===========================================================
+// ATUALIZAÇÃO AUTOMÁTICA (polling a cada 5 s)
+// Verifica se os dados da tela ativa mudaram no banco e re-renderiza.
+// Não atualiza enquanto: a aba está em segundo plano, um painel lateral
+// está aberto, o usuário está com um campo em edição, ou uma atualização
+// anterior ainda não terminou.
+// ===========================================================
+const AUTO_REFRESH_MS = 5000;
+let autoRefreshEmAndamento = false;
+const autoRefreshAssinaturas = new Map(); // chave → JSON da última carga (para só re-renderizar quando mudou)
+
+function dadosMudaram(chave, dados) {
+  const atual = JSON.stringify(dados);
+  if (autoRefreshAssinaturas.get(chave) === atual) return false;
+  autoRefreshAssinaturas.set(chave, atual);
+  return true;
+}
+
+function algumPainelAberto() {
+  return [...document.querySelectorAll("body > div.fixed.inset-0")].some((el) => !el.classList.contains("hidden"));
+}
+
+function usuarioEditandoCampo() {
+  const el = document.activeElement;
+  if (!el) return false;
+  const tag = el.tagName;
+  if (tag !== "INPUT" && tag !== "SELECT" && tag !== "TEXTAREA") return false;
+  // campos de busca/filtro são seguros (o estado deles é lido no render)
+  if (el.id === "crud-busca" || el.id === "admin-busca" || el.id === "admin-filtro-status") return false;
+  return true;
+}
+
+// --- refreshers por módulo (silenciosos: só re-renderizam se algo mudou) ---
+async function refreshInstrutoresAdmin() {
+  const { data, error } = await supabase.from("instrutores").select("*").order("nome");
+  if (error || !dadosMudaram("instrutores", data)) return;
+  listaInstrutoresAdmin = data.filter((i) => i.role !== "admin");
+  renderizarListaAdmin();
+}
+
+async function refreshCrud() {
+  const cfg = CRUD_CONFIG[crudModuloId];
+  if (!cfg) return;
+  const { data, error } = await supabase.from(cfg.tabela).select("*").order(cfg.ordenarPor, { ascending: cfg.ordenarAsc !== false });
+  if (error || !dadosMudaram("crud:" + crudModuloId, data)) return;
+  crudLista = data;
+  renderizarListaCrud();
+}
+
+async function refreshAgendamentos() {
+  const { data, error } = await supabase
+    .from("agendamentos")
+    .select("*, instrutores(nome, email), tipos_treinamento(nome), centros_treinamento(nome), empresas(nome)")
+    .order("created_at", { ascending: false });
+  if (error || !dadosMudaram("agendamentos", data)) return;
+  listaAgendamentos = data || [];
+  computarListaNegativas();
+  renderizarAbasAgendamentos();
+  renderizarListaAgendamentos();
+  renderizarListaNegativas();
+}
+
+async function refreshOrcamentos() {
+  const { data, error } = await supabase
+    .from("orcamentos")
+    .select("*, empresas(nome), centros_treinamento(nome), tipos_treinamento(nome)")
+    .order("created_at", { ascending: false });
+  if (error || !dadosMudaram("orcamentos", data)) return;
+  listaOrcamentos = data || [];
+  renderizarListaOrcamentos();
+}
+
+async function refreshTurmas() {
+  if (!turmaOrcamentoSelecionadoId) return;
+  const { data, error } = await supabase
+    .from("turmas")
+    .select("*, tipos_treinamento(nome), centros_treinamento(nome), instrutor1:instrutores!instrutor1_id(nome), instrutor2:instrutores!instrutor2_id(nome), empresas_transporte(nome)")
+    .eq("orcamento_id", turmaOrcamentoSelecionadoId)
+    .order("identificacao", { ascending: true });
+  if (error || !dadosMudaram("turmas:" + turmaOrcamentoSelecionadoId, data)) return;
+  turmasDoOrcamento = data || [];
+  renderizarListaTurmas();
+}
+
+async function refreshAgendamentoTurmas() {
+  if (!agendTurmaOrcamentoId) return;
+  const [{ data: turmas, error: e1 }, { data: insts, error: e2 }] = await Promise.all([
+    supabase.from("turmas").select("*, tipos_treinamento(nome), centros_treinamento(nome)").eq("orcamento_id", agendTurmaOrcamentoId).order("identificacao", { ascending: true }),
+    supabase.from("instrutores").select("*").eq("status", "Ativo").order("nome"),
+  ]);
+  if (e1 || e2) return;
+  const ids = (turmas || []).map((t) => t.id);
+  const { data: ags } = ids.length
+    ? await supabase.from("agendamentos").select("id, turma_id, instrutor_id, datas, datas_status").in("turma_id", ids)
+    : { data: [] };
+  if (!dadosMudaram("agendTurmas:" + agendTurmaOrcamentoId, { turmas, insts, ags })) return;
+  agendTurmasLista = turmas || [];
+  listaInstrutoresAtivos = insts || [];
+  agendTurmaAgendamentos.clear();
+  (ags || []).forEach((a) => agendTurmaAgendamentos.set(`${a.turma_id}|${a.instrutor_id}`, a));
+  agendTurmasLista.forEach((t) => {
+    if ((t.instrutor1_id || t.instrutor2_id) && !agendTurmaInstrutores.has(t.id)) {
+      agendTurmaInstrutores.set(t.id, { instrutor1: t.instrutor1_id || "", instrutor2: t.instrutor2_id || "" });
+    }
+  });
+  renderizarListaAgendTurmas();
+}
+
+async function refreshConfirmacaoCt() {
+  if (!$("cct-centro-select").value) return;
+  await carregarListaConfirmacaoCt(false);
+}
+
+async function refreshAgendaInstrutor() {
+  if (!perfilAtual?.id) return;
+  const { data, error } = await supabase.from("instrutores").select("*").eq("id", perfilAtual.id).maybeSingle();
+  if (error || !data || !dadosMudaram("perfil:" + perfilAtual.id, data)) return;
+  perfilAtual = data;
+  renderizarDadosInstrutor();
+  renderizarCalendarioInstrutor();
+}
+
+const AUTO_REFRESH_POR_MODULO = {
+  instrutores: refreshInstrutoresAdmin,
+  agendamentos: refreshAgendamentos,
+  orcamentos: refreshOrcamentos,
+  turmas: refreshTurmas,
+  agendamento_turmas: refreshAgendamentoTurmas,
+  confirmacao_ct: refreshConfirmacaoCt,
+};
+
+async function executarAutoRefresh() {
+  if (autoRefreshEmAndamento || document.hidden || algumPainelAberto() || usuarioEditandoCampo()) return;
+  autoRefreshEmAndamento = true;
+  try {
+    if (!$("tela-instrutor").classList.contains("hidden")) {
+      await refreshAgendaInstrutor();
+    } else if (!$("tela-admin").classList.contains("hidden") && moduloAtivo) {
+      const fn = AUTO_REFRESH_POR_MODULO[moduloAtivo] || (CRUD_CONFIG[moduloAtivo] ? refreshCrud : null);
+      if (fn) await fn();
+    }
+  } catch (e) {
+    console.warn("Atualização automática falhou:", e);
+  } finally {
+    autoRefreshEmAndamento = false;
+  }
+}
+
+setInterval(executarAutoRefresh, AUTO_REFRESH_MS);
+// Ao voltar para a aba, atualiza na hora em vez de esperar o próximo ciclo.
+document.addEventListener("visibilitychange", () => { if (!document.hidden) executarAutoRefresh(); });
