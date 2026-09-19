@@ -946,3 +946,28 @@ create policy "atividades_delete" on atividades for delete using (pode_acessar_t
 --     o painel de Agendar treinamento pré-preenchido (tipo/centro/empresa/data) e,
 --     ao salvar, grava negativas_resolvidas apontando para o novo agendamento.
 --     Botão "Marcar como resolvida" resolve manualmente, sem criar agendamento novo.
+
+-- ===========================================================
+-- 2026-09-19 — Rotina de solicitação de confirmação do agendamento de turmas
+-- (já aplicada no Supabase via migração
+--  "turmas_status_agendamento_e_confirmacao_ct"; aqui só para documentação)
+-- ===========================================================
+
+-- Status consolidado da turma: Não agendado / Aguardando confirmação / Agendado,
+-- recalculado por trigger a partir de agenda_ct, agenda_instrutor1 e agenda_instrutor2.
+alter table turmas
+  add column if not exists status_agendamento text not null default 'Não agendado'
+  check (status_agendamento in ('Não agendado','Aguardando confirmação','Agendado'));
+-- trigger trg_status_agendamento_turma → calcular_status_agendamento_turma()
+
+-- RPC usada pelo botão <Solicitar confirmação> da tela Agendamento de Turmas:
+--   solicitar_confirmacao_turma_completa(p_turma_id uuid, p_datas jsonb, p_solicitar_ct boolean)
+--   1) chama solicitar_confirmacao_turma (cria/atualiza agendamentos dos instrutores,
+--      notifica o app agenda-instrutores, marca agenda_instrutor1/2 = 'Aguardando confirmação');
+--   2) marca as datas como 'aguardando' em instrutores.dias_status;
+--   3) se p_solicitar_ct, marca agenda_ct = 'Aguardando confirmação'.
+
+-- Novo módulo de permissão "confirmacao_ct" (tela Confirmação do Centro de Treinamento):
+--   edita turmas; leitura de agendamentos, orcamentos, empresas, tipos_treinamento,
+--   centros_treinamento e instrutores (mapa em pode_acessar_tabela).
+-- O módulo agendamento_turmas passou a ter leitura de agendamentos.

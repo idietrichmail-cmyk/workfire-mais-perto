@@ -212,7 +212,8 @@ let agendTurmasLista = [];
 let agendTurmaSelecionadas = new Set();
 let agendTurmaCentroStatus = new Map(); // turmaId -> { disponivel: bool, salaOk, pistaOk }
 let agendTurmaInstrutores = new Map(); // turmaId -> { instrutor1: id|"", instrutor2: id|"" }
-let agendTurmaRankingInstrutores = []; // [{ instrutor, diasDisponiveis, totalDias, fullyAvailable }]
+let agendTurmaRankingInstrutores = [];
+const agendTurmaAgendamentos = new Map(); // `${turmaId}|${instrutorId}` → linha de agendamentos // [{ instrutor, diasDisponiveis, totalDias, fullyAvailable }]
 let turmaAlunosAbertaId = null;
 let alunosDaTurmaAtual = [];
 let localidadesParaAlunosTurma = [];
@@ -247,6 +248,7 @@ const MODULOS = [
   { id: "orcamentos", label: "Orçamentos", icone: "💰", grupo: "Operações" },
   { id: "turmas", label: "Turmas por Orçamento", icone: "🎓", grupo: "Operações" },
   { id: "agendamento_turmas", label: "Agendamento de Turmas", icone: "📆", grupo: "Operações" },
+  { id: "confirmacao_ct", label: "Confirmação do Centro de Treinamento", icone: "✅", grupo: "Operações" },
   { id: "atividades", label: "Atividades", icone: "📋", grupo: "Operações" },
   { id: "requisicoes_compra", label: "Requisições de Compra", icone: "🛒", grupo: "Operações" },
 ];
@@ -756,6 +758,9 @@ function irParaModulo(id) {
   } else if (id === "agendamento_turmas") {
     $("secao-agendamento-turmas").classList.remove("hidden");
     carregarAgendamentoTurmasInit();
+  } else if (id === "confirmacao_ct") {
+    $("secao-confirmacao-ct").classList.remove("hidden");
+    carregarConfirmacaoCtInit();
   }
 }
 
@@ -3734,27 +3739,79 @@ $("agend-orcamento-select").addEventListener("change", async () => {
     <p><strong>Status do orçamento:</strong> ${o?.status || "—"}</p>
   `;
 
+  await recarregarTurmasAgendTurma();
+  $("agend-turma-conteudo").classList.remove("hidden");
+  renderizarListaAgendTurmas();
+});
+
+// Recarrega as turmas do orçamento selecionado e as solicitações já enviadas
+// aos instrutores (tabela agendamentos), para mostrar quem já respondeu.
+async function recarregarTurmasAgendTurma() {
   const { data } = await supabase
     .from("turmas")
     .select("*, tipos_treinamento(nome), centros_treinamento(nome)")
     .eq("orcamento_id", agendTurmaOrcamentoId)
     .order("identificacao", { ascending: true });
   agendTurmasLista = data || [];
-  $("agend-turma-conteudo").classList.remove("hidden");
-  renderizarListaAgendTurmas();
-});
+  agendTurmaAgendamentos.clear();
+  const ids = agendTurmasLista.map((t) => t.id);
+  if (ids.length) {
+    const { data: ags } = await supabase.from("agendamentos").select("id, turma_id, instrutor_id, datas, datas_status").in("turma_id", ids);
+    (ags || []).forEach((a) => agendTurmaAgendamentos.set(`${a.turma_id}|${a.instrutor_id}`, a));
+  }
+  // pré-carrega no estado da tela os instrutores já gravados na turma
+  agendTurmasLista.forEach((t) => {
+    if ((t.instrutor1_id || t.instrutor2_id) && !agendTurmaInstrutores.has(t.id)) {
+      agendTurmaInstrutores.set(t.id, { instrutor1: t.instrutor1_id || "", instrutor2: t.instrutor2_id || "" });
+    }
+  });
+}
+
+const AGEND_STATUS_COR = {
+  "Não agendado": "bg-slate-100 text-slate-600",
+  "Aguardando confirmação": "bg-amber-50 text-amber-700",
+  Agendado: "bg-teal-50 text-teal-700",
+};
+const AGENDA_ITEM_COR = {
+  "A agendar": "text-slate-400",
+  "Aguardando confirmação": "text-amber-600",
+  Agendado: "text-teal-700",
+  "Não aplicável": "text-slate-300",
+};
+function badgeStatusAgendamento(st) {
+  const v = st || "Não agendado";
+  return `<span class="text-[11px] font-medium px-2 py-0.5 rounded-full whitespace-nowrap ${AGEND_STATUS_COR[v] || ""}">${v}</span>`;
+}
+function textoAgendaItem(v) {
+  return `<span class="text-[11px] ${AGENDA_ITEM_COR[v] || "text-slate-400"}">${v || "A agendar"}</span>`;
+}
+// Resposta do instrutor para a data da turma: "confirmado" / "negado" / "pendente" / null (nunca solicitado)
+function respostaInstrutorAgendTurma(t, instrutorId) {
+  if (!instrutorId) return null;
+  const a = agendTurmaAgendamentos.get(`${t.id}|${instrutorId}`);
+  if (!a || !(a.datas || []).includes(t.data_inicio)) return null;
+  const r = (a.datas_status || {})[t.data_inicio];
+  return r ? { status: r.status, justificativa: r.justificativa } : { status: "pendente" };
+}
+function iconeRespostaInstrutor(resp) {
+  if (!resp) return "";
+  if (resp.status === "confirmado") return `<span title="Instrutor confirmou" class="text-teal-700 text-xs">✔ confirmou</span>`;
+  if (resp.status === "negado") return `<span title="${(resp.justificativa || "").replace(/"/g, "&quot;")}" class="text-rose-600 text-xs">✖ negou</span>`;
+  return `<span class="text-amber-600 text-xs">⏳ aguardando</span>`;
+}
 
 function celulaCentroAgendTurma(t) {
-  if (!agendTurmaSelecionadas.has(t.id)) return `<span class="text-slate-300">—</span>`;
+  const agenda = `<div class="mt-0.5">${textoAgendaItem(t.agenda_ct)}</div>`;
+  if (!agendTurmaSelecionadas.has(t.id)) return `<span class="text-slate-300">—</span>${agenda}`;
   const info = agendTurmaCentroStatus.get(t.id);
-  if (!info) return `<span class="text-slate-400">A verificar</span>`;
-  return info.disponivel
+  if (!info) return `<span class="text-slate-400">A verificar</span>${agenda}`;
+  return (info.disponivel
     ? `<span class="text-teal-700 font-medium">Disponível</span>`
-    : `<span class="text-rose-600 font-medium">Indisponível</span>`;
+    : `<span class="text-rose-600 font-medium">Indisponível</span>`) + agenda;
 }
 
 function celulaInstrutorAgendTurma(t, campo) {
-  if (!agendTurmaSelecionadas.has(t.id)) return `<span class="text-slate-300 text-xs">—</span>`;
+  if (!agendTurmaSelecionadas.has(t.id)) return celulaInstrutorSomenteLeitura(t, campo);
   const escolha = agendTurmaInstrutores.get(t.id) || { instrutor1: "", instrutor2: "" };
   const outroCampo = campo === "instrutor1" ? "instrutor2" : "instrutor1";
   const idOutro = escolha[outroCampo];
@@ -3763,26 +3820,44 @@ function celulaInstrutorAgendTurma(t, campo) {
     return `<span class="text-slate-400 text-xs">A verificar</span>`;
   }
 
+  const valorAtual = escolha[campo] || "";
   const candidatos = agendTurmaRankingInstrutores.filter((r) => {
     if (r.instrutor.id === idOutro) return false;
+    if (r.instrutor.id === valorAtual) return true; // já atribuído à turma (pode estar "aguardando" nesse dia)
     const diasStatus = r.instrutor.dias_status || {};
     return obterStatusDia(diasStatus, t.data_inicio) === "disponivel";
   });
+  if (valorAtual && !candidatos.some((r) => r.instrutor.id === valorAtual)) {
+    const inst = listaInstrutoresAtivos.find((i) => i.id === valorAtual);
+    if (inst) candidatos.unshift({ instrutor: inst, fullyAvailable: true });
+  }
 
-  const valorAtual = escolha[campo] || "";
   const opcoes = candidatos
     .map((r) => `<option value="${r.instrutor.id}" ${r.instrutor.id === valorAtual ? "selected" : ""} ${!r.fullyAvailable ? 'style="background-color:#fed7aa;"' : ""}>${r.instrutor.nome}</option>`)
     .join("");
+  const resp = respostaInstrutorAgendTurma(t, valorAtual);
   return `<select data-agend-turma-instrutor="${t.id}" data-campo="${campo}" class="text-xs rounded-md border border-slate-300 px-1.5 py-1 max-w-[160px]">
     <option value="">— Selecione —</option>
     ${opcoes}
-  </select>`;
+  </select>
+  <div class="mt-0.5">${iconeRespostaInstrutor(resp) || textoAgendaItem(t[campo === "instrutor1" ? "agenda_instrutor1" : "agenda_instrutor2"])}</div>`;
+}
+
+// Quando a turma ainda não foi verificada nesta sessão, mostra o instrutor
+// já gravado e a situação da confirmação em vez do "—".
+function celulaInstrutorSomenteLeitura(t, campo) {
+  const id = t[campo + "_id"];
+  if (!id) return `<span class="text-slate-300 text-xs">—</span>`;
+  const inst = listaInstrutoresAtivos.find((i) => i.id === id);
+  const resp = respostaInstrutorAgendTurma(t, id);
+  return `<div class="text-xs text-slate-700">${inst?.nome || "—"}</div>
+    <div class="mt-0.5">${iconeRespostaInstrutor(resp) || textoAgendaItem(t[campo === "instrutor1" ? "agenda_instrutor1" : "agenda_instrutor2"])}</div>`;
 }
 
 function renderizarListaAgendTurmas() {
   const cont = $("agend-turma-lista");
   if (agendTurmasLista.length === 0) {
-    cont.innerHTML = `<tr><td colspan="8" class="text-center text-slate-500 text-sm py-16">Nenhuma turma cadastrada para este orçamento.</td></tr>`;
+    cont.innerHTML = `<tr><td colspan="9" class="text-center text-slate-500 text-sm py-16">Nenhuma turma cadastrada para este orçamento.</td></tr>`;
     return;
   }
   const corStatus = {
@@ -3802,6 +3877,7 @@ function renderizarListaAgendTurmas() {
         <input type="date" data-agend-turma-data="${t.id}" value="${t.data_inicio || ""}" class="w-full min-w-[140px] text-xs rounded-md border border-slate-300 px-2 py-1.5" />
       </td>
       <td class="px-3 py-2"><span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${corStatus[t.status] || ""}">${t.status}</span></td>
+      <td class="px-3 py-2">${badgeStatusAgendamento(t.status_agendamento)}</td>
       <td class="px-3 py-2 text-xs">${celulaCentroAgendTurma(t)}</td>
       <td class="px-3 py-2">${celulaInstrutorAgendTurma(t, "instrutor1")}</td>
       <td class="px-3 py-2">${celulaInstrutorAgendTurma(t, "instrutor2")}</td>
@@ -3919,6 +3995,204 @@ async function verificarDisponibilidadeAgendTurma() {
   renderizarListaAgendTurmas();
 }
 $("btn-agend-verificar-disponibilidade").addEventListener("click", verificarDisponibilidadeAgendTurma);
+
+// -----------------------------------------------------------
+// Solicitar confirmação do agendamento das turmas selecionadas:
+//  1) grava instrutor1/instrutor2 escolhidos na turma;
+//  2) RPC solicitar_confirmacao_turma_completa → cria/atualiza o agendamento de
+//     cada instrutor (o app agenda-instrutores recebe a notificação e o dia
+//     fica "aguardando" no calendário dele), marca agenda_instrutor1/2 e
+//     agenda_ct como "Aguardando confirmação";
+//  3) o status consolidado da turma (Não agendado / Aguardando confirmação /
+//     Agendado) é recalculado automaticamente no banco.
+// -----------------------------------------------------------
+function mostrarResultadoSolicitacao(html, ok) {
+  const el = $("agend-solicitacao-resultado");
+  el.className = `mb-3 text-sm rounded-md px-3 py-2 ${ok ? "bg-teal-50 text-teal-800" : "bg-rose-50 text-rose-700"}`;
+  el.innerHTML = html;
+  el.classList.remove("hidden");
+}
+
+async function solicitarConfirmacaoAgendTurma() {
+  const selecionadas = agendTurmasLista.filter((t) => agendTurmaSelecionadas.has(t.id));
+  if (selecionadas.length === 0) return alert("Selecione ao menos uma turma para solicitar confirmação.");
+
+  const problemas = [];
+  const prontas = [];
+  selecionadas.forEach((t) => {
+    const escolha = agendTurmaInstrutores.get(t.id) || { instrutor1: t.instrutor1_id || "", instrutor2: t.instrutor2_id || "" };
+    const inst1 = escolha.instrutor1 || t.instrutor1_id || null;
+    const inst2 = escolha.instrutor2 || t.instrutor2_id || null;
+    if (!t.data_inicio) problemas.push(`Turma ${t.identificacao}: sem data definida.`);
+    else if (!inst1 && !inst2) problemas.push(`Turma ${t.identificacao}: selecione ao menos o Instrutor 1.`);
+    else if (inst1 && inst2 && inst1 === inst2) problemas.push(`Turma ${t.identificacao}: Instrutor 1 e 2 não podem ser a mesma pessoa.`);
+    else prontas.push({ t, inst1, inst2 });
+  });
+  if (prontas.length === 0) return mostrarResultadoSolicitacao(problemas.join("<br>"), false);
+
+  const nomes = (id) => listaInstrutoresAtivos.find((i) => i.id === id)?.nome || "—";
+  const resumo = prontas.map(({ t, inst1, inst2 }) =>
+    `• Turma ${t.identificacao} (${formatarDataBr(t.data_inicio)}): ${nomes(inst1)}${inst2 ? " e " + nomes(inst2) : ""}`).join("\n");
+  if (!confirm(`Enviar solicitação de confirmação para ${prontas.length} turma(s)?\n\n${resumo}\n\nO Centro de Treinamento também ficará "Aguardando confirmação".`)) return;
+
+  const btn = $("btn-agend-solicitar-confirmacao");
+  btn.disabled = true;
+  btn.textContent = "Enviando…";
+
+  let enviados = 0;
+  const erros = [...problemas];
+  for (const { t, inst1, inst2 } of prontas) {
+    const payload = {
+      instrutor1_id: inst1,
+      instrutor2_id: inst2,
+      agenda_instrutor2: inst2 ? (t.agenda_instrutor2 === "Não aplicável" ? "A agendar" : t.agenda_instrutor2) : "Não aplicável",
+    };
+    const { error: e1 } = await supabase.from("turmas").update(payload).eq("id", t.id);
+    if (e1) { erros.push(`Turma ${t.identificacao}: não foi possível gravar os instrutores (${e1.message}).`); continue; }
+
+    const solicitarCt = t.agenda_ct !== "Não aplicável" && t.agenda_ct !== "Agendado";
+    const { error: e2 } = await supabase.rpc("solicitar_confirmacao_turma_completa", {
+      p_turma_id: t.id, p_datas: [t.data_inicio], p_solicitar_ct: solicitarCt,
+    });
+    if (e2) { erros.push(`Turma ${t.identificacao}: ${e2.message}`); continue; }
+    enviados++;
+  }
+
+  btn.disabled = false;
+  btn.textContent = "✉️ Solicitar confirmação";
+  await recarregarTurmasAgendTurma();
+  const { data: insts } = await supabase.from("instrutores").select("*").eq("status", "Ativo").order("nome");
+  listaInstrutoresAtivos = insts || listaInstrutoresAtivos;
+  renderizarListaAgendTurmas();
+
+  mostrarResultadoSolicitacao(
+    `<strong>${enviados}</strong> solicitação(ões) enviada(s) aos instrutores pelo app Agenda de Instrutores.` +
+    (erros.length ? `<br><span class="text-rose-700">${erros.join("<br>")}</span>` : ""),
+    erros.length === 0
+  );
+}
+$("btn-agend-solicitar-confirmacao").addEventListener("click", solicitarConfirmacaoAgendTurma);
+
+function formatarDataBr(iso) {
+  if (!iso) return "—";
+  const [a, m, d] = iso.split("-");
+  return `${d}/${m}/${a}`;
+}
+
+// ===========================================================
+// OPERAÇÃO: CONFIRMAÇÃO DO CENTRO DE TREINAMENTO
+// Um usuário do CT confirma (ou recusa) as turmas cujo agendamento foi
+// solicitado — agenda_ct passa a "Agendado" (ou volta a "A agendar").
+// ===========================================================
+let cctLista = [];
+let cctAgendamentos = new Map();
+
+async function carregarConfirmacaoCtInit() {
+  $("admin-descricao-pagina").textContent = "Confirme, pelo Centro de Treinamento, as turmas cujo agendamento foi solicitado. A turma só fica \"Agendada\" quando o CT e os instrutores confirmam.";
+  const { data: centros } = await supabase.from("centros_treinamento").select("*").eq("status", "Ativo").order("nome");
+  listaCentrosAtivos = centros || [];
+  preencherSelect("cct-centro-select", listaCentrosAtivos, "id", (c) => c.nome, "— Selecione —");
+  $("cct-centro-select").value = listaCentrosAtivos.length === 1 ? listaCentrosAtivos[0].id : "";
+  $("cct-filtro-status").value = "Aguardando confirmação";
+  $("cct-resultado").classList.add("hidden");
+  await carregarListaConfirmacaoCt();
+}
+
+async function carregarListaConfirmacaoCt() {
+  const centroId = $("cct-centro-select").value;
+  const filtro = $("cct-filtro-status").value;
+  const cont = $("cct-lista");
+  if (!centroId) {
+    cctLista = [];
+    $("cct-resumo").textContent = "";
+    cont.innerHTML = `<tr><td colspan="9" class="text-center text-slate-500 text-sm py-16">Selecione um Centro de Treinamento.</td></tr>`;
+    return;
+  }
+  let q = supabase
+    .from("turmas")
+    .select("*, tipos_treinamento(nome), orcamentos(numero, empresas(nome)), inst1:instrutores!turmas_instrutor1_id_fkey(nome), inst2:instrutores!turmas_instrutor2_id_fkey(nome)")
+    .eq("centro_treinamento_id", centroId)
+    .neq("status", "Cancelada")
+    .order("data_inicio", { ascending: true, nullsFirst: false });
+  if (filtro) q = q.eq("agenda_ct", filtro);
+  else q = q.neq("agenda_ct", "Não aplicável");
+  const { data, error } = await q;
+  if (error) {
+    cont.innerHTML = `<tr><td colspan="9" class="text-center text-rose-600 text-sm py-16">Não foi possível carregar as turmas: ${error.message}</td></tr>`;
+    return;
+  }
+  cctLista = data || [];
+  cctAgendamentos.clear();
+  if (cctLista.length) {
+    const { data: ags } = await supabase.from("agendamentos").select("turma_id, instrutor_id, datas, datas_status").in("turma_id", cctLista.map((t) => t.id));
+    (ags || []).forEach((a) => cctAgendamentos.set(`${a.turma_id}|${a.instrutor_id}`, a));
+  }
+  const pendentes = cctLista.filter((t) => t.agenda_ct === "Aguardando confirmação").length;
+  $("cct-resumo").textContent = filtro ? `${cctLista.length} turma(s)` : `${cctLista.length} turma(s) · ${pendentes} aguardando confirmação`;
+  renderizarListaConfirmacaoCt();
+}
+
+function respostaInstrutorCct(t, instrutorId) {
+  if (!instrutorId) return null;
+  const a = cctAgendamentos.get(`${t.id}|${instrutorId}`);
+  if (!a || !(a.datas || []).includes(t.data_inicio)) return null;
+  const r = (a.datas_status || {})[t.data_inicio];
+  return r ? { status: r.status, justificativa: r.justificativa } : { status: "pendente" };
+}
+
+function renderizarListaConfirmacaoCt() {
+  const cont = $("cct-lista");
+  if (cctLista.length === 0) {
+    cont.innerHTML = `<tr><td colspan="9" class="text-center text-slate-500 text-sm py-16">Nenhuma turma encontrada para este filtro.</td></tr>`;
+    return;
+  }
+  const podeConfirmar = podeFazer("confirmacao_ct", "alterar");
+  const linhaInst = (nome, resp, agenda) => nome
+    ? `<div class="text-xs text-slate-700">${nome} ${iconeRespostaInstrutor(resp) || textoAgendaItem(agenda)}</div>`
+    : "";
+  cont.innerHTML = cctLista.map((t) => `
+    <tr class="hover:bg-slate-50">
+      <td class="px-3 py-2 text-slate-700 whitespace-nowrap">${formatarDataBr(t.data_inicio)}</td>
+      <td class="px-3 py-2"><div class="font-mono text-xs text-slate-500">${t.orcamentos?.numero || "—"}</div><div class="text-slate-700">${t.orcamentos?.empresas?.nome || "—"}</div></td>
+      <td class="px-3 py-2 text-slate-600">${t.tipos_treinamento?.nome || "—"}</td>
+      <td class="px-3 py-2 font-mono text-slate-700">${t.identificacao || "—"}</td>
+      <td class="px-3 py-2 text-slate-500">${t.tipo_dia || "—"}</td>
+      <td class="px-3 py-2">${linhaInst(t.inst1?.nome, respostaInstrutorCct(t, t.instrutor1_id), t.agenda_instrutor1)}${linhaInst(t.inst2?.nome, respostaInstrutorCct(t, t.instrutor2_id), t.agenda_instrutor2)}${!t.inst1 && !t.inst2 ? `<span class="text-slate-300 text-xs">—</span>` : ""}</td>
+      <td class="px-3 py-2">${textoAgendaItem(t.agenda_ct)}</td>
+      <td class="px-3 py-2">${badgeStatusAgendamento(t.status_agendamento)}</td>
+      <td class="px-3 py-2 text-right whitespace-nowrap">
+        ${podeConfirmar && t.agenda_ct !== "Agendado" ? `<button data-cct-confirmar="${t.id}" class="text-xs font-medium text-white bg-teal-600 hover:bg-teal-700 px-2.5 py-1 rounded-md">Confirmar</button>` : ""}
+        ${podeConfirmar && t.agenda_ct === "Aguardando confirmação" ? `<button data-cct-recusar="${t.id}" class="ml-1 text-xs font-medium text-rose-600 hover:bg-rose-50 border border-rose-200 px-2.5 py-1 rounded-md">Recusar</button>` : ""}
+        ${podeConfirmar && t.agenda_ct === "Agendado" ? `<button data-cct-recusar="${t.id}" class="text-xs font-medium text-slate-500 hover:text-slate-800 px-2 py-1">Desfazer</button>` : ""}
+      </td>
+    </tr>
+  `).join("");
+  cont.querySelectorAll("[data-cct-confirmar]").forEach((el) =>
+    el.addEventListener("click", () => responderConfirmacaoCt(el.getAttribute("data-cct-confirmar"), true)));
+  cont.querySelectorAll("[data-cct-recusar]").forEach((el) =>
+    el.addEventListener("click", () => responderConfirmacaoCt(el.getAttribute("data-cct-recusar"), false)));
+}
+
+async function responderConfirmacaoCt(turmaId, confirmar) {
+  const t = cctLista.find((x) => x.id === turmaId);
+  if (!t) return;
+  if (!confirmar && !confirm(`Recusar/desfazer a confirmação do CT para a turma ${t.identificacao} em ${formatarDataBr(t.data_inicio)}? Ela voltará para "A agendar".`)) return;
+  const { error } = await supabase.from("turmas").update({ agenda_ct: confirmar ? "Agendado" : "A agendar" }).eq("id", turmaId);
+  const el = $("cct-resultado");
+  el.classList.remove("hidden");
+  if (error) {
+    el.className = "mb-3 text-sm rounded-md px-3 py-2 bg-rose-50 text-rose-700";
+    el.textContent = `Não foi possível atualizar a turma: ${error.message}`;
+    return;
+  }
+  el.className = "mb-3 text-sm rounded-md px-3 py-2 bg-teal-50 text-teal-800";
+  el.textContent = confirmar
+    ? `Turma ${t.identificacao} (${formatarDataBr(t.data_inicio)}) confirmada pelo Centro de Treinamento.`
+    : `Confirmação do CT removida para a turma ${t.identificacao} (${formatarDataBr(t.data_inicio)}).`;
+  await carregarListaConfirmacaoCt();
+}
+$("cct-centro-select").addEventListener("change", carregarListaConfirmacaoCt);
+$("cct-filtro-status").addEventListener("change", carregarListaConfirmacaoCt);
 
 // ===========================================================
 // Alunos por Turma
