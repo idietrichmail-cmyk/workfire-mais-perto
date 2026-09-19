@@ -994,3 +994,15 @@ alter table turmas
 --               status_agendamento retorna a 'Não agendado'.
 --   Rejeitado → a data continua confirmada; registra pendente=false,
 --               aprovado=false, respondido_em e observacao.
+
+-- ===========================================================
+-- 2026-09-19 — Solicitar confirmação preserva o instrutor já confirmado
+-- (migração "solicitar_confirmacao_preserva_instrutor_confirmado")
+-- ===========================================================
+-- solicitar_confirmacao_turma agora verifica, para cada instrutor da turma,
+-- se ele já confirmou todas as datas solicitadas. Em caso afirmativo:
+--   • o agendamento dele NÃO é reaberto (datas_status preservado);
+--   • agenda_instrutorN permanece 'Agendado';
+--   • ele não recebe nova mensagem — a RPC não devolve esse instrutor, então
+--     solicitar_confirmacao_turma_completa também não mexe no dia dele.
+-- Só o instrutor pendente recebe a solicitação.

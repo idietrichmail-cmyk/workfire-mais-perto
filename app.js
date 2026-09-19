@@ -3949,7 +3949,7 @@ async function recarregarTurmasAgendTurma() {
   agendTurmaAgendamentos.clear();
   const ids = agendTurmasLista.map((t) => t.id);
   if (ids.length) {
-    const { data: ags } = await supabase.from("agendamentos").select("id, turma_id, instrutor_id, datas, datas_status").in("turma_id", ids);
+    const { data: ags } = await supabase.from("agendamentos").select("id, turma_id, instrutor_id, datas, datas_status").in("turma_id", ids).order("id");
     (ags || []).forEach((a) => agendTurmaAgendamentos.set(`${a.turma_id}|${a.instrutor_id}`, a));
   }
   // pré-carrega no estado da tela os instrutores já gravados na turma
@@ -4224,8 +4224,13 @@ async function solicitarConfirmacaoAgendTurma() {
   if (prontas.length === 0) return mostrarResultadoSolicitacao(problemas.join("<br>"), false);
 
   const nomes = (id) => listaInstrutoresAtivos.find((i) => i.id === id)?.nome || "—";
+  const rotulo = (t, id) => {
+    if (!id) return "";
+    const r = respostaInstrutorAgendTurma(t, id);
+    return `${nomes(id)}${r?.status === "confirmado" ? " (já confirmado — não será notificado)" : ""}`;
+  };
   const resumo = prontas.map(({ t, inst1, inst2 }) =>
-    `• Turma ${t.identificacao} (${formatarDataBr(t.data_inicio)}): ${nomes(inst1)}${inst2 ? " e " + nomes(inst2) : ""}`).join("\n");
+    `• Turma ${t.identificacao} (${formatarDataBr(t.data_inicio)}): ${[rotulo(t, inst1), rotulo(t, inst2)].filter(Boolean).join(" e ")}`).join("\n");
   if (!confirm(`Enviar solicitação de confirmação para ${prontas.length} turma(s)?\n\n${resumo}\n\nO Centro de Treinamento também ficará "Aguardando confirmação".`)) return;
 
   const btn = $("btn-agend-solicitar-confirmacao");
@@ -4234,6 +4239,7 @@ async function solicitarConfirmacaoAgendTurma() {
 
   let enviados = 0;
   const erros = [...problemas];
+  const avisos = [];
   for (const { t, inst1, inst2 } of prontas) {
     const payload = {
       instrutor1_id: inst1,
@@ -4244,11 +4250,23 @@ async function solicitarConfirmacaoAgendTurma() {
     if (e1) { erros.push(`Turma ${t.identificacao}: não foi possível gravar os instrutores (${e1.message}).`); continue; }
 
     const solicitarCt = t.agenda_ct !== "Não aplicável" && t.agenda_ct !== "Agendado";
-    const { error: e2 } = await supabase.rpc("solicitar_confirmacao_turma_completa", {
+    const { data: solicitados, error: e2 } = await supabase.rpc("solicitar_confirmacao_turma_completa", {
       p_turma_id: t.id, p_datas: [t.data_inicio], p_solicitar_ct: solicitarCt,
     });
     if (e2) { erros.push(`Turma ${t.identificacao}: ${e2.message}`); continue; }
-    enviados++;
+
+    // Instrutores que já tinham confirmado não são notificados de novo:
+    // a RPC só devolve os que realmente receberam a solicitação.
+    const notificados = (solicitados || []).map((r) => r.id_instrutor);
+    const atribuidos = [inst1, inst2].filter(Boolean);
+    const preservados = atribuidos.filter((id) => !notificados.includes(id));
+    if (notificados.length > 0) enviados++;
+    if (preservados.length > 0) {
+      avisos.push(`Turma ${t.identificacao}: ${preservados.map(nomes).join(" e ")} já havia(m) confirmado — confirmação mantida, sem nova mensagem.`);
+    }
+    if (notificados.length === 0 && !solicitarCt) {
+      avisos.push(`Turma ${t.identificacao}: nada a solicitar, já está tudo confirmado.`);
+    }
   }
 
   btn.disabled = false;
@@ -4259,7 +4277,8 @@ async function solicitarConfirmacaoAgendTurma() {
   renderizarListaAgendTurmas();
 
   mostrarResultadoSolicitacao(
-    `<strong>${enviados}</strong> solicitação(ões) enviada(s) aos instrutores pelo app Agenda de Instrutores.` +
+    `<strong>${enviados}</strong> turma(s) com solicitação enviada aos instrutores pelo app Agenda de Instrutores.` +
+    (avisos.length ? `<br><span class="text-slate-600">${avisos.join("<br>")}</span>` : "") +
     (erros.length ? `<br><span class="text-rose-700">${erros.join("<br>")}</span>` : ""),
     erros.length === 0
   );
@@ -4327,7 +4346,7 @@ async function carregarListaConfirmacaoCt(forcar = true) {
   }
   let ags = [];
   if ((data || []).length) {
-    const r = await supabase.from("agendamentos").select("turma_id, instrutor_id, datas, datas_status").in("turma_id", data.map((t) => t.id));
+    const r = await supabase.from("agendamentos").select("turma_id, instrutor_id, datas, datas_status").in("turma_id", data.map((t) => t.id)).order("turma_id");
     ags = r.data || [];
   }
   // na atualização automática, só re-renderiza se algo mudou
@@ -4901,17 +4920,25 @@ function dadosMudaram(chave, dados) {
 }
 
 function algumPainelAberto() {
-  return [...document.querySelectorAll("body > div.fixed.inset-0")].some((el) => !el.classList.contains("hidden"));
+  return [...document.querySelectorAll("div.fixed.inset-0")].some((el) => !el.classList.contains("hidden"));
 }
+
+// Só bloqueia a atualização quando o campo em foco está DENTRO de uma lista
+// que o refresh reconstrói (um select de instrutor aberto, por exemplo).
+// Campos fixos de busca, filtro e seleção de CT/orçamento não são recriados,
+// então manter o foco neles não impede a atualização automática.
+const CONTAINERS_DINAMICOS = [
+  "#agend-turma-lista", "#agend-desmarcacoes-lista", "#cct-lista", "#crud-lista",
+  "#ag-lista", "#ag-negativas-lista", "#ag-desmarcacoes-lista", "#orc-lista",
+  "#turma-lista", "#admin-lista", "#req-itens-lista",
+].join(", ");
 
 function usuarioEditandoCampo() {
   const el = document.activeElement;
-  if (!el) return false;
+  if (!el || el === document.body) return false;
   const tag = el.tagName;
   if (tag !== "INPUT" && tag !== "SELECT" && tag !== "TEXTAREA") return false;
-  // campos de busca/filtro são seguros (o estado deles é lido no render)
-  if (el.id === "crud-busca" || el.id === "admin-busca" || el.id === "admin-filtro-status") return false;
-  return true;
+  return !!el.closest(CONTAINERS_DINAMICOS);
 }
 
 // --- refreshers por módulo (silenciosos: só re-renderizam se algo mudou) ---
@@ -4976,7 +5003,7 @@ async function refreshAgendamentoTurmas() {
   if (e1 || e2) return;
   const ids = (turmas || []).map((t) => t.id);
   const { data: ags } = ids.length
-    ? await supabase.from("agendamentos").select("id, turma_id, instrutor_id, datas, datas_status").in("turma_id", ids)
+    ? await supabase.from("agendamentos").select("id, turma_id, instrutor_id, datas, datas_status").in("turma_id", ids).order("id")
     : { data: [] };
   if (!dadosMudaram("agendTurmas:" + agendTurmaOrcamentoId, { turmas, insts, ags })) return;
   agendTurmasLista = turmas || [];
