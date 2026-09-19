@@ -191,8 +191,9 @@ let agMesCalendario = new Date();
 let agDatasSelecionadas = new Set();
 let agendamentoOriginalDatas = [];
 let agendamentoInstrutorOriginalId = null;
-let agAbaAtiva = "lista"; // "lista" | "negativas"
+let agAbaAtiva = "lista"; // "lista" | "negativas" | "desmarcacoes"
 let listaNegativas = []; // achatado a partir de datas_status/negativas_resolvidas de listaAgendamentos
+let listaDesmarcacoes = []; // pedidos de desmarcação de aulas já confirmadas, aguardando decisão
 let negativaEmSubstituicao = null; // { agendamentoId, data } quando o painel foi aberto a partir de uma negativa
 let agDataForcada = null; // data que deve ficar selecionável mesmo fora da disponibilidade do novo instrutor
 
@@ -2540,9 +2541,11 @@ async function carregarAgendamentos() {
   listaEmpresasAtivas = empresas || [];
   $("btn-ag-novo").classList.toggle("hidden", !podeFazer("agendamentos", "incluir"));
   computarListaNegativas();
+  computarListaDesmarcacoes();
   renderizarAbasAgendamentos();
   renderizarListaAgendamentos();
   renderizarListaNegativas();
+  renderizarListaDesmarcacoes();
 }
 
 // Achata datas_status (só as negadas) de todos os agendamentos numa lista única,
@@ -2555,12 +2558,17 @@ function computarListaNegativas() {
     Object.entries(datasStatus).forEach(([data, info]) => {
       if (!info || info.status !== "negado") return;
       const resolucao = resolvidas[data] || null;
+      const solicitacao = info.solicitacao_cancelamento || null;
       negativas.push({
         agendamentoId: a.id,
         instrutorNome: a.instrutores?.nome || "Instrutor removido",
         instrutorEmail: a.instrutores?.email || "",
         data,
         justificativa: info.justificativa || "",
+        // veio de um pedido de desmarcação aprovado (a aula já estava confirmada),
+        // e não de uma recusa comum antes da confirmação
+        veioDeDesmarcacao: !!(solicitacao && solicitacao.aprovado),
+        desmarcadoEm: solicitacao?.resolvido_em || null,
         tipoNome: a.tipos_treinamento?.nome || "—",
         centroNome: a.centros_treinamento?.nome || "",
         empresaNome: a.empresas?.nome || "",
@@ -2580,18 +2588,104 @@ function computarListaNegativas() {
   listaNegativas = negativas;
 }
 
+// Achata os pedidos de desmarcação (instrutor já tinha confirmado a aula e
+// pediu para desmarcar, com justificativa) que ainda aguardam decisão.
+function computarListaDesmarcacoes() {
+  const pedidos = [];
+  listaAgendamentos.forEach((a) => {
+    Object.entries(a.datas_status || {}).forEach(([data, info]) => {
+      const solicitacao = info && info.solicitacao_cancelamento;
+      if (!solicitacao || !solicitacao.pendente) return;
+      pedidos.push({
+        agendamentoId: a.id,
+        instrutorNome: a.instrutores?.nome || "Instrutor removido",
+        data,
+        justificativa: solicitacao.justificativa || "",
+        solicitadoEm: solicitacao.solicitado_em || null,
+        tipoNome: a.tipos_treinamento?.nome || "—",
+        centroNome: a.centros_treinamento?.nome || "",
+        empresaNome: a.empresas?.nome || "",
+      });
+    });
+  });
+  pedidos.sort((x, y) => (x.data < y.data ? -1 : x.data > y.data ? 1 : 0));
+  listaDesmarcacoes = pedidos;
+}
+
 function renderizarAbasAgendamentos() {
   const pendentes = listaNegativas.filter((n) => !n.resolvida).length;
   const badge = $("ag-negativas-badge");
   badge.textContent = String(pendentes);
   badge.classList.toggle("hidden", pendentes === 0);
 
+  const badgeDesm = $("ag-desmarcacoes-badge");
+  badgeDesm.textContent = String(listaDesmarcacoes.length);
+  badgeDesm.classList.toggle("hidden", listaDesmarcacoes.length === 0);
+
   const ativa = "border-slate-900 text-slate-900";
   const inativa = "border-transparent text-slate-500 hover:text-slate-800";
   $("ag-aba-lista").className = `inline-flex items-center gap-2 text-sm font-medium px-3 py-2 border-b-2 -mb-px ${agAbaAtiva === "lista" ? ativa : inativa}`;
   $("ag-aba-negativas").className = `inline-flex items-center gap-2 text-sm font-medium px-3 py-2 border-b-2 -mb-px ${agAbaAtiva === "negativas" ? ativa : inativa}`;
+  $("ag-aba-desmarcacoes").className = `inline-flex items-center gap-2 text-sm font-medium px-3 py-2 border-b-2 -mb-px ${agAbaAtiva === "desmarcacoes" ? ativa : inativa}`;
   $("ag-conteudo-lista").classList.toggle("hidden", agAbaAtiva !== "lista");
   $("ag-conteudo-negativas").classList.toggle("hidden", agAbaAtiva !== "negativas");
+  $("ag-conteudo-desmarcacoes").classList.toggle("hidden", agAbaAtiva !== "desmarcacoes");
+}
+
+function renderizarListaDesmarcacoes() {
+  const podeAlterar = podeFazer("agendamentos", "alterar");
+  const cont = $("ag-desmarcacoes-lista");
+  if (listaDesmarcacoes.length === 0) {
+    cont.innerHTML = `<div class="bg-white border border-dashed border-slate-300 rounded-lg py-16 text-center text-slate-500 text-sm">Nenhum pedido de desmarcação pendente.</div>`;
+    return;
+  }
+  cont.innerHTML = listaDesmarcacoes.map((d, idx) => `
+    <div class="bg-white rounded-lg border border-amber-200 p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center gap-2 flex-wrap">
+          <p class="font-serif text-lg text-slate-900 leading-tight">${d.instrutorNome}</p>
+          <span class="text-[11px] font-medium px-2 py-0.5 rounded-full bg-amber-50 text-amber-700">Aguardando decisão</span>
+        </div>
+        <p class="text-sm text-amber-700 font-medium mt-1">🗓️ ${formatarDataAbrev(d.data)} · 🏷️ ${d.tipoNome}</p>
+        <div class="text-xs text-slate-500 space-y-0.5 mt-1">
+          ${d.centroNome ? `<p>🏫 ${d.centroNome}</p>` : ""}
+          ${d.empresaNome ? `<p>🏢 ${d.empresaNome}</p>` : ""}
+          <p class="text-slate-600">💬 ${d.justificativa || "Sem justificativa informada."}</p>
+          ${d.solicitadoEm ? `<p class="text-slate-400">Pedido em ${new Date(d.solicitadoEm).toLocaleDateString("pt-BR")}</p>` : ""}
+        </div>
+      </div>
+      ${podeAlterar ? `
+      <div class="flex sm:flex-col gap-2 shrink-0">
+        <button data-desmarcacao-aprovar="${idx}" class="text-xs font-medium bg-slate-900 hover:bg-slate-800 text-white rounded-md px-3 py-1.5 whitespace-nowrap">✓ Aprovar desmarcação</button>
+        <button data-desmarcacao-rejeitar="${idx}" class="text-xs font-medium text-slate-500 hover:text-slate-800 hover:bg-slate-50 rounded-md px-3 py-1.5 whitespace-nowrap">✕ Rejeitar</button>
+      </div>` : ""}
+    </div>`).join("");
+  cont.querySelectorAll("[data-desmarcacao-aprovar]").forEach((btn) =>
+    btn.addEventListener("click", () => resolverDesmarcacao(listaDesmarcacoes[Number(btn.getAttribute("data-desmarcacao-aprovar"))], true))
+  );
+  cont.querySelectorAll("[data-desmarcacao-rejeitar]").forEach((btn) =>
+    btn.addEventListener("click", () => resolverDesmarcacao(listaDesmarcacoes[Number(btn.getAttribute("data-desmarcacao-rejeitar"))], false))
+  );
+}
+
+// Aprova ou rejeita o pedido de desmarcação. Aprovando, a data é liberada
+// (instrutor volta a ficar disponível, turma volta para "A agendar") e passa
+// a aparecer na aba de negativas para substituição.
+async function resolverDesmarcacao(d, aprovar) {
+  const pergunta = aprovar
+    ? `Aprovar a desmarcação de ${d.instrutorNome} em ${formatarDataAbrev(d.data)}?\n\nA data será liberada e vai aparecer em "Negativas de instrutores" para você substituir o instrutor.`
+    : `Rejeitar o pedido de ${d.instrutorNome} em ${formatarDataAbrev(d.data)}?\n\nA aula continua confirmada para ele.`;
+  if (!confirm(pergunta)) return;
+  const { error } = await supabase.rpc("resolver_desmarcacao_agendamento", {
+    p_agendamento_id: d.agendamentoId,
+    p_data: d.data,
+    p_aprovar: aprovar,
+  });
+  if (error) {
+    alert("Não foi possível processar o pedido: " + error.message);
+    return;
+  }
+  await carregarAgendamentos();
 }
 
 document.querySelectorAll("[data-ag-aba]").forEach((btn) =>
@@ -2615,12 +2709,14 @@ function renderizarListaNegativas() {
         <div class="flex items-center gap-2 flex-wrap">
           <p class="font-serif text-lg text-slate-900 leading-tight">${n.instrutorNome}</p>
           <span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${n.resolvida ? "bg-slate-100 text-slate-500" : "bg-rose-50 text-rose-600"}">${n.resolvida ? "Resolvida" : "Pendente"}</span>
+          ${n.veioDeDesmarcacao ? `<span class="text-[11px] font-medium px-2 py-0.5 rounded-full bg-amber-50 text-amber-700" title="A aula já estava confirmada e o instrutor pediu para desmarcar">⚠️ Desmarcou aula confirmada</span>` : ""}
         </div>
         <p class="text-sm text-amber-700 font-medium mt-1">🗓️ ${formatarDataAbrev(n.data)} · 🏷️ ${n.tipoNome}</p>
         <div class="text-xs text-slate-500 space-y-0.5 mt-1">
           ${n.centroNome ? `<p>🏫 ${n.centroNome}</p>` : ""}
           ${n.empresaNome ? `<p>🏢 ${n.empresaNome}</p>` : ""}
           <p class="text-slate-600">💬 ${n.justificativa || "Sem justificativa informada."}</p>
+          ${n.veioDeDesmarcacao && n.desmarcadoEm ? `<p class="text-amber-700">🗓️ Desmarcação aprovada em ${new Date(n.desmarcadoEm).toLocaleDateString("pt-BR")}</p>` : ""}
           ${n.resolvida ? `<p class="text-slate-400">✔️ Resolvida em ${new Date(n.resolvidoEm).toLocaleDateString("pt-BR")}</p>` : ""}
         </div>
       </div>

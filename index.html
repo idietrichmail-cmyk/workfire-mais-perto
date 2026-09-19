@@ -383,6 +383,10 @@
             🚫 Negativas de instrutores
             <span id="ag-negativas-badge" class="hidden text-[11px] font-semibold bg-rose-500 text-white rounded-full px-2 py-0.5 leading-none">0</span>
           </button>
+          <button id="ag-aba-desmarcacoes" data-ag-aba="desmarcacoes" class="inline-flex items-center gap-2 text-sm font-medium px-3 py-2 border-b-2 -mb-px">
+            🗓️ Pedidos de desmarcação
+            <span id="ag-desmarcacoes-badge" class="hidden text-[11px] font-semibold bg-amber-500 text-white rounded-full px-2 py-0.5 leading-none">0</span>
+          </button>
         </div>
 
         <div id="ag-conteudo-lista">
@@ -396,6 +400,11 @@
         <div id="ag-conteudo-negativas" class="hidden">
           <p class="text-sm text-slate-500 mb-5 max-w-xl">Datas que o instrutor negou pelo celular. Decida por quem substituir e marque como resolvida — o histórico de quem negou e por quê fica registrado.</p>
           <div id="ag-negativas-lista" class="flex flex-col gap-3"></div>
+        </div>
+
+        <div id="ag-conteudo-desmarcacoes" class="hidden">
+          <p class="text-sm text-slate-500 mb-5 max-w-xl">Aulas que o instrutor já tinha confirmado e agora pede para desmarcar, com a justificativa. Ao aprovar, a data é liberada e passa a aparecer em "Negativas de instrutores" para você substituir o instrutor.</p>
+          <div id="ag-desmarcacoes-lista" class="flex flex-col gap-3"></div>
         </div>
       </section>
 
