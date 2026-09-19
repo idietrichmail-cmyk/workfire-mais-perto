@@ -971,3 +971,26 @@ alter table turmas
 --   edita turmas; leitura de agendamentos, orcamentos, empresas, tipos_treinamento,
 --   centros_treinamento e instrutores (mapa em pode_acessar_tabela).
 -- O módulo agendamento_turmas passou a ter leitura de agendamentos.
+
+-- ===========================================================
+-- 2026-09-19 — Desmarcação de aula já confirmada (pedido do instrutor)
+-- (aplicado no Supabase via migração "desmarcacao_agendamento_aprovacao")
+-- ===========================================================
+-- O instrutor pede a desmarcação no app agenda-instrutores
+-- (solicitar_desmarcacao_agendamento), que grava em
+-- agendamentos.datas_status[data].solicitacao_cancelamento =
+--   { pendente: true, justificativa, solicitado_em }.
+--
+-- listar_desmarcacoes_pendentes()
+--   Lista os pedidos pendentes com instrutor, turma, orçamento/empresa e
+--   justificativa. Visível para admin ou para quem tem alteração em
+--   turmas/agendamentos (operador de agendamentos).
+--
+-- responder_desmarcacao_agendamento(p_agendamento_id, p_data, p_aprovar, p_observacao)
+--   Aprovado  → dias_status[data] = 'disponivel' (dia liberado na agenda do
+--               instrutor); a data sai do agendamento (o agendamento é
+--               excluído se não restar nenhuma data); a turma perde o
+--               instrutor que desmarcou e volta para 'A agendar', de modo que
+--               status_agendamento retorna a 'Não agendado'.
+--   Rejeitado → a data continua confirmada; registra pendente=false,
+--               aprovado=false, respondido_em e observacao.

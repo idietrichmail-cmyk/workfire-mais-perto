@@ -3785,6 +3785,103 @@ async function carregarAgendamentoTurmasInit() {
   agendTurmaCentroStatus.clear();
   agendTurmaInstrutores.clear();
   agendTurmaRankingInstrutores = [];
+  $("agend-desmarcacoes-resultado").classList.add("hidden");
+  await carregarDesmarcacoesPendentes();
+}
+
+// ===========================================================
+// Solicitações de desmarcação feitas pelos instrutores
+// (app Agenda de Instrutores → solicitar_desmarcacao_agendamento).
+// O operador aprova ou rejeita aqui; aprovando, o dia é liberado na
+// agenda do instrutor e a turma volta ao estado inicial ("A agendar",
+// sem instrutor), pronta para nova seleção e nova solicitação.
+// ===========================================================
+let desmarcacoesPendentes = [];
+
+async function carregarDesmarcacoesPendentes(forcar = true) {
+  const { data, error } = await supabase.rpc("listar_desmarcacoes_pendentes");
+  if (error) return;
+  if (!forcar && !dadosMudaram("desmarcacoes", data)) return;
+  if (forcar) dadosMudaram("desmarcacoes", data);
+  desmarcacoesPendentes = data || [];
+  renderizarDesmarcacoesPendentes();
+}
+
+function renderizarDesmarcacoesPendentes() {
+  const bloco = $("agend-desmarcacoes-bloco");
+  if (desmarcacoesPendentes.length === 0) {
+    bloco.classList.add("hidden");
+    return;
+  }
+  bloco.classList.remove("hidden");
+  $("agend-desmarcacoes-badge").textContent = String(desmarcacoesPendentes.length);
+  const pode = podeFazer("agendamento_turmas", "alterar") || podeFazer("agendamentos", "alterar");
+  $("agend-desmarcacoes-lista").innerHTML = desmarcacoesPendentes.map((d, i) => `
+    <tr class="hover:bg-rose-50/40">
+      <td class="px-3 py-2 whitespace-nowrap text-slate-700">${formatarDataBr(d.data)}</td>
+      <td class="px-3 py-2"><div class="text-slate-700">${d.instrutor_nome || "—"}</div><div class="text-[11px] text-slate-500">${d.papel || ""}</div></td>
+      <td class="px-3 py-2"><div class="font-mono text-slate-700">${d.turma_identificacao || "—"}</div><div class="text-[11px] text-slate-500">${d.tipo_treinamento || ""}</div></td>
+      <td class="px-3 py-2"><div class="font-mono text-xs text-slate-500">${d.orcamento_numero || "—"}</div><div class="text-slate-700">${d.empresa_nome || "—"}</div></td>
+      <td class="px-3 py-2 text-slate-600 max-w-xs">${d.justificativa || "—"}</td>
+      <td class="px-3 py-2 text-xs text-slate-500 whitespace-nowrap">${formatarDataHoraBr(d.solicitado_em)}</td>
+      <td class="px-3 py-2 text-right whitespace-nowrap">
+        ${pode ? `<button data-desm-aprovar="${i}" class="text-xs font-medium text-white bg-rose-600 hover:bg-rose-700 px-2.5 py-1 rounded-md">Aprovar desmarcação</button>
+        <button data-desm-rejeitar="${i}" class="ml-1 text-xs font-medium text-slate-600 hover:bg-slate-100 border border-slate-300 px-2.5 py-1 rounded-md">Rejeitar</button>`
+        : `<span class="text-xs text-slate-400">sem permissão</span>`}
+      </td>
+    </tr>
+  `).join("");
+  $("agend-desmarcacoes-lista").querySelectorAll("[data-desm-aprovar]").forEach((el) =>
+    el.addEventListener("click", () => responderDesmarcacao(Number(el.getAttribute("data-desm-aprovar")), true)));
+  $("agend-desmarcacoes-lista").querySelectorAll("[data-desm-rejeitar]").forEach((el) =>
+    el.addEventListener("click", () => responderDesmarcacao(Number(el.getAttribute("data-desm-rejeitar")), false)));
+}
+
+function formatarDataHoraBr(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return isNaN(d) ? "—" : d.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
+async function responderDesmarcacao(indice, aprovar) {
+  const d = desmarcacoesPendentes[indice];
+  if (!d) return;
+  let observacao = null;
+  if (aprovar) {
+    if (!confirm(`Aprovar a desmarcação de ${d.instrutor_nome} em ${formatarDataBr(d.data)} (turma ${d.turma_identificacao || "—"})?\n\n• O dia será liberado na agenda do instrutor.\n• A turma volta para "Não agendado", sem instrutor, para nova seleção e nova solicitação de confirmação.`)) return;
+  } else {
+    observacao = prompt(`Rejeitar a desmarcação de ${d.instrutor_nome} em ${formatarDataBr(d.data)}?\n\nInforme o motivo (opcional) — a data continua confirmada:`, "");
+    if (observacao === null) return;
+  }
+
+  const { error } = await supabase.rpc("responder_desmarcacao_agendamento", {
+    p_agendamento_id: d.agendamento_id,
+    p_data: d.data,
+    p_aprovar: aprovar,
+    p_observacao: observacao || null,
+  });
+
+  const el = $("agend-desmarcacoes-resultado");
+  el.classList.remove("hidden");
+  if (error) {
+    el.className = "mb-3 text-sm rounded-md px-3 py-2 bg-rose-100 text-rose-800";
+    el.textContent = `Não foi possível responder à solicitação: ${error.message}`;
+    return;
+  }
+  el.className = "mb-3 text-sm rounded-md px-3 py-2 bg-teal-50 text-teal-800";
+  el.textContent = aprovar
+    ? `Desmarcação aprovada. O dia ${formatarDataBr(d.data)} foi liberado para ${d.instrutor_nome} e a turma ${d.turma_identificacao || ""} voltou para "Não agendado".`
+    : `Solicitação rejeitada. A data ${formatarDataBr(d.data)} continua confirmada para ${d.instrutor_nome}.`;
+
+  await carregarDesmarcacoesPendentes();
+  if (agendTurmaOrcamentoId && d.orcamento_id === agendTurmaOrcamentoId) {
+    if (aprovar) {
+      agendTurmaInstrutores.delete(d.turma_id); // limpa a escolha em memória da turma liberada
+      agendTurmaCentroStatus.delete(d.turma_id);
+    }
+    await recarregarTurmasAgendTurma();
+    renderizarListaAgendTurmas();
+  }
 }
 
 $("agend-centro-select").addEventListener("change", async () => {
@@ -4870,6 +4967,7 @@ async function refreshTurmas() {
 }
 
 async function refreshAgendamentoTurmas() {
+  await carregarDesmarcacoesPendentes(false);
   if (!agendTurmaOrcamentoId) return;
   const [{ data: turmas, error: e1 }, { data: insts, error: e2 }] = await Promise.all([
     supabase.from("turmas").select("*, tipos_treinamento(nome), centros_treinamento(nome)").eq("orcamento_id", agendTurmaOrcamentoId).order("identificacao", { ascending: true }),
