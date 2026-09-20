@@ -3948,7 +3948,7 @@ async function recarregarTurmasAgendTurma() {
     .select("*, tipos_treinamento(nome), centros_treinamento(nome)")
     .eq("orcamento_id", agendTurmaOrcamentoId)
     .order("identificacao", { ascending: true });
-  agendTurmasLista = data || [];
+  agendTurmasLista = (data || []).sort(compararIdentificacaoTurma);
   agendTurmaAgendamentos.clear();
   const ids = agendTurmasLista.map((t) => t.id);
   if (ids.length) {
@@ -3961,6 +3961,25 @@ async function recarregarTurmasAgendTurma() {
       agendTurmaInstrutores.set(t.id, { instrutor1: t.instrutor1_id || "", instrutor2: t.instrutor2_id || "" });
     }
   });
+}
+
+// Ordem natural da identificação da turma: A1, A2, A3, B1... Z9, depois AA1, AB1...
+// (letras primeiro pelo tamanho do prefixo, depois alfabética; número como número)
+function partesIdentificacao(id) {
+  const m = String(id || "").trim().toUpperCase().match(/^([A-Z]*)(\d*)$/);
+  if (!m) return { prefixo: String(id || "").toUpperCase(), numero: 0, valido: false };
+  return { prefixo: m[1], numero: m[2] ? parseInt(m[2], 10) : 0, valido: true };
+}
+
+function compararIdentificacaoTurma(a, b) {
+  const pa = partesIdentificacao(a?.identificacao);
+  const pb = partesIdentificacao(b?.identificacao);
+  if (pa.valido !== pb.valido) return pa.valido ? -1 : 1;
+  if (!pa.valido) return String(a?.identificacao || "").localeCompare(String(b?.identificacao || ""), "pt-BR");
+  if (pa.prefixo.length !== pb.prefixo.length) return pa.prefixo.length - pb.prefixo.length;
+  if (pa.prefixo !== pb.prefixo) return pa.prefixo < pb.prefixo ? -1 : 1;
+  if (pa.numero !== pb.numero) return pa.numero - pb.numero;
+  return String(a?.data_inicio || "").localeCompare(String(b?.data_inicio || ""));
 }
 
 const AGEND_STATUS_COR = {
@@ -5030,7 +5049,7 @@ async function refreshAgendamentoTurmas() {
     ? await supabase.from("agendamentos").select("id, turma_id, instrutor_id, datas, datas_status").in("turma_id", ids).order("id")
     : { data: [] };
   if (!dadosMudaram("agendTurmas:" + agendTurmaOrcamentoId, { turmas, insts, ags })) return;
-  agendTurmasLista = turmas || [];
+  agendTurmasLista = (turmas || []).sort(compararIdentificacaoTurma);
   listaInstrutoresAtivos = insts || [];
   agendTurmaAgendamentos.clear();
   (ags || []).forEach((a) => agendTurmaAgendamentos.set(`${a.turma_id}|${a.instrutor_id}`, a));
