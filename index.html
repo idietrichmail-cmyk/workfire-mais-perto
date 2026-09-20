@@ -507,7 +507,10 @@
           </div>
         </div>
         <div class="mb-5 bg-white border border-slate-200 rounded-xl p-4">
-          <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Selecione o Centro de Treinamento</label>
+          <div class="flex items-center justify-between gap-3 mb-1">
+            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Selecione o Centro de Treinamento</label>
+            <span id="auto-refresh-indicador" class="text-[11px] text-slate-400"></span>
+          </div>
           <select id="agend-centro-select" class="mt-1 w-full max-w-md rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">
             <option value="">— Selecione —</option>
           </select>

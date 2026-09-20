@@ -3800,7 +3800,10 @@ let desmarcacoesPendentes = [];
 
 async function carregarDesmarcacoesPendentes(forcar = true) {
   const { data, error } = await supabase.rpc("listar_desmarcacoes_pendentes");
-  if (error) return;
+  if (error) {
+    console.warn("Não foi possível carregar as solicitações de desmarcação:", error.message);
+    return;
+  }
   if (!forcar && !dadosMudaram("desmarcacoes", data)) return;
   if (forcar) dadosMudaram("desmarcacoes", data);
   desmarcacoesPendentes = data || [];
@@ -3984,13 +3987,34 @@ function respostaInstrutorAgendTurma(t, instrutorId) {
   const a = agendTurmaAgendamentos.get(`${t.id}|${instrutorId}`);
   if (!a || !(a.datas || []).includes(t.data_inicio)) return null;
   const r = (a.datas_status || {})[t.data_inicio];
-  return r ? { status: r.status, justificativa: r.justificativa } : { status: "pendente" };
+  return r ? montarRespostaInstrutor(r) : { status: "pendente" };
 }
+
+// Normaliza a entrada de datas_status, incluindo o pedido de desmarcação
+// que o instrutor faz no app Agenda de Instrutores.
+function montarRespostaInstrutor(r) {
+  const sc = r.solicitacao_cancelamento || null;
+  return {
+    status: r.status,
+    justificativa: r.justificativa,
+    desmarcacaoPendente: !!(sc && sc.pendente),
+    desmarcacaoMotivo: sc ? sc.justificativa : null,
+  };
+}
+
 function iconeRespostaInstrutor(resp) {
   if (!resp) return "";
+  if (resp.desmarcacaoPendente) {
+    return `<span title="Motivo: ${(resp.desmarcacaoMotivo || "não informado").replace(/"/g, "&quot;")}" class="text-rose-700 text-xs font-medium">⏳ aguardando confirmação de desmarcação</span>`;
+  }
   if (resp.status === "confirmado") return `<span title="Instrutor confirmou" class="text-teal-700 text-xs">✔ confirmou</span>`;
   if (resp.status === "negado") return `<span title="${(resp.justificativa || "").replace(/"/g, "&quot;")}" class="text-rose-600 text-xs">✖ negou</span>`;
   return `<span class="text-amber-600 text-xs">⏳ aguardando</span>`;
+}
+
+// A turma tem algum instrutor com desmarcação pendente?
+function turmaComDesmarcacaoPendente(t) {
+  return [t.instrutor1_id, t.instrutor2_id].some((id) => respostaInstrutorAgendTurma(t, id)?.desmarcacaoPendente);
 }
 
 function celulaCentroAgendTurma(t) {
@@ -4070,7 +4094,7 @@ function renderizarListaAgendTurmas() {
         <input type="date" data-agend-turma-data="${t.id}" value="${t.data_inicio || ""}" class="w-full min-w-[140px] text-xs rounded-md border border-slate-300 px-2 py-1.5" />
       </td>
       <td class="px-3 py-2"><span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${corStatus[t.status] || ""}">${t.status}</span></td>
-      <td class="px-3 py-2">${badgeStatusAgendamento(t.status_agendamento)}</td>
+      <td class="px-3 py-2">${badgeStatusAgendamento(t.status_agendamento)}${turmaComDesmarcacaoPendente(t) ? `<div class="mt-0.5 text-[11px] text-rose-700 font-medium">desmarcação solicitada</div>` : ""}</td>
       <td class="px-3 py-2 text-xs">${celulaCentroAgendTurma(t)}</td>
       <td class="px-3 py-2">${celulaInstrutorAgendTurma(t, "instrutor1")}</td>
       <td class="px-3 py-2">${celulaInstrutorAgendTurma(t, "instrutor2")}</td>
@@ -4366,7 +4390,7 @@ function respostaInstrutorCct(t, instrutorId) {
   const a = cctAgendamentos.get(`${t.id}|${instrutorId}`);
   if (!a || !(a.datas || []).includes(t.data_inicio)) return null;
   const r = (a.datas_status || {})[t.data_inicio];
-  return r ? { status: r.status, justificativa: r.justificativa } : { status: "pendente" };
+  return r ? montarRespostaInstrutor(r) : { status: "pendente" };
 }
 
 function renderizarListaConfirmacaoCt() {
@@ -5041,8 +5065,18 @@ const AUTO_REFRESH_POR_MODULO = {
   confirmacao_ct: refreshConfirmacaoCt,
 };
 
+function marcarAutoRefresh(texto) {
+  const el = $("auto-refresh-indicador");
+  if (el) el.textContent = texto;
+}
+
 async function executarAutoRefresh() {
-  if (autoRefreshEmAndamento || document.hidden || algumPainelAberto() || usuarioEditandoCampo()) return;
+  if (autoRefreshEmAndamento) return;
+  if (document.hidden) return;
+  if (algumPainelAberto() || usuarioEditandoCampo()) {
+    marcarAutoRefresh("atualização automática pausada (edição em andamento)");
+    return;
+  }
   autoRefreshEmAndamento = true;
   try {
     if (!$("tela-instrutor").classList.contains("hidden")) {
@@ -5051,8 +5085,10 @@ async function executarAutoRefresh() {
       const fn = AUTO_REFRESH_POR_MODULO[moduloAtivo] || (CRUD_CONFIG[moduloAtivo] ? refreshCrud : null);
       if (fn) await fn();
     }
+    marcarAutoRefresh(`atualizado às ${new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`);
   } catch (e) {
     console.warn("Atualização automática falhou:", e);
+    marcarAutoRefresh("falha na atualização automática — veja o console");
   } finally {
     autoRefreshEmAndamento = false;
   }
