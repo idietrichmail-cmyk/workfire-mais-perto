@@ -304,6 +304,7 @@ async function enviarConviteUsuario(usuarioId, silenciosoSeOk = false) {
 }
 
 // Aptidões do instrutor: tipos de treinamento que ele pode ministrar.
+let centrosParaInstrutor = []; // lista usada só no cadastro de instrutor
 let aptidoesCategorias = [];   // opções disponíveis (categorias ativas + as já marcadas)
 let aptidoesSelecionadas = new Set();
 let aptidoesPorInstrutor = {}; // instrutor_id → [categoria_treinamento_id]
@@ -314,7 +315,7 @@ async function carregarAptidoesRefs() {
     supabase.from("instrutor_categorias").select("instrutor_id, categoria_treinamento_id"),
     supabase.from("centros_treinamento").select("id, nome, status").order("nome"),
   ]);
-  listaCentrosAtivos = centros || listaCentrosAtivos;
+  centrosParaInstrutor = centros || [];
   aptidoesCategorias = cats || [];
   aptidoesPorInstrutor = {};
   (vinc || []).forEach((v) => {
@@ -325,7 +326,7 @@ async function carregarAptidoesRefs() {
 function preencherCentroPrincipalForm(valor) {
   const sel = $("f-centro-principal");
   if (!sel) return;
-  const centros = (listaCentrosAtivos || []).filter((c) => c.status === "Ativo" || c.id === valor);
+  const centros = (centrosParaInstrutor || []).filter((c) => c.status === "Ativo" || c.id === valor);
   sel.innerHTML = `<option value="">— Não definido —</option>` +
     centros.map((c) => `<option value="${c.id}" ${c.id === valor ? "selected" : ""}>${c.nome}</option>`).join("");
   sel.value = valor || "";
@@ -998,7 +999,7 @@ function renderizarListaAdmin() {
         ${inst.carga_horaria ? `<p>Carga horária: ${inst.carga_horaria}h/mês</p>` : ""}
         <p>📌 ${c.disponivel} disponíveis · 📘 ${c.agendado} agendados${c.aguardando > 0 ? ` · ⏳ ${c.aguardando} aguardando` : ""}</p>
         <p>${inst.user_id ? "✅ Já criou senha no app" : "⏳ Aguardando primeiro acesso"}</p>
-        ${inst.centro_treinamento_principal_id ? `<p class="text-slate-500">🏫 CT principal: ${(listaCentrosAtivos.find((c) => c.id === inst.centro_treinamento_principal_id) || {}).nome || "—"}</p>` : ""}
+        ${inst.centro_treinamento_principal_id ? `<p class="text-slate-500">🏫 CT principal: ${(centrosParaInstrutor.find((c) => c.id === inst.centro_treinamento_principal_id) || {}).nome || "—"}</p>` : ""}
         ${rotulosAptidoes(inst.id).length ? `<p class="text-slate-500">🗃️ Apto: ${rotulosAptidoes(inst.id).join(", ")}</p>` : ""}
         ${inst.reset_senha_liberado_em ? `<p class="text-teal-700">🔓 Redefinição de senha liberada</p>`
           : (inst.reset_senha_solicitado_em ? `<p class="text-amber-700 font-medium">🔑 Redefinição de senha SOLICITADA</p>` : "")}
