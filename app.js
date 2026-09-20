@@ -234,26 +234,39 @@ const FORMATOS_PRATICA = ["CT", "InCompany", "Móvel"];
 const AGENDA_STATUS = ["A agendar", "Agendado", "Aguardando confirmação", "Não aplicável"];
 const ORCAMENTO_STATUS = ["Aberto", "Aprovado", "Recusado", "Cancelado", "Concluído"];
 
+const AREAS = ["Geral", "Cadastros Básicos", "Comercial", "Compras", "Logística", "Operações"];
+
 const MODULOS = [
-  { id: "instrutores", label: "Instrutores", icone: "👥", grupo: "Cadastros" },
-  { id: "empresas", label: "Empresas", icone: "🏢", grupo: "Cadastros" },
-  { id: "centros_treinamento", label: "Centros de Treinamento", icone: "🏫", grupo: "Cadastros" },
-  { id: "tipos_treinamento", label: "Treinamentos", icone: "🏷️", grupo: "Cadastros" },
-  { id: "empresas_transporte", label: "Empresas de Transporte", icone: "🚐", grupo: "Cadastros" },
-  { id: "tipos_atividade", label: "Tipos de Atividade", icone: "🗂️", grupo: "Cadastros" },
-  { id: "tipos_material", label: "Tipos de Material", icone: "🧰", grupo: "Cadastros" },
-  { id: "fornecedores", label: "Fornecedores", icone: "🚚", grupo: "Cadastros" },
-  { id: "materiais", label: "Materiais", icone: "📦", grupo: "Cadastros" },
-  { id: "usuarios_sistema", label: "Usuários do Sistema", icone: "🔑", grupo: "Cadastros" },
-  { id: "agendamentos", label: "Agendar Treinamento", icone: "🗓️", grupo: "Operações" },
-  { id: "orcamentos", label: "Orçamentos", icone: "💰", grupo: "Operações" },
-  { id: "turmas", label: "Turmas por Orçamento", icone: "🎓", grupo: "Operações" },
-  { id: "agendamento_turmas", label: "Agendamento de Turmas", icone: "📆", grupo: "Operações" },
-  { id: "confirmacao_ct", label: "Confirmação do Centro de Treinamento", icone: "✅", grupo: "Operações" },
-  { id: "agenda_centros", label: "Agenda por Centro de Treinamento", icone: "🗓️", grupo: "Operações" },
+  // Cadastros Básicos
+  { id: "usuarios_sistema", label: "Usuários do Sistema", icone: "🔑", grupo: "Cadastros Básicos" },
+  { id: "instrutores", label: "Instrutores", icone: "👥", grupo: "Cadastros Básicos" },
+  { id: "fornecedores", label: "Fornecedores", icone: "🚚", grupo: "Cadastros Básicos" },
+  { id: "centros_treinamento", label: "Centros de Treinamento", icone: "🏫", grupo: "Cadastros Básicos" },
+  { id: "tipos_treinamento", label: "Treinamentos", icone: "🏷️", grupo: "Cadastros Básicos" },
+  { id: "tipos_atividade", label: "Tipos de Atividade", icone: "🗂️", grupo: "Cadastros Básicos" },
+  { id: "tipos_material", label: "Tipos de Material", icone: "🧰", grupo: "Cadastros Básicos" },
+  // Comercial
+  { id: "empresas", label: "Empresas", icone: "🏢", grupo: "Comercial" },
+  { id: "orcamentos", label: "Orçamentos", icone: "💰", grupo: "Comercial" },
+  // Compras
+  { id: "materiais", label: "Materiais", icone: "📦", grupo: "Compras" },
+  // Logística
+  { id: "empresas_transporte", label: "Empresas de Transporte", icone: "🚐", grupo: "Logística" },
+  { id: "agendamentos", label: "Agendar Treinamento", icone: "🗓️", grupo: "Logística" },
+  { id: "agendamento_turmas", label: "Agendamento de Turmas", icone: "📆", grupo: "Logística" },
+  { id: "agenda_centros", label: "Agenda por Centro de Treinamento", icone: "📅", grupo: "Logística" },
+  { id: "turmas", label: "Turmas por Orçamento", icone: "🎓", grupo: "Logística" },
+  // Operações
   { id: "atividades", label: "Atividades", icone: "📋", grupo: "Operações" },
   { id: "requisicoes_compra", label: "Requisições de Compra", icone: "🛒", grupo: "Operações" },
+  { id: "confirmacao_ct", label: "Confirmação do Centro de Treinamento", icone: "✅", grupo: "Operações" },
 ];
+
+// Área selecionada no menu inicial. "Geral" mostra todas as áreas.
+let areaAtiva = "Geral";
+function modulosDaArea() {
+  return MODULOS.filter((m) => (areaAtiva === "Geral" || m.grupo === areaAtiva) && podeFazer(m.id, "consultar"));
+}
 
 function podeFazer(modulo, acao) {
   if (usuarioSistemaAtual && usuarioSistemaAtual.role === "admin") return true;
@@ -655,23 +668,44 @@ async function entrarNoPainelAdmin() {
   mostrarMenuInicio();
 }
 
+// Abas de área no menu inicial: Geral, Cadastros Básicos, Comercial, Logística, Operações.
+// A área escolhida também filtra o menu lateral.
+function renderizarAbasAreas() {
+  const cont = $("inicio-areas");
+  const disponiveis = AREAS.filter((a) =>
+    a === "Geral" || MODULOS.some((m) => m.grupo === a && podeFazer(m.id, "consultar")));
+  cont.innerHTML = disponiveis.map((a) => `
+    <button data-area="${a}" class="text-sm px-3 py-1.5 rounded-md border transition ${
+      a === areaAtiva
+        ? "bg-slate-900 text-white border-slate-900"
+        : "bg-white text-slate-600 border-slate-300 hover:border-amber-400"
+    }">${a}</button>
+  `).join("");
+  cont.querySelectorAll("[data-area]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      areaAtiva = btn.getAttribute("data-area");
+      mostrarMenuInicio();
+    }));
+}
+
 function mostrarMenuInicio() {
   moduloAtivo = null;
   document.querySelectorAll("#tela-admin main > section").forEach((s) => s.classList.add("hidden"));
   renderizarNavAdmin();
   $("admin-nav-mobile").value = "";
 
-  const acessiveis = MODULOS.filter((m) => podeFazer(m.id, "consultar"));
+  const acessiveis = modulosDaArea();
   $("admin-eyebrow").textContent = "Work Fire mais perto de você";
-  $("admin-titulo-pagina").textContent = "Menu";
-  $("admin-descricao-pagina").textContent = acessiveis.length
-    ? "Escolha um cadastro ou operação para começar."
+  $("admin-titulo-pagina").textContent = areaAtiva === "Geral" ? "Geral" : areaAtiva;
+  $("admin-descricao-pagina").textContent = MODULOS.some((m) => podeFazer(m.id, "consultar"))
+    ? "Escolha a área da empresa e, em seguida, o cadastro ou operação."
     : "Seu usuário ainda não tem acesso a nenhum cadastro ou operação. Fale com o administrador.";
 
   $("secao-inicio").classList.remove("hidden");
+  renderizarAbasAreas();
   const grade = $("inicio-grade");
   if (acessiveis.length === 0) {
-    grade.innerHTML = `<div class="col-span-full bg-white border border-dashed border-slate-300 rounded-lg py-16 text-center text-slate-500 text-sm">Nenhum item disponível.</div>`;
+    grade.innerHTML = `<div class="col-span-full bg-white border border-dashed border-slate-300 rounded-lg py-16 text-center text-slate-500 text-sm">Nenhum item disponível nesta área.</div>`;
     return;
   }
   grade.innerHTML = acessiveis.map((m) => `
@@ -694,15 +728,14 @@ function mostrarMenuInicio() {
 function renderizarNavAdmin() {
   const nav = $("admin-nav");
   const grupos = {};
-  MODULOS.forEach((m) => {
-    if (!podeFazer(m.id, "consultar")) return;
+  modulosDaArea().forEach((m) => {
     (grupos[m.grupo] = grupos[m.grupo] || []).push(m);
   });
 
   const botaoInicio = `
     <button data-nav-inicio class="flex items-center gap-2 rounded-md px-3 py-2 text-left w-full mb-3 ${
       moduloAtivo === null ? "bg-slate-800 text-white border-l-2 border-amber-500" : "hover:bg-slate-800 hover:text-white"
-    }">🏠 Início</button>
+    }">🏠 Geral</button>
   `;
 
   nav.innerHTML = botaoInicio + Object.entries(grupos).map(([grupo, itens]) => `
@@ -720,7 +753,7 @@ function renderizarNavAdmin() {
   );
 
   const navMobile = $("admin-nav-mobile");
-  navMobile.innerHTML = `<option value="" ${moduloAtivo === null ? "selected" : ""}>🏠 Início</option>` +
+  navMobile.innerHTML = `<option value="" ${moduloAtivo === null ? "selected" : ""}>🏠 Geral</option>` +
     Object.entries(grupos).map(([grupo, itens]) => `
       <optgroup label="${grupo}">
         ${itens.map((m) => `<option value="${m.id}" ${m.id === moduloAtivo ? "selected" : ""}>${m.icone} ${m.label}</option>`).join("")}
@@ -735,6 +768,8 @@ $("admin-nav-mobile").addEventListener("change", (e) => {
 
 function irParaModulo(id) {
   moduloAtivo = id;
+  const metaArea = MODULOS.find((m) => m.id === id);
+  if (metaArea && areaAtiva !== "Geral" && metaArea.grupo !== areaAtiva) areaAtiva = metaArea.grupo;
   document.querySelectorAll("#tela-admin main > section").forEach((s) => s.classList.add("hidden"));
   const meta = MODULOS.find((m) => m.id === id);
   $("admin-eyebrow").textContent = meta.grupo;
@@ -2041,9 +2076,11 @@ async function carregarPermissoesParaForm(usuarioId) {
     <div class="grid grid-cols-[1fr,repeat(4,32px)] gap-1 px-3 py-2 bg-slate-50 font-semibold text-slate-500">
       <span>Módulo</span><span title="Consultar">C</span><span title="Incluir">I</span><span title="Alterar">A</span><span title="Excluir">E</span>
     </div>
-    ${MODULOS.map((m) => {
+    ${MODULOS.map((m, idx) => {
       const p = existentes[m.id] || {};
-      return `<div class="grid grid-cols-[1fr,repeat(4,32px)] gap-1 px-3 py-2 items-center">
+      const cabecalho = idx === 0 || MODULOS[idx - 1].grupo !== m.grupo
+        ? `<div class="px-3 pt-3 pb-1 text-[10px] uppercase tracking-wider text-slate-400">${m.grupo}</div>` : "";
+      return cabecalho + `<div class="grid grid-cols-[1fr,repeat(4,32px)] gap-1 px-3 py-2 items-center">
         <span class="text-slate-700">${m.icone} ${m.label}</span>
         <input type="checkbox" data-perm-modulo="${m.id}" data-perm-acao="consultar" ${p.pode_consultar ? "checked" : ""} />
         <input type="checkbox" data-perm-modulo="${m.id}" data-perm-acao="incluir" ${p.pode_incluir ? "checked" : ""} />
