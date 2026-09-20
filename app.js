@@ -3940,6 +3940,7 @@ $("agend-orcamento-select").addEventListener("change", async () => {
     <p><strong>Empresa:</strong> ${o?.empresas?.nome || "—"}</p>
     <p><strong>Treinamento:</strong> ${o?.tipos_treinamento?.nome || "—"}</p>
     <p><strong>Status do orçamento:</strong> ${o?.status || "—"}</p>
+    ${blocoObservacoesOrcamento(o)}
   `;
 
   await recarregarTurmasAgendTurma();
@@ -3987,6 +3988,22 @@ function compararIdentificacaoTurma(a, b) {
   if (pa.prefixo !== pb.prefixo) return pa.prefixo < pb.prefixo ? -1 : 1;
   if (pa.numero !== pb.numero) return pa.numero - pb.numero;
   return String(a?.data_inicio || "").localeCompare(String(b?.data_inicio || ""));
+}
+
+// Observações do orçamento: a geral e a dirigida ao Centro de Treinamento.
+function blocoObservacoesOrcamento(o, compacto = false) {
+  if (!o) return "";
+  const tamanho = compacto ? "text-[11px]" : "text-xs";
+  const partes = [];
+  if (o.observacoes) {
+    partes.push(`<div class="${tamanho} text-slate-700 bg-slate-50 border border-slate-200 rounded-md px-2 py-1.5 whitespace-pre-line">
+      <span class="font-medium">Observações do orçamento:</span> ${o.observacoes}</div>`);
+  }
+  if (o.observacao_ct) {
+    partes.push(`<div class="${tamanho} text-amber-900 bg-amber-50 border border-amber-200 rounded-md px-2 py-1.5 whitespace-pre-line">
+      📌 <span class="font-medium">Observação para o Centro de Treinamento:</span> ${o.observacao_ct}</div>`);
+  }
+  return partes.length ? `<div class="mt-2 space-y-1.5">${partes.join("")}</div>` : "";
 }
 
 const AGEND_STATUS_COR = {
@@ -4381,7 +4398,7 @@ async function carregarListaConfirmacaoCt(forcar = true) {
   }
   let q = supabase
     .from("turmas")
-    .select("*, tipos_treinamento(nome), orcamentos(numero, empresas(nome)), inst1:instrutores!turmas_instrutor1_id_fkey(nome), inst2:instrutores!turmas_instrutor2_id_fkey(nome)")
+    .select("*, tipos_treinamento(nome), orcamentos(numero, observacoes, observacao_ct, empresas(nome)), inst1:instrutores!turmas_instrutor1_id_fkey(nome), inst2:instrutores!turmas_instrutor2_id_fkey(nome)")
     .eq("centro_treinamento_id", centroId)
     .neq("status", "Cancelada")
     .order("data_inicio", { ascending: true, nullsFirst: false });
@@ -4445,6 +4462,9 @@ function renderizarListaConfirmacaoCt() {
         ${podeConfirmar && t.agenda_ct === "Agendado" ? `<button data-cct-recusar="${t.id}" class="text-xs font-medium text-slate-500 hover:text-slate-800 px-2 py-1">Desfazer</button>` : ""}
       </td>
     </tr>
+    ${blocoObservacoesOrcamento(t.orcamentos, true)
+      ? `<tr class="bg-slate-50/60"><td colspan="9" class="px-3 pb-3 pt-0">${blocoObservacoesOrcamento(t.orcamentos, true)}</td></tr>`
+      : ""}
   `).join("");
   cont.querySelectorAll("[data-cct-confirmar]").forEach((el) =>
     el.addEventListener("click", () => responderConfirmacaoCt(el.getAttribute("data-cct-confirmar"), true)));
