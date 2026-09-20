@@ -1057,3 +1057,13 @@ alter table usuarios_sistema add column if not exists convite_enviado_em timesta
 -- tipos de treinamento que cada instrutor está apto a ministrar.
 -- Leitura liberada para quem lê instrutores e para o próprio instrutor;
 -- gravação para quem pode alterar/incluir instrutores.
+
+-- ===========================================================
+-- 2026-09-20 — Centro de Treinamento principal do instrutor
+-- (migração "instrutor_centro_principal")
+-- ===========================================================
+alter table instrutores
+  add column if not exists centro_treinamento_principal_id uuid references centros_treinamento(id);
+-- Usado na tela Agendamento de Turmas para, opcionalmente, listar apenas os
+-- instrutores cujo CT principal é o da turma. O outro filtro da tela usa
+-- instrutor_categorias x tipos_treinamento.categoria_treinamento_id.

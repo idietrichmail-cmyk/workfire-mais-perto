@@ -309,15 +309,26 @@ let aptidoesSelecionadas = new Set();
 let aptidoesPorInstrutor = {}; // instrutor_id → [categoria_treinamento_id]
 
 async function carregarAptidoesRefs() {
-  const [{ data: cats }, { data: vinc }] = await Promise.all([
+  const [{ data: cats }, { data: vinc }, { data: centros }] = await Promise.all([
     supabase.from("categorias_treinamento").select("id, codigo, descricao, status").order("codigo"),
     supabase.from("instrutor_categorias").select("instrutor_id, categoria_treinamento_id"),
+    supabase.from("centros_treinamento").select("id, nome, status").order("nome"),
   ]);
+  listaCentrosAtivos = centros || listaCentrosAtivos;
   aptidoesCategorias = cats || [];
   aptidoesPorInstrutor = {};
   (vinc || []).forEach((v) => {
     (aptidoesPorInstrutor[v.instrutor_id] = aptidoesPorInstrutor[v.instrutor_id] || []).push(v.categoria_treinamento_id);
   });
+}
+
+function preencherCentroPrincipalForm(valor) {
+  const sel = $("f-centro-principal");
+  if (!sel) return;
+  const centros = (listaCentrosAtivos || []).filter((c) => c.status === "Ativo" || c.id === valor);
+  sel.innerHTML = `<option value="">— Não definido —</option>` +
+    centros.map((c) => `<option value="${c.id}" ${c.id === valor ? "selected" : ""}>${c.nome}</option>`).join("");
+  sel.value = valor || "";
 }
 
 function renderizarAptidoesForm() {
@@ -987,6 +998,7 @@ function renderizarListaAdmin() {
         ${inst.carga_horaria ? `<p>Carga horária: ${inst.carga_horaria}h/mês</p>` : ""}
         <p>📌 ${c.disponivel} disponíveis · 📘 ${c.agendado} agendados${c.aguardando > 0 ? ` · ⏳ ${c.aguardando} aguardando` : ""}</p>
         <p>${inst.user_id ? "✅ Já criou senha no app" : "⏳ Aguardando primeiro acesso"}</p>
+        ${inst.centro_treinamento_principal_id ? `<p class="text-slate-500">🏫 CT principal: ${(listaCentrosAtivos.find((c) => c.id === inst.centro_treinamento_principal_id) || {}).nome || "—"}</p>` : ""}
         ${rotulosAptidoes(inst.id).length ? `<p class="text-slate-500">🗃️ Apto: ${rotulosAptidoes(inst.id).join(", ")}</p>` : ""}
         ${inst.reset_senha_liberado_em ? `<p class="text-teal-700">🔓 Redefinição de senha liberada</p>`
           : (inst.reset_senha_solicitado_em ? `<p class="text-amber-700 font-medium">🔑 Redefinição de senha SOLICITADA</p>` : "")}
@@ -1067,6 +1079,7 @@ $("btn-novo-instrutor").addEventListener("click", () => {
   limparFormulario();
   $("painel-titulo").textContent = "Novo instrutor";
   $("btn-salvar-instrutor").textContent = "Cadastrar instrutor";
+  preencherCentroPrincipalForm("");
   renderizarAptidoesForm();
   renderizarCalendarioForm();
   $("painel-form").classList.remove("hidden");
@@ -1094,6 +1107,7 @@ function abrirEdicao(id) {
     obterUrlDocumento(docUrlAtualForm).then((url) => { if (url) $("f-doc-img").src = url; });
   }
 
+  preencherCentroPrincipalForm(inst.centro_treinamento_principal_id || "");
   aptidoesSelecionadas = new Set(aptidoesPorInstrutor[id] || []);
   renderizarAptidoesForm();
 
@@ -1181,6 +1195,7 @@ async function salvarInstrutor() {
     status: $("f-status").value,
     observacoes: $("f-observacoes").value.trim(),
     dias_status: diasStatusForm,
+    centro_treinamento_principal_id: $("f-centro-principal").value || null,
   };
 
   $("btn-salvar-instrutor").disabled = true;
@@ -4203,10 +4218,28 @@ $("agend-orcamento-select").addEventListener("change", async () => {
 
 // Recarrega as turmas do orçamento selecionado e as solicitações já enviadas
 // aos instrutores (tabela agendamentos), para mostrar quem já respondeu.
+// Filtros de instrutores da tela (aptidão e centro principal).
+function instrutorApto(instrutor, t) {
+  const cat = t?.tipos_treinamento?.categoria_treinamento_id;
+  if (!cat) return true; // treinamento sem tipo definido: não filtra
+  return (aptidoesPorInstrutor[instrutor.id] || []).includes(cat);
+}
+function instrutorDoCentro(instrutor, t) {
+  if (!t?.centro_treinamento_id) return true;
+  return instrutor.centro_treinamento_principal_id === t.centro_treinamento_id;
+}
+function filtrosInstrutorAtivos() {
+  return {
+    aptos: !!$("agend-filtro-aptos")?.checked,
+    centro: !!$("agend-filtro-centro")?.checked,
+  };
+}
+
 async function recarregarTurmasAgendTurma() {
+  await carregarAptidoesRefs();
   const { data } = await supabase
     .from("turmas")
-    .select("*, tipos_treinamento(nome), centros_treinamento(nome)")
+    .select("*, tipos_treinamento(nome, categoria_treinamento_id), centros_treinamento(nome)")
     .eq("orcamento_id", agendTurmaOrcamentoId)
     .order("identificacao", { ascending: true });
   agendTurmasLista = (data || []).sort(compararIdentificacaoTurma);
@@ -4334,9 +4367,12 @@ function celulaInstrutorAgendTurma(t, campo) {
   }
 
   const valorAtual = escolha[campo] || "";
+  const filtros = filtrosInstrutorAtivos();
   const candidatos = agendTurmaRankingInstrutores.filter((r) => {
     if (r.instrutor.id === idOutro) return false;
     if (r.instrutor.id === valorAtual) return true; // já atribuído à turma (pode estar "aguardando" nesse dia)
+    if (filtros.aptos && !instrutorApto(r.instrutor, t)) return false;
+    if (filtros.centro && !instrutorDoCentro(r.instrutor, t)) return false;
     const diasStatus = r.instrutor.dias_status || {};
     return obterStatusDia(diasStatus, t.data_inicio) === "disponivel";
   });
@@ -4349,10 +4385,14 @@ function celulaInstrutorAgendTurma(t, campo) {
     .map((r) => `<option value="${r.instrutor.id}" ${r.instrutor.id === valorAtual ? "selected" : ""} ${!r.fullyAvailable ? 'style="background-color:#fed7aa;"' : ""}>${r.instrutor.nome}</option>`)
     .join("");
   const resp = respostaInstrutorAgendTurma(t, valorAtual);
+  const vazio = candidatos.length === 0
+    ? `<div class="text-[10px] text-rose-600 mt-0.5">Nenhum instrutor atende aos filtros nesta data.</div>` : "";
+  const alerta = valorAtual && filtros.aptos && !instrutorApto(listaInstrutoresAtivos.find((i) => i.id === valorAtual) || {}, t)
+    ? `<div class="text-[10px] text-amber-600 mt-0.5">⚠️ não é apto a este tipo de treinamento</div>` : "";
   return `<select data-agend-turma-instrutor="${t.id}" data-campo="${campo}" class="text-xs rounded-md border border-slate-300 px-1.5 py-1 max-w-[160px]">
     <option value="">— Selecione —</option>
     ${opcoes}
-  </select>
+  </select>${vazio}${alerta}
   <div class="mt-0.5">${iconeRespostaInstrutor(resp) || textoAgendaItem(t[campo === "instrutor1" ? "agenda_instrutor1" : "agenda_instrutor2"])}</div>`;
 }
 
@@ -4508,6 +4548,10 @@ async function verificarDisponibilidadeAgendTurma() {
   renderizarListaAgendTurmas();
 }
 $("btn-agend-verificar-disponibilidade").addEventListener("click", verificarDisponibilidadeAgendTurma);
+["agend-filtro-aptos", "agend-filtro-centro"].forEach((id) => {
+  const el = $(id);
+  if (el) el.addEventListener("change", () => renderizarListaAgendTurmas());
+});
 
 // -----------------------------------------------------------
 // Solicitar confirmação do agendamento das turmas selecionadas:
@@ -5327,7 +5371,7 @@ async function refreshAgendamentoTurmas() {
   await carregarDesmarcacoesPendentes(false);
   if (!agendTurmaOrcamentoId) return;
   const [{ data: turmas, error: e1 }, { data: insts, error: e2 }] = await Promise.all([
-    supabase.from("turmas").select("*, tipos_treinamento(nome), centros_treinamento(nome)").eq("orcamento_id", agendTurmaOrcamentoId).order("identificacao", { ascending: true }),
+    supabase.from("turmas").select("*, tipos_treinamento(nome, categoria_treinamento_id), centros_treinamento(nome)").eq("orcamento_id", agendTurmaOrcamentoId).order("identificacao", { ascending: true }),
     supabase.from("instrutores").select("*").eq("status", "Ativo").order("nome"),
   ]);
   if (e1 || e2) return;
