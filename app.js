@@ -4946,7 +4946,7 @@ $("btn-excluir-localidades-todas-turmas").addEventListener("click", excluirLocal
 
 iniciar();
 
-})();
+
 
 // ===========================================================
 // ATUALIZAÇÃO AUTOMÁTICA (polling a cada 5 s)
@@ -5289,3 +5289,6 @@ $("acc-mes-proximo").addEventListener("click", () => {
   accDiaSelecionado = null;
   carregarAgendaCentros();
 });
+
+
+})();
