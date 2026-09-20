@@ -1006,3 +1006,11 @@ alter table turmas
 --   • ele não recebe nova mensagem — a RPC não devolve esse instrutor, então
 --     solicitar_confirmacao_turma_completa também não mexe no dia dele.
 -- Só o instrutor pendente recebe a solicitação.
+
+-- ===========================================================
+-- 2026-09-19 — Tela "Agenda por Centro de Treinamento"
+-- ===========================================================
+-- Novo módulo de permissão "agenda_centros" (somente consulta):
+--   leitura de turmas, orcamentos, empresas, tipos_treinamento,
+--   centros_treinamento e instrutores (mapa em pode_acessar_tabela).
+-- A tela é apenas de consulta; não grava nada.

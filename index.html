@@ -556,6 +556,50 @@
         </div>
       </section>
 
+      <!-- ---------- OPERAÇÃO: AGENDA POR CENTRO DE TREINAMENTO ---------- -->
+      <section id="secao-agenda-centros" class="hidden">
+        <div class="mb-5 bg-white border border-slate-200 rounded-xl p-4 flex flex-wrap items-end gap-4">
+          <div class="flex-1 min-w-[260px]">
+            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Centro de Treinamento</label>
+            <select id="acc-centro-select" class="mt-1 w-full max-w-md rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">
+              <option value="TODOS">Todos os centros de treinamento</option>
+            </select>
+          </div>
+          <div>
+            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Contar</label>
+            <select id="acc-filtro-status" class="mt-1 rounded-md border border-slate-300 px-3 py-2 text-sm">
+              <option value="">Todas as turmas com data</option>
+              <option value="Agendado">Somente agendadas</option>
+              <option value="Aguardando confirmação">Somente aguardando confirmação</option>
+              <option value="Não agendado">Somente não agendadas</option>
+            </select>
+          </div>
+          <div id="acc-resumo" class="text-xs text-slate-500 pb-2"></div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+          <div class="lg:col-span-2 bg-white border border-slate-200 rounded-xl p-4">
+            <div class="flex items-center justify-between mb-3">
+              <button id="acc-mes-anterior" class="p-1.5 rounded-md hover:bg-slate-100 text-slate-500">‹</button>
+              <p id="acc-mes-label" class="font-serif text-base text-slate-800"></p>
+              <button id="acc-mes-proximo" class="p-1.5 rounded-md hover:bg-slate-100 text-slate-500">›</button>
+            </div>
+            <div id="acc-dias-semana" class="grid grid-cols-7 gap-1.5 mb-1.5"></div>
+            <div id="acc-grade-dias" class="grid grid-cols-7 gap-1.5"></div>
+            <div class="flex flex-wrap gap-x-4 gap-y-1 mt-4 text-[11px] text-slate-500">
+              <span class="inline-flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm bg-teal-600 inline-block"></span>Tudo agendado</span>
+              <span class="inline-flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm bg-amber-500 inline-block"></span>Algo aguardando confirmação</span>
+              <span class="inline-flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm bg-slate-300 inline-block"></span>Não agendado</span>
+            </div>
+          </div>
+
+          <div class="bg-white border border-slate-200 rounded-xl p-4">
+            <h3 id="acc-detalhe-titulo" class="text-sm font-semibold text-slate-800 mb-3">Selecione um dia no calendário</h3>
+            <div id="acc-detalhe-lista" class="space-y-2 max-h-[540px] overflow-y-auto"></div>
+          </div>
+        </div>
+      </section>
+
       <!-- ---------- OPERAÇÃO: CONFIRMAÇÃO DO CENTRO DE TREINAMENTO ---------- -->
       <section id="secao-confirmacao-ct" class="hidden">
         <div class="mb-5 bg-white border border-slate-200 rounded-xl p-4 flex flex-wrap items-end gap-4">

@@ -250,6 +250,7 @@ const MODULOS = [
   { id: "turmas", label: "Turmas por Orçamento", icone: "🎓", grupo: "Operações" },
   { id: "agendamento_turmas", label: "Agendamento de Turmas", icone: "📆", grupo: "Operações" },
   { id: "confirmacao_ct", label: "Confirmação do Centro de Treinamento", icone: "✅", grupo: "Operações" },
+  { id: "agenda_centros", label: "Agenda por Centro de Treinamento", icone: "🗓️", grupo: "Operações" },
   { id: "atividades", label: "Atividades", icone: "📋", grupo: "Operações" },
   { id: "requisicoes_compra", label: "Requisições de Compra", icone: "🛒", grupo: "Operações" },
 ];
@@ -762,6 +763,9 @@ function irParaModulo(id) {
   } else if (id === "confirmacao_ct") {
     $("secao-confirmacao-ct").classList.remove("hidden");
     carregarConfirmacaoCtInit();
+  } else if (id === "agenda_centros") {
+    $("secao-agenda-centros").classList.remove("hidden");
+    carregarAgendaCentrosInit();
   }
 }
 
@@ -5075,6 +5079,10 @@ async function refreshAgendaInstrutor() {
   renderizarCalendarioInstrutor();
 }
 
+async function refreshAgendaCentros() {
+  await carregarAgendaCentros(false);
+}
+
 const AUTO_REFRESH_POR_MODULO = {
   instrutores: refreshInstrutoresAdmin,
   agendamentos: refreshAgendamentos,
@@ -5082,6 +5090,7 @@ const AUTO_REFRESH_POR_MODULO = {
   turmas: refreshTurmas,
   agendamento_turmas: refreshAgendamentoTurmas,
   confirmacao_ct: refreshConfirmacaoCt,
+  agenda_centros: refreshAgendaCentros,
 };
 
 function marcarAutoRefresh(texto) {
@@ -5116,3 +5125,167 @@ async function executarAutoRefresh() {
 setInterval(executarAutoRefresh, AUTO_REFRESH_MS);
 // Ao voltar para a aba, atualiza na hora em vez de esperar o próximo ciclo.
 document.addEventListener("visibilitychange", () => { if (!document.hidden) executarAutoRefresh(); });
+
+
+// ===========================================================
+// OPERAÇÃO: AGENDA POR CENTRO DE TREINAMENTO
+// Calendário mensal com a quantidade de turmas por dia. O usuário escolhe
+// um centro de treinamento ou "Todos os centros" (soma de todos eles).
+// ===========================================================
+let accMes = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+let accTurmasDoMes = [];
+let accDiaSelecionado = null;
+
+async function carregarAgendaCentrosInit() {
+  $("admin-descricao-pagina").textContent = "Consulte a ocupação dos centros de treinamento: cada dia mostra quantas turmas estão agendadas.";
+  const { data: centros } = await supabase.from("centros_treinamento").select("*").eq("status", "Ativo").order("nome");
+  listaCentrosAtivos = centros || [];
+  const sel = $("acc-centro-select");
+  const anterior = sel.value || "TODOS";
+  sel.innerHTML = `<option value="TODOS">Todos os centros de treinamento</option>` +
+    listaCentrosAtivos.map((c) => `<option value="${c.id}">${c.nome}</option>`).join("");
+  sel.value = listaCentrosAtivos.some((c) => c.id === anterior) ? anterior : "TODOS";
+  accMes = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+  accDiaSelecionado = null;
+  await carregarAgendaCentros();
+}
+
+function limitesDoMes(mes) {
+  const primeiro = new Date(mes.getFullYear(), mes.getMonth(), 1);
+  const ultimo = new Date(mes.getFullYear(), mes.getMonth() + 1, 0);
+  return [formatarData(primeiro), formatarData(ultimo)];
+}
+
+async function carregarAgendaCentros(forcar = true) {
+  const centroId = $("acc-centro-select").value || "TODOS";
+  const filtro = $("acc-filtro-status").value;
+  const [ini, fim] = limitesDoMes(accMes);
+
+  let q = supabase
+    .from("turmas")
+    .select("id, identificacao, data_inicio, horario, tipo_dia, status, status_agendamento, agenda_ct, agenda_instrutor1, agenda_instrutor2, centro_treinamento_id, centros_treinamento(nome), tipos_treinamento(nome), orcamentos(numero, empresas(nome)), inst1:instrutores!turmas_instrutor1_id_fkey(nome), inst2:instrutores!turmas_instrutor2_id_fkey(nome)")
+    .gte("data_inicio", ini)
+    .lte("data_inicio", fim)
+    .neq("status", "Cancelada")
+    .order("data_inicio", { ascending: true });
+  if (centroId !== "TODOS") q = q.eq("centro_treinamento_id", centroId);
+  if (filtro) q = q.eq("status_agendamento", filtro);
+
+  const { data, error } = await q;
+  if (error) {
+    $("acc-resumo").textContent = `Não foi possível carregar a agenda: ${error.message}`;
+    return;
+  }
+  if (!forcar && !dadosMudaram(`agendaCentros:${centroId}:${filtro}:${ini}`, data)) return;
+  if (forcar) dadosMudaram(`agendaCentros:${centroId}:${filtro}:${ini}`, data);
+
+  accTurmasDoMes = (data || []).sort(compararIdentificacaoTurma);
+  renderizarAgendaCentros();
+}
+
+// Agrupa as turmas do mês por data (chave "AAAA-MM-DD").
+function agruparTurmasPorDia() {
+  const mapa = new Map();
+  accTurmasDoMes.forEach((t) => {
+    if (!t.data_inicio) return;
+    if (!mapa.has(t.data_inicio)) mapa.set(t.data_inicio, []);
+    mapa.get(t.data_inicio).push(t);
+  });
+  return mapa;
+}
+
+function renderizarAgendaCentros() {
+  const porDia = agruparTurmasPorDia();
+  $("acc-mes-label").textContent = `${nomesMeses[accMes.getMonth()]} ${accMes.getFullYear()}`;
+  $("acc-dias-semana").innerHTML = diasSemana
+    .map((d) => `<div class="text-center text-[11px] font-medium text-slate-400 py-1">${d}</div>`).join("");
+
+  const grade = gerarGradeMes(accMes.getFullYear(), accMes.getMonth());
+  const elGrade = $("acc-grade-dias");
+  elGrade.innerHTML = "";
+  const hoje = formatarData(new Date());
+
+  grade.forEach((dia) => {
+    if (!dia) { elGrade.innerHTML += `<div></div>`; return; }
+    const dataStr = formatarData(dia);
+    const turmas = porDia.get(dataStr) || [];
+    const total = turmas.length;
+    const aguardando = turmas.filter((t) => t.status_agendamento === "Aguardando confirmação").length;
+    const agendadas = turmas.filter((t) => t.status_agendamento === "Agendado").length;
+
+    let cor = "bg-white border-slate-200 text-slate-400";
+    if (total > 0) {
+      if (aguardando > 0) cor = "bg-amber-50 border-amber-300 text-amber-900";
+      else if (agendadas === total) cor = "bg-teal-50 border-teal-300 text-teal-900";
+      else cor = "bg-slate-50 border-slate-300 text-slate-700";
+    }
+    const selecionado = accDiaSelecionado === dataStr ? "ring-2 ring-amber-500" : "";
+    const marcaHoje = dataStr === hoje ? "font-bold underline" : "";
+
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = `min-h-[74px] w-full rounded-lg border p-1.5 text-left transition-colors hover:border-amber-400 ${cor} ${selecionado}`;
+    btn.title = total === 0 ? "Sem turmas" : `${total} turma(s) · ${agendadas} agendada(s) · ${aguardando} aguardando confirmação`;
+    btn.innerHTML = `
+      <div class="text-[11px] ${marcaHoje}">${dia.getDate()}</div>
+      ${total > 0 ? `<div class="mt-1 text-lg leading-none font-semibold">${total}</div>
+        <div class="text-[10px] leading-tight mt-0.5">turma${total > 1 ? "s" : ""}</div>
+        ${aguardando > 0 ? `<div class="text-[10px] leading-tight">${aguardando} aguard.</div>` : ""}` : ""}
+    `;
+    btn.addEventListener("click", () => {
+      accDiaSelecionado = accDiaSelecionado === dataStr ? null : dataStr;
+      renderizarAgendaCentros();
+    });
+    elGrade.appendChild(btn);
+  });
+
+  const totalMes = accTurmasDoMes.length;
+  const aguardMes = accTurmasDoMes.filter((t) => t.status_agendamento === "Aguardando confirmação").length;
+  const agendMes = accTurmasDoMes.filter((t) => t.status_agendamento === "Agendado").length;
+  const centroTexto = $("acc-centro-select").value === "TODOS"
+    ? `${listaCentrosAtivos.length} centro(s)` : $("acc-centro-select").selectedOptions[0].textContent;
+  $("acc-resumo").textContent = `${centroTexto} · ${totalMes} turma(s) no mês · ${agendMes} agendada(s) · ${aguardMes} aguardando confirmação`;
+
+  renderizarDetalheDiaAgendaCentros(porDia);
+}
+
+function renderizarDetalheDiaAgendaCentros(porDia) {
+  const titulo = $("acc-detalhe-titulo");
+  const lista = $("acc-detalhe-lista");
+  if (!accDiaSelecionado) {
+    titulo.textContent = "Selecione um dia no calendário";
+    lista.innerHTML = `<p class="text-xs text-slate-400">Clique em um dia para ver as turmas daquele dia.</p>`;
+    return;
+  }
+  const turmas = porDia.get(accDiaSelecionado) || [];
+  titulo.textContent = `${formatarDataBr(accDiaSelecionado)} — ${turmas.length} turma(s)`;
+  if (turmas.length === 0) {
+    lista.innerHTML = `<p class="text-xs text-slate-400">Nenhuma turma neste dia.</p>`;
+    return;
+  }
+  lista.innerHTML = turmas.map((t) => `
+    <div class="border border-slate-200 rounded-lg p-2.5">
+      <div class="flex items-start justify-between gap-2">
+        <span class="font-mono text-xs text-slate-700">${t.identificacao || "—"}</span>
+        ${badgeStatusAgendamento(t.status_agendamento)}
+      </div>
+      <div class="text-sm text-slate-800 mt-1">${t.tipos_treinamento?.nome || "—"}</div>
+      <div class="text-xs text-slate-500">${t.orcamentos?.empresas?.nome || "—"} · orç. ${t.orcamentos?.numero || "—"}</div>
+      <div class="text-[11px] text-slate-500 mt-1">🏫 ${t.centros_treinamento?.nome || "—"}${t.horario ? ` · ${t.horario}` : ""}${t.tipo_dia ? ` · ${t.tipo_dia}` : ""}</div>
+      <div class="text-[11px] text-slate-500">👤 ${[t.inst1?.nome, t.inst2?.nome].filter(Boolean).join(" e ") || "sem instrutor"}</div>
+    </div>
+  `).join("");
+}
+
+$("acc-centro-select").addEventListener("change", () => carregarAgendaCentros());
+$("acc-filtro-status").addEventListener("change", () => carregarAgendaCentros());
+$("acc-mes-anterior").addEventListener("click", () => {
+  accMes = new Date(accMes.getFullYear(), accMes.getMonth() - 1, 1);
+  accDiaSelecionado = null;
+  carregarAgendaCentros();
+});
+$("acc-mes-proximo").addEventListener("click", () => {
+  accMes = new Date(accMes.getFullYear(), accMes.getMonth() + 1, 1);
+  accDiaSelecionado = null;
+  carregarAgendaCentros();
+});
