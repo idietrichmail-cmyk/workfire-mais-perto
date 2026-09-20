@@ -1022,3 +1022,17 @@ alter table turmas
 alter table orcamentos add column if not exists observacao_ct text;
 -- Preenchida no cadastro do orçamento e exibida em cada turma do orçamento
 -- na tela Agenda por Centro de Treinamento (detalhe do dia).
+
+-- ===========================================================
+-- 2026-09-20 — Convite por e-mail ao cadastrar usuário do sistema
+-- ===========================================================
+alter table usuarios_sistema add column if not exists convite_enviado_em timestamptz;
+-- Edge Function "convidar-usuario": valida que quem chama é administrador
+-- ativo, monta a mensagem de boas-vindas com o link do app e envia pelo
+-- provedor de e-mail (Resend). Registra convite_enviado_em.
+-- Variáveis de ambiente (Supabase > Edge Functions > Secrets):
+--   RESEND_API_KEY   obrigatória para o envio automático
+--   EMAIL_REMETENTE  opcional, ex: "Work Fire <nao-responda@seudominio.com.br>"
+--   APP_URL          opcional, padrão https://workfire-mais-perto.netlify.app
+-- Sem RESEND_API_KEY a função devolve a mensagem pronta e o app a copia para
+-- a área de transferência, para envio manual.

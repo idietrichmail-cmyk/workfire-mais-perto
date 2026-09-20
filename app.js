@@ -268,6 +268,40 @@ function modulosDaArea() {
   return MODULOS.filter((m) => (areaAtiva === "Geral" || m.grupo === areaAtiva) && podeFazer(m.id, "consultar"));
 }
 
+// Envia o e-mail de boas-vindas com o link do app para o usuário cadastrar a
+// senha. Se não houver provedor de e-mail configurado, devolve a mensagem
+// pronta para o administrador enviar manualmente.
+async function enviarConviteUsuario(usuarioId, silenciosoSeOk = false) {
+  try {
+    const resp = await fetch(`${SUPABASE_URL}/functions/v1/convidar-usuario`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${sessaoAtual?.access_token || SUPABASE_ANON_KEY}`,
+      },
+      body: JSON.stringify({ usuario_id: usuarioId }),
+    });
+    const r = await resp.json().catch(() => ({}));
+
+    if (r.ok) {
+      if (!silenciosoSeOk) alert(`Convite enviado para ${r.email}.`);
+      return true;
+    }
+    if (r.sem_provedor) {
+      const texto = `Para: ${r.email}\nAssunto: ${r.assunto}\n\n${r.mensagem}`;
+      try { await navigator.clipboard.writeText(texto); } catch (e) { /* sem permissão de área de transferência */ }
+      alert("O envio automático de e-mail ainda não está configurado.\n\nA mensagem de convite foi copiada para a área de transferência — cole no seu e-mail e envie para o usuário:\n\n" + texto);
+      return false;
+    }
+    alert("Não foi possível enviar o convite. " + (r.error || ""));
+    return false;
+  } catch (e) {
+    alert("Não foi possível enviar o convite: falha de conexão.");
+    return false;
+  }
+}
+
 function podeFazer(modulo, acao) {
   if (usuarioSistemaAtual && usuarioSistemaAtual.role === "admin") return true;
   const p = permissoesAtual[modulo];
@@ -1576,6 +1610,10 @@ const CRUD_CONFIG = {
     },
   },
   usuarios_sistema: {
+    aoSalvar: async (linha, { novo }) => {
+      // Usuário recém-cadastrado recebe o convite de acesso automaticamente.
+      if (novo) await enviarConviteUsuario(linha.id, true);
+    },
     tabela: "usuarios_sistema",
     titulo: "Usuário do Sistema",
     permissoes: true,
@@ -1595,7 +1633,8 @@ const CRUD_CONFIG = {
       i.email,
       i.telefone && `📞 ${i.telefone}`,
       i.role === "admin" ? "👑 Administrador" : "Usuário",
-      i.user_id ? "✅ Já criou senha no app" : "⏳ Aguardando primeiro acesso",
+      i.user_id ? "✅ Já criou senha no app"
+        : (i.convite_enviado_em ? `✉️ Convite enviado em ${new Date(i.convite_enviado_em).toLocaleDateString("pt-BR")}` : "⏳ Aguardando primeiro acesso"),
       i.reset_senha_liberado_em ? "🔓 Redefinição de senha liberada"
         : (i.reset_senha_solicitado_em ? "🔑 Redefinição de senha SOLICITADA" : null),
     ].filter(Boolean),
@@ -1604,7 +1643,17 @@ const CRUD_CONFIG = {
       const fmt = (s) => (s ? new Date(s).toLocaleString("pt-BR") : null);
       const sol = fmt(item.reset_senha_solicitado_em);
       const lib = fmt(item.reset_senha_liberado_em);
+      const conv = fmt(item.convite_enviado_em);
       return `
+        <div class="border-t border-slate-100 pt-3">
+          <p class="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">Convite de acesso</p>
+          <p class="text-[11px] ${item.user_id ? "text-teal-700" : conv ? "text-slate-500" : "text-slate-400"}">
+            ${item.user_id ? "✅ O usuário já cadastrou a senha." : conv ? `✉️ Convite enviado em ${conv}.` : "Nenhum convite enviado ainda."}
+          </p>
+          <div class="mt-2">
+            <button type="button" id="btn-enviar-convite" class="text-xs font-medium text-white bg-amber-600 hover:bg-amber-700 rounded-md px-3 py-1.5">${conv ? "Reenviar convite por e-mail" : "Enviar convite por e-mail"}</button>
+          </div>
+        </div>
         <div class="border-t border-slate-100 pt-3">
           <p class="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">Redefinição de senha</p>
           <p class="text-[11px] ${sol ? "text-amber-700" : "text-slate-400"}">${sol ? `🔑 Solicitada em ${sol}` : "Nenhum pedido pendente."}</p>
@@ -1626,6 +1675,15 @@ const CRUD_CONFIG = {
         bLib.disabled = false;
         if (error) return alert("Não foi possível liberar. " + (error.message || ""));
         alert("Redefinição liberada. Avise o usuário: na tela de login, \"Esqueci minha senha\" → \"O administrador já liberou\" → definir a nova senha (validade 24h).");
+        await recarregar();
+      });
+      const bConv = $("btn-enviar-convite");
+      if (bConv) bConv.addEventListener("click", async () => {
+        bConv.disabled = true;
+        bConv.textContent = "Enviando…";
+        await enviarConviteUsuario(item.id);
+        bConv.disabled = false;
+        bConv.textContent = "Reenviar convite por e-mail";
         await recarregar();
       });
       const bCanc = $("btn-cancelar-reset");
