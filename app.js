@@ -242,6 +242,7 @@ const MODULOS = [
   { id: "instrutores", label: "Instrutores", icone: "👥", grupo: "Cadastros Básicos" },
   { id: "fornecedores", label: "Fornecedores", icone: "🚚", grupo: "Cadastros Básicos" },
   { id: "centros_treinamento", label: "Centros de Treinamento", icone: "🏫", grupo: "Cadastros Básicos" },
+  { id: "categorias_treinamento", label: "Tipos de Treinamento", icone: "🗃️", grupo: "Cadastros Básicos" },
   { id: "tipos_treinamento", label: "Treinamentos", icone: "🏷️", grupo: "Cadastros Básicos" },
   { id: "tipos_atividade", label: "Tipos de Atividade", icone: "🗂️", grupo: "Cadastros Básicos" },
   { id: "tipos_material", label: "Tipos de Material", icone: "🧰", grupo: "Cadastros Básicos" },
@@ -300,6 +301,17 @@ async function enviarConviteUsuario(usuarioId, silenciosoSeOk = false) {
     alert("Não foi possível enviar o convite: falha de conexão.");
     return false;
   }
+}
+
+// Tipos de Treinamento (categorias_treinamento) e contagem de treinamentos.
+let treinoRefCategorias = [];
+let catTreinoContagem = {};
+function contagemCategoria(id) {
+  return catTreinoContagem[id] || { ativos: 0, inativos: 0 };
+}
+function rotuloCategoriaTreinamento(id) {
+  const c = treinoRefCategorias.find((x) => x.id === id);
+  return c ? `🗃️ ${c.codigo} — ${c.descricao}` : null;
 }
 
 function podeFazer(modulo, acao) {
@@ -1246,14 +1258,62 @@ const CRUD_CONFIG = {
       i.qtd_uti && `🏥 ${i.qtd_uti} UTI(s)`,
     ].filter(Boolean),
   },
+  categorias_treinamento: {
+    tabela: "categorias_treinamento",
+    titulo: "Tipo de Treinamento",
+    descricao: "Agrupa os treinamentos cadastrados. Cada treinamento é vinculado a um tipo.",
+    buscaPlaceholder: "Buscar por código ou descrição",
+    ordenarPor: "codigo",
+    carregarRefs: async () => {
+      const { data } = await supabase
+        .from("tipos_treinamento").select("id, categoria_treinamento_id, status");
+      catTreinoContagem = {};
+      (data || []).forEach((t) => {
+        if (!t.categoria_treinamento_id) return;
+        const c = (catTreinoContagem[t.categoria_treinamento_id] =
+          catTreinoContagem[t.categoria_treinamento_id] || { ativos: 0, inativos: 0 });
+        if (t.status === "Ativo") c.ativos++; else c.inativos++;
+      });
+    },
+    campos: [
+      { id: "codigo", label: "Código", obrigatorio: true },
+      { id: "descricao", label: "Descrição", obrigatorio: true },
+      { id: "status", label: "Status", tipo: "select", opcoes: ["Ativo", "Inativo"], padrao: "Ativo" },
+      {
+        id: "qtd_ativos", label: "Treinamentos ativos", display: true,
+        formato: (v, item) => String(contagemCategoria(item?.id).ativos),
+      },
+      {
+        id: "qtd_inativos", label: "Treinamentos inativos", display: true,
+        formato: (v, item) => String(contagemCategoria(item?.id).inativos),
+      },
+    ],
+    campoBusca: (i) => `${i.codigo} ${i.descricao}`,
+    cardTitulo: (i) => `${i.codigo} — ${i.descricao}`,
+    cardLinhas: (i) => {
+      const c = contagemCategoria(i.id);
+      return [`✅ ${c.ativos} treinamento(s) ativo(s)`, `🚫 ${c.inativos} treinamento(s) inativo(s)`];
+    },
+  },
   tipos_treinamento: {
     tabela: "tipos_treinamento",
     titulo: "Treinamento",
     descricao: "Treinamentos oferecidos e o consumo de dias na operação (teoria, prática ou ambos).",
     buscaPlaceholder: "Buscar por nome",
     ordenarPor: "nome",
+    carregarRefs: async () => {
+      const { data } = await supabase
+        .from("categorias_treinamento").select("id, codigo, descricao, status").order("codigo");
+      treinoRefCategorias = data || [];
+    },
     campos: [
       { id: "nome", label: "Nome do treinamento", obrigatorio: true },
+      {
+        id: "categoria_treinamento_id", label: "Tipo de treinamento", tipo: "select", obrigatorio: true,
+        opcoesFn: () => [{ value: "", label: "— Selecione —" }].concat(
+          treinoRefCategorias.filter((c) => c.status === "Ativo").map((c) => ({ value: c.id, label: `${c.codigo} — ${c.descricao}` }))
+        ),
+      },
       { id: "carga_horaria", label: "Carga horária" },
       { id: "categoria", label: "Categoria" },
       { id: "dias_teoria", label: "Dias de Teoria", tipo: "number" },
@@ -1266,6 +1326,7 @@ const CRUD_CONFIG = {
     campoBusca: (i) => `${i.nome} ${i.categoria || ""}`,
     cardTitulo: (i) => i.nome,
     cardLinhas: (i) => [
+      rotuloCategoriaTreinamento(i.categoria_treinamento_id),
       i.categoria,
       i.carga_horaria && `Carga horária: ${i.carga_horaria}`,
       i.dias_teoria && `📘 ${i.dias_teoria} dia(s) de teoria`,
@@ -2011,10 +2072,10 @@ const CRUD_CONFIG = {
   },
 };
 
-function renderCampoHtml(campo, valor) {
+function renderCampoHtml(campo, valor, item) {
   const val = valor == null ? "" : valor;
   if (campo.display) {
-    const txt = campo.formato ? campo.formato(valor) : (val === "" ? "—" : val);
+    const txt = campo.formato ? campo.formato(valor, item) : (val === "" ? "—" : val);
     return `<div>
       <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">${campo.label}</label>
       <p class="mt-1 w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">${txt}</p>
@@ -2231,7 +2292,7 @@ function abrirEdicaoCrud(id) {
   esconderErro("crud-form-erro");
   $("painel-crud-titulo").textContent = "Editar " + cfg.titulo.toLowerCase();
   $("btn-salvar-crud").textContent = "Salvar alterações";
-  $("crud-campos").innerHTML = cfg.campos.map((c) => renderCampoHtml(c, item[c.id])).join("")
+  $("crud-campos").innerHTML = cfg.campos.map((c) => renderCampoHtml(c, item[c.id], item)).join("")
     + (cfg.camposExtraHtml ? cfg.camposExtraHtml(item) : "");
   ligarBotoesAcaoCampos(cfg);
   montarBlocoPermissoes(cfg, item);

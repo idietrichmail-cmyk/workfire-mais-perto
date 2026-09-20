@@ -1036,3 +1036,15 @@ alter table usuarios_sistema add column if not exists convite_enviado_em timesta
 --   APP_URL          opcional, padrão https://workfire-mais-perto.netlify.app
 -- Sem RESEND_API_KEY a função devolve a mensagem pronta e o app a copia para
 -- a área de transferência, para envio manual.
+
+-- ===========================================================
+-- 2026-09-20 — Cadastro "Tipo de Treinamento"
+-- (migração "categorias_treinamento")
+-- ===========================================================
+-- categorias_treinamento (código único + descrição + status) agrupa os
+-- registros da tabela tipos_treinamento, que no app aparecem como
+-- "Treinamentos". O vínculo é tipos_treinamento.categoria_treinamento_id.
+-- Os contadores de treinamentos ativos/inativos por tipo são calculados na
+-- tela, a partir de tipos_treinamento.
+-- Novo módulo de permissão "categorias_treinamento"; o módulo
+-- "tipos_treinamento" ganhou leitura de categorias_treinamento.
