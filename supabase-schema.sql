@@ -1048,3 +1048,12 @@ alter table usuarios_sistema add column if not exists convite_enviado_em timesta
 -- tela, a partir de tipos_treinamento.
 -- Novo módulo de permissão "categorias_treinamento"; o módulo
 -- "tipos_treinamento" ganhou leitura de categorias_treinamento.
+
+-- ===========================================================
+-- 2026-09-20 — Aptidões do instrutor
+-- (migração "instrutor_tipos_treinamento")
+-- ===========================================================
+-- instrutor_categorias (instrutor_id + categoria_treinamento_id) registra os
+-- tipos de treinamento que cada instrutor está apto a ministrar.
+-- Leitura liberada para quem lê instrutores e para o próprio instrutor;
+-- gravação para quem pode alterar/incluir instrutores.

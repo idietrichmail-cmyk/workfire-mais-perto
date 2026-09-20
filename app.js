@@ -303,6 +303,66 @@ async function enviarConviteUsuario(usuarioId, silenciosoSeOk = false) {
   }
 }
 
+// Aptidões do instrutor: tipos de treinamento que ele pode ministrar.
+let aptidoesCategorias = [];   // opções disponíveis (categorias ativas + as já marcadas)
+let aptidoesSelecionadas = new Set();
+let aptidoesPorInstrutor = {}; // instrutor_id → [categoria_treinamento_id]
+
+async function carregarAptidoesRefs() {
+  const [{ data: cats }, { data: vinc }] = await Promise.all([
+    supabase.from("categorias_treinamento").select("id, codigo, descricao, status").order("codigo"),
+    supabase.from("instrutor_categorias").select("instrutor_id, categoria_treinamento_id"),
+  ]);
+  aptidoesCategorias = cats || [];
+  aptidoesPorInstrutor = {};
+  (vinc || []).forEach((v) => {
+    (aptidoesPorInstrutor[v.instrutor_id] = aptidoesPorInstrutor[v.instrutor_id] || []).push(v.categoria_treinamento_id);
+  });
+}
+
+function renderizarAptidoesForm() {
+  const cont = $("f-aptidoes");
+  if (!cont) return;
+  const visiveis = aptidoesCategorias.filter((c) => c.status === "Ativo" || aptidoesSelecionadas.has(c.id));
+  if (visiveis.length === 0) {
+    cont.innerHTML = `<p class="text-xs text-slate-400">Nenhum tipo de treinamento cadastrado. Cadastre em Tipos de Treinamento.</p>`;
+    $("f-aptidoes-resumo").textContent = "";
+    return;
+  }
+  cont.innerHTML = visiveis.map((c) => `
+    <label class="flex items-start gap-2 text-sm text-slate-700">
+      <input type="checkbox" data-aptidao="${c.id}" class="mt-0.5" ${aptidoesSelecionadas.has(c.id) ? "checked" : ""} />
+      <span>${c.codigo} — ${c.descricao}${c.status !== "Ativo" ? ` <span class="text-[10px] text-rose-500">(tipo inativo)</span>` : ""}</span>
+    </label>`).join("");
+  cont.querySelectorAll("[data-aptidao]").forEach((el) =>
+    el.addEventListener("change", () => {
+      const id = el.getAttribute("data-aptidao");
+      if (el.checked) aptidoesSelecionadas.add(id); else aptidoesSelecionadas.delete(id);
+      $("f-aptidoes-resumo").textContent = `${aptidoesSelecionadas.size} tipo(s) selecionado(s)`;
+    }));
+  $("f-aptidoes-resumo").textContent = `${aptidoesSelecionadas.size} tipo(s) selecionado(s)`;
+}
+
+// Grava as aptidões do instrutor (remove as desmarcadas, inclui as novas).
+async function salvarAptidoesInstrutor(instrutorId) {
+  const atuais = new Set(aptidoesPorInstrutor[instrutorId] || []);
+  const remover = [...atuais].filter((id) => !aptidoesSelecionadas.has(id));
+  const incluir = [...aptidoesSelecionadas].filter((id) => !atuais.has(id));
+  if (remover.length) {
+    await supabase.from("instrutor_categorias").delete()
+      .eq("instrutor_id", instrutorId).in("categoria_treinamento_id", remover);
+  }
+  if (incluir.length) {
+    await supabase.from("instrutor_categorias")
+      .insert(incluir.map((id) => ({ instrutor_id: instrutorId, categoria_treinamento_id: id })));
+  }
+}
+
+function rotulosAptidoes(instrutorId) {
+  const ids = aptidoesPorInstrutor[instrutorId] || [];
+  return ids.map((id) => aptidoesCategorias.find((c) => c.id === id)?.codigo).filter(Boolean);
+}
+
 // Tipos de Treinamento (categorias_treinamento) e contagem de treinamentos.
 let treinoRefCategorias = [];
 let catTreinoContagem = {};
@@ -879,6 +939,7 @@ function irParaModulo(id) {
 }
 
 async function carregarListaAdmin() {
+  await carregarAptidoesRefs();
   const { data, error } = await supabase.from("instrutores").select("*").order("nome");
   if (!error) {
     listaInstrutoresAdmin = data.filter((i) => i.role !== "admin");
@@ -926,6 +987,7 @@ function renderizarListaAdmin() {
         ${inst.carga_horaria ? `<p>Carga horária: ${inst.carga_horaria}h/mês</p>` : ""}
         <p>📌 ${c.disponivel} disponíveis · 📘 ${c.agendado} agendados${c.aguardando > 0 ? ` · ⏳ ${c.aguardando} aguardando` : ""}</p>
         <p>${inst.user_id ? "✅ Já criou senha no app" : "⏳ Aguardando primeiro acesso"}</p>
+        ${rotulosAptidoes(inst.id).length ? `<p class="text-slate-500">🗃️ Apto: ${rotulosAptidoes(inst.id).join(", ")}</p>` : ""}
         ${inst.reset_senha_liberado_em ? `<p class="text-teal-700">🔓 Redefinição de senha liberada</p>`
           : (inst.reset_senha_solicitado_em ? `<p class="text-amber-700 font-medium">🔑 Redefinição de senha SOLICITADA</p>` : "")}
       </div>
@@ -996,6 +1058,7 @@ function limparFormulario() {
   $("f-doc-upload-label").classList.remove("hidden");
   $("f-doc-input").value = "";
   mesCalendarioForm = new Date();
+  aptidoesSelecionadas = new Set();
   esconderErro("form-erro");
 }
 
@@ -1004,6 +1067,7 @@ $("btn-novo-instrutor").addEventListener("click", () => {
   limparFormulario();
   $("painel-titulo").textContent = "Novo instrutor";
   $("btn-salvar-instrutor").textContent = "Cadastrar instrutor";
+  renderizarAptidoesForm();
   renderizarCalendarioForm();
   $("painel-form").classList.remove("hidden");
 });
@@ -1029,6 +1093,9 @@ function abrirEdicao(id) {
     $("f-doc-upload-label").classList.add("hidden");
     obterUrlDocumento(docUrlAtualForm).then((url) => { if (url) $("f-doc-img").src = url; });
   }
+
+  aptidoesSelecionadas = new Set(aptidoesPorInstrutor[id] || []);
+  renderizarAptidoesForm();
 
   $("painel-titulo").textContent = "Editar instrutor";
   $("btn-salvar-instrutor").textContent = "Salvar alterações";
@@ -1146,6 +1213,8 @@ async function salvarInstrutor() {
     // documento foi removido no formulário
     await supabase.from("instrutores").update({ documento_url: null }).eq("id", linha.id);
   }
+
+  await salvarAptidoesInstrutor(linha.id);
 
   $("btn-salvar-instrutor").disabled = false;
   $("painel-form").classList.add("hidden");
@@ -5197,9 +5266,16 @@ function usuarioEditandoCampo() {
 
 // --- refreshers por módulo (silenciosos: só re-renderizam se algo mudou) ---
 async function refreshInstrutoresAdmin() {
-  const { data, error } = await supabase.from("instrutores").select("*").order("nome");
-  if (error || !dadosMudaram("instrutores", data)) return;
+  const [{ data, error }, { data: vinc }] = await Promise.all([
+    supabase.from("instrutores").select("*").order("nome"),
+    supabase.from("instrutor_categorias").select("instrutor_id, categoria_treinamento_id").order("instrutor_id"),
+  ]);
+  if (error || !dadosMudaram("instrutores", { data, vinc })) return;
   listaInstrutoresAdmin = data.filter((i) => i.role !== "admin");
+  aptidoesPorInstrutor = {};
+  (vinc || []).forEach((v) => {
+    (aptidoesPorInstrutor[v.instrutor_id] = aptidoesPorInstrutor[v.instrutor_id] || []).push(v.categoria_treinamento_id);
+  });
   renderizarListaAdmin();
 }
 
