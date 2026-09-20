@@ -1014,3 +1014,11 @@ alter table turmas
 --   leitura de turmas, orcamentos, empresas, tipos_treinamento,
 --   centros_treinamento e instrutores (mapa em pode_acessar_tabela).
 -- A tela é apenas de consulta; não grava nada.
+
+-- ===========================================================
+-- 2026-09-19 — Observação do orçamento para o Centro de Treinamento
+-- (migração "orcamentos_observacao_ct")
+-- ===========================================================
+alter table orcamentos add column if not exists observacao_ct text;
+-- Preenchida no cadastro do orçamento e exibida em cada turma do orçamento
+-- na tela Agenda por Centro de Treinamento (detalhe do dia).

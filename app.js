@@ -3137,6 +3137,7 @@ function abrirNovoOrcamento() {
   $("orc-validade").value = "";
   $("orc-status").value = "Aberto";
   $("orc-observacoes").value = "";
+  $("orc-observacao-ct").value = "";
   $("orc-turmas-bloco").classList.add("hidden");
   $("orc-turmas-tbody").innerHTML = "";
   $("painel-orcamento-titulo").textContent = "Novo orçamento";
@@ -3168,6 +3169,7 @@ async function abrirEdicaoOrcamento(id) {
   $("orc-validade").value = o.validade || "";
   $("orc-status").value = o.status;
   $("orc-observacoes").value = o.observacoes || "";
+  $("orc-observacao-ct").value = o.observacao_ct || "";
   $("painel-orcamento-titulo").textContent = "Editar orçamento";
   $("btn-salvar-orcamento").textContent = "Salvar alterações";
   $("painel-orcamento").classList.remove("hidden");
@@ -3282,6 +3284,7 @@ async function salvarOrcamento() {
     validade: $("orc-validade").value || null,
     status: $("orc-status").value,
     observacoes: $("orc-observacoes").value.trim(),
+    observacao_ct: $("orc-observacao-ct").value.trim() || null,
   };
   if (!editandoOrcamentoId) payload.numero = numero;
 
@@ -5163,7 +5166,7 @@ async function carregarAgendaCentros(forcar = true) {
 
   let q = supabase
     .from("turmas")
-    .select("id, identificacao, data_inicio, horario, tipo_dia, status, status_agendamento, agenda_ct, agenda_instrutor1, agenda_instrutor2, centro_treinamento_id, centros_treinamento(nome), tipos_treinamento(nome), orcamentos(numero, empresas(nome)), inst1:instrutores!turmas_instrutor1_id_fkey(nome), inst2:instrutores!turmas_instrutor2_id_fkey(nome)")
+    .select("id, identificacao, data_inicio, horario, tipo_dia, status, status_agendamento, agenda_ct, agenda_instrutor1, agenda_instrutor2, centro_treinamento_id, centros_treinamento(nome), tipos_treinamento(nome), orcamentos(numero, observacao_ct, empresas(nome)), inst1:instrutores!turmas_instrutor1_id_fkey(nome), inst2:instrutores!turmas_instrutor2_id_fkey(nome)")
     .gte("data_inicio", ini)
     .lte("data_inicio", fim)
     .neq("status", "Cancelada")
@@ -5225,9 +5228,11 @@ function renderizarAgendaCentros() {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = `min-h-[74px] w-full rounded-lg border p-1.5 text-left transition-colors hover:border-amber-400 ${cor} ${selecionado}`;
-    btn.title = total === 0 ? "Sem turmas" : `${total} turma(s) · ${agendadas} agendada(s) · ${aguardando} aguardando confirmação`;
+    const comObservacao = turmas.some((t) => t.orcamentos?.observacao_ct);
+    btn.title = total === 0 ? "Sem turmas"
+      : `${total} turma(s) · ${agendadas} agendada(s) · ${aguardando} aguardando confirmação${comObservacao ? " · há observação para o CT" : ""}`;
     btn.innerHTML = `
-      <div class="text-[11px] ${marcaHoje}">${dia.getDate()}</div>
+      <div class="text-[11px] ${marcaHoje} flex items-center justify-between"><span>${dia.getDate()}</span>${comObservacao ? `<span title="Há observação para o Centro de Treinamento">📌</span>` : ""}</div>
       ${total > 0 ? `<div class="mt-1 text-lg leading-none font-semibold">${total}</div>
         <div class="text-[10px] leading-tight mt-0.5">turma${total > 1 ? "s" : ""}</div>
         ${aguardando > 0 ? `<div class="text-[10px] leading-tight">${aguardando} aguard.</div>` : ""}` : ""}
@@ -5273,6 +5278,7 @@ function renderizarDetalheDiaAgendaCentros(porDia) {
       <div class="text-xs text-slate-500">${t.orcamentos?.empresas?.nome || "—"} · orç. ${t.orcamentos?.numero || "—"}</div>
       <div class="text-[11px] text-slate-500 mt-1">🏫 ${t.centros_treinamento?.nome || "—"}${t.horario ? ` · ${t.horario}` : ""}${t.tipo_dia ? ` · ${t.tipo_dia}` : ""}</div>
       <div class="text-[11px] text-slate-500">👤 ${[t.inst1?.nome, t.inst2?.nome].filter(Boolean).join(" e ") || "sem instrutor"}</div>
+      ${t.orcamentos?.observacao_ct ? `<div class="mt-2 text-[11px] text-amber-900 bg-amber-50 border border-amber-200 rounded-md px-2 py-1.5 whitespace-pre-line">📌 ${t.orcamentos.observacao_ct}</div>` : ""}
     </div>
   `).join("");
 }
