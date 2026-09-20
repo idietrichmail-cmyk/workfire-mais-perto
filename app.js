@@ -671,16 +671,30 @@ async function entrarNoPainelAdmin() {
 // Abas de área no menu inicial: Geral, Cadastros Básicos, Comercial, Logística, Operações.
 // A área escolhida também filtra o menu lateral.
 function renderizarAbasAreas() {
-  const cont = $("inicio-areas");
-  const disponiveis = AREAS.filter((a) =>
-    a === "Geral" || MODULOS.some((m) => m.grupo === a && podeFazer(m.id, "consultar")));
-  cont.innerHTML = disponiveis.map((a) => `
+  // O container pode não existir se o index.html estiver desatualizado no
+  // navegador — nesse caso ele é criado aqui, para o seletor nunca sumir.
+  let cont = $("inicio-areas");
+  if (!cont) {
+    const grade = $("inicio-grade");
+    if (!grade) return;
+    cont = document.createElement("div");
+    cont.id = "inicio-areas";
+    cont.className = "flex flex-wrap gap-2 mb-5";
+    grade.parentNode.insertBefore(cont, grade);
+  }
+  cont.innerHTML = AREAS.map((a) => {
+    const qtd = a === "Geral"
+      ? MODULOS.filter((m) => podeFazer(m.id, "consultar")).length
+      : MODULOS.filter((m) => m.grupo === a && podeFazer(m.id, "consultar")).length;
+    return `
     <button data-area="${a}" class="text-sm px-3 py-1.5 rounded-md border transition ${
       a === areaAtiva
         ? "bg-slate-900 text-white border-slate-900"
-        : "bg-white text-slate-600 border-slate-300 hover:border-amber-400"
-    }">${a}</button>
-  `).join("");
+        : qtd === 0
+          ? "bg-white text-slate-300 border-slate-200"
+          : "bg-white text-slate-600 border-slate-300 hover:border-amber-400"
+    }">${a}${qtd > 0 ? ` <span class="text-[10px] opacity-70">${qtd}</span>` : ""}</button>`;
+  }).join("");
   cont.querySelectorAll("[data-area]").forEach((btn) =>
     btn.addEventListener("click", () => {
       areaAtiva = btn.getAttribute("data-area");
@@ -732,13 +746,20 @@ function renderizarNavAdmin() {
     (grupos[m.grupo] = grupos[m.grupo] || []).push(m);
   });
 
+  const seletorArea = `
+    <select data-area-select class="mb-2 w-full rounded-md bg-slate-800 text-white text-xs px-2 py-1.5 border border-slate-700">
+      ${AREAS.map((a) => `<option value="${a}" ${a === areaAtiva ? "selected" : ""}>${a === "Geral" ? "Todas as áreas" : a}</option>`).join("")}
+    </select>`;
+
   const botaoInicio = `
     <button data-nav-inicio class="flex items-center gap-2 rounded-md px-3 py-2 text-left w-full mb-3 ${
       moduloAtivo === null ? "bg-slate-800 text-white border-l-2 border-amber-500" : "hover:bg-slate-800 hover:text-white"
     }">🏠 Geral</button>
   `;
 
-  nav.innerHTML = botaoInicio + Object.entries(grupos).map(([grupo, itens]) => `
+  nav.innerHTML = seletorArea + botaoInicio + (Object.keys(grupos).length === 0
+    ? `<p class="text-[11px] text-slate-500 px-3 py-2">Nenhum item disponível nesta área.</p>` : "")
+    + Object.entries(grupos).map(([grupo, itens]) => `
     <p class="text-[10px] uppercase tracking-wider text-slate-500 px-3 mt-4 mb-1 first:mt-0">${grupo}</p>
     ${itens.map((m) => `
       <button data-nav-modulo="${m.id}" class="flex items-center gap-2 rounded-md px-3 py-2 text-left w-full ${
@@ -747,6 +768,13 @@ function renderizarNavAdmin() {
     `).join("")}
   `).join("");
 
+  nav.querySelector("[data-area-select]").addEventListener("change", (e) => {
+    areaAtiva = e.target.value;
+    const atual = MODULOS.find((m) => m.id === moduloAtivo);
+    // Se o módulo aberto não pertence mais à área escolhida, volta ao menu.
+    if (!atual || (areaAtiva !== "Geral" && atual.grupo !== areaAtiva)) mostrarMenuInicio();
+    else renderizarNavAdmin();
+  });
   nav.querySelector("[data-nav-inicio]").addEventListener("click", mostrarMenuInicio);
   nav.querySelectorAll("[data-nav-modulo]").forEach((btn) =>
     btn.addEventListener("click", () => irParaModulo(btn.getAttribute("data-nav-modulo")))
