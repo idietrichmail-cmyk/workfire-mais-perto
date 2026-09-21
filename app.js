@@ -295,6 +295,7 @@ const MODULOS = [
   { id: "atividades", label: "Atividades", icone: "📋", grupo: "Operações" },
   { id: "requisicoes_compra", label: "Requisições de Compra", icone: "🛒", grupo: "Operações" },
   { id: "confirmacao_ct", label: "Confirmação do Centro de Treinamento", icone: "✅", grupo: "Operações" },
+  { id: "documentos_turmas", label: "Documentos de Turmas", icone: "📷", grupo: "Operações" },
 ];
 
 // Área selecionada no menu inicial. "Geral" mostra todas as áreas.
@@ -985,6 +986,9 @@ function irParaModulo(id) {
   } else if (id === "agenda_centros") {
     $("secao-agenda-centros").classList.remove("hidden");
     carregarAgendaCentrosInit();
+  } else if (id === "documentos_turmas") {
+    $("secao-documentos-turmas").classList.remove("hidden");
+    carregarDocumentosTurmasInit();
   }
 }
 
@@ -5765,5 +5769,162 @@ $("acc-mes-proximo").addEventListener("click", () => {
   carregarAgendaCentros();
 });
 
+// ===========================================================
+// Documentos de Turmas (fotos e lista de presença enviadas pelo
+// app agenda-instrutores — tabela turma_midias / bucket turma-midias)
+// Tela SOMENTE LEITURA: o upload continua sendo feito pelo instrutor,
+// no app agenda-instrutores. Aqui apenas consultamos e visualizamos.
+// ===========================================================
+let dtTurmasLista = [];
+
+async function carregarDocumentosTurmasInit() {
+  $("admin-descricao-pagina").textContent = "Consulte as fotos da turma e da lista de presença enviadas pelos instrutores.";
+  const { data: centros } = await supabase.from("centros_treinamento").select("*").eq("status", "Ativo").order("nome");
+  listaCentrosAtivos = centros || [];
+  const sel = $("dt-centro-select");
+  const anterior = sel.value || "";
+  sel.innerHTML = `<option value="">— Selecione —</option>` +
+    listaCentrosAtivos.map((c) => `<option value="${c.id}">${c.nome}</option>`).join("");
+  sel.value = listaCentrosAtivos.some((c) => c.id === anterior) ? anterior : "";
+  await carregarDocumentosTurmas();
+}
+
+async function carregarDocumentosTurmas() {
+  const centroId = $("dt-centro-select").value;
+  const dataDe = $("dt-filtro-data-de").value;
+  const dataAte = $("dt-filtro-data-ate").value;
+
+  if (!centroId) {
+    dtTurmasLista = [];
+    $("dt-conteudo").classList.add("hidden");
+    $("dt-vazio").classList.remove("hidden");
+    $("dt-vazio").textContent = "Selecione o centro de treinamento e o período para ver as turmas.";
+    return;
+  }
+
+  let q = supabase
+    .from("turmas")
+    .select("*, tipos_treinamento(nome), instrutor1:instrutores!instrutor1_id(nome), instrutor2:instrutores!instrutor2_id(nome)")
+    .eq("centro_treinamento_id", centroId)
+    .neq("status", "Cancelada")
+    .order("identificacao", { ascending: true });
+  if (dataDe) q = q.gte("data_inicio", dataDe);
+  if (dataAte) q = q.lte("data_inicio", dataAte);
+
+  const { data, error } = await q;
+  if (error) {
+    $("dt-conteudo").classList.add("hidden");
+    $("dt-vazio").classList.remove("hidden");
+    $("dt-vazio").textContent = `Não foi possível carregar as turmas: ${error.message}`;
+    return;
+  }
+
+  const lista = (data || []).sort(compararIdentificacaoTurma);
+  const ids = lista.map((t) => t.id);
+
+  let alunos = [];
+  let midias = [];
+  if (ids.length) {
+    const [{ data: da }, { data: dm }] = await Promise.all([
+      supabase.from("turma_alunos").select("turma_id").in("turma_id", ids),
+      supabase.from("turma_midias").select("turma_id, tipo").in("turma_id", ids),
+    ]);
+    alunos = da || [];
+    midias = dm || [];
+  }
+
+  dtTurmasLista = lista.map((t) => ({
+    ...t,
+    qtdAlunos: alunos.filter((a) => a.turma_id === t.id).length,
+    qtdFotosTurma: midias.filter((m) => m.turma_id === t.id && m.tipo === "foto_turma").length,
+    qtdFotosPresenca: midias.filter((m) => m.turma_id === t.id && m.tipo === "foto_presenca").length,
+  }));
+
+  $("dt-vazio").classList.toggle("hidden", dtTurmasLista.length > 0);
+  if (dtTurmasLista.length === 0) $("dt-vazio").textContent = "Nenhuma turma encontrada para este centro e período.";
+  $("dt-conteudo").classList.toggle("hidden", dtTurmasLista.length === 0);
+  renderizarDocumentosTurmas();
+}
+
+function renderizarDocumentosTurmas() {
+  const cont = $("dt-lista");
+  cont.innerHTML = dtTurmasLista.map((t) => `
+    <tr class="hover:bg-slate-50">
+      <td class="px-3 py-2 font-mono text-slate-700">${t.identificacao || "—"}</td>
+      <td class="px-3 py-2 text-slate-500">${t.data_inicio || "—"}${t.data_fim && t.data_fim !== t.data_inicio ? ` a ${t.data_fim}` : ""}</td>
+      <td class="px-3 py-2 text-slate-700">${t.instrutor1?.nome || "—"}</td>
+      <td class="px-3 py-2 text-slate-700">${t.instrutor2?.nome || "—"}</td>
+      <td class="px-3 py-2">
+        <button data-dt-alunos="${t.id}" class="text-xs font-medium text-slate-600 hover:text-slate-900 underline">${t.qtdAlunos} 👥</button>
+      </td>
+      <td class="px-3 py-2">
+        <button data-dt-fotos="${t.id}" class="text-xs font-medium ${t.qtdFotosTurma ? "text-teal-700 hover:text-teal-900" : "text-slate-400 hover:text-slate-600"} underline">${t.qtdFotosTurma} 📷</button>
+      </td>
+      <td class="px-3 py-2">
+        <button data-dt-fotos="${t.id}" class="text-xs font-medium ${t.qtdFotosPresenca ? "text-teal-700 hover:text-teal-900" : "text-slate-400 hover:text-slate-600"} underline">${t.qtdFotosPresenca} 📝</button>
+      </td>
+    </tr>
+  `).join("");
+  cont.querySelectorAll("[data-dt-alunos]").forEach((btn) => btn.addEventListener("click", () => abrirPainelAlunosTurma(btn.getAttribute("data-dt-alunos"))));
+  cont.querySelectorAll("[data-dt-fotos]").forEach((btn) => btn.addEventListener("click", () => abrirPainelDocumentosTurma(btn.getAttribute("data-dt-fotos"))));
+}
+
+async function urlArquivoTurmaMidia(path) {
+  if (!path) return null;
+  const { data, error } = await supabase.storage.from("turma-midias").createSignedUrl(path, 60 * 60);
+  return error ? null : data.signedUrl;
+}
+
+async function abrirPainelDocumentosTurma(turmaId) {
+  const t = dtTurmasLista.find((x) => x.id === turmaId);
+  $("painel-documentos-turma-titulo").textContent = `Documentos — Turma ${t?.identificacao || ""}`;
+  $("painel-documentos-turma-info").textContent = [t?.data_inicio, [t?.instrutor1?.nome, t?.instrutor2?.nome].filter(Boolean).join(" e ")].filter(Boolean).join(" · ");
+  $("dt-painel-fotos-turma-grade").innerHTML = `<p class="col-span-full text-xs text-slate-400">Carregando…</p>`;
+  $("dt-painel-fotos-presenca-grade").innerHTML = "";
+  $("dt-painel-fotos-turma-contagem").textContent = "";
+  $("dt-painel-fotos-presenca-contagem").textContent = "";
+  $("painel-documentos-turma").classList.remove("hidden");
+
+  const { data, error } = await supabase
+    .from("turma_midias")
+    .select("*")
+    .eq("turma_id", turmaId)
+    .order("criado_em", { ascending: true });
+
+  if (error) {
+    $("dt-painel-fotos-turma-grade").innerHTML = `<p class="col-span-full text-xs text-rose-500">Não foi possível carregar as fotos: ${error.message}</p>`;
+    return;
+  }
+
+  const fotosTurma = (data || []).filter((m) => m.tipo === "foto_turma");
+  const fotosPresenca = (data || []).filter((m) => m.tipo === "foto_presenca");
+  $("dt-painel-fotos-turma-contagem").textContent = `(${fotosTurma.length})`;
+  $("dt-painel-fotos-presenca-contagem").textContent = `(${fotosPresenca.length})`;
+
+  await renderizarGradeMidiasTurma("dt-painel-fotos-turma-grade", fotosTurma, "Nenhuma foto da turma enviada.");
+  await renderizarGradeMidiasTurma("dt-painel-fotos-presenca-grade", fotosPresenca, "Nenhuma foto da lista de presença enviada.");
+}
+
+async function renderizarGradeMidiasTurma(elId, midias, textoVazio) {
+  const el = $(elId);
+  if (midias.length === 0) {
+    el.innerHTML = `<p class="col-span-full text-xs text-slate-400">${textoVazio}</p>`;
+    return;
+  }
+  const urls = await Promise.all(midias.map((m) => urlArquivoTurmaMidia(m.caminho_arquivo)));
+  el.innerHTML = midias.map((m, i) => urls[i] ? `
+    <a href="${urls[i]}" target="_blank" rel="noopener" class="block aspect-square rounded-md overflow-hidden border border-slate-200 bg-slate-50 hover:opacity-80">
+      <img src="${urls[i]}" loading="lazy" class="w-full h-full object-cover" />
+    </a>
+  ` : `
+    <div class="aspect-square rounded-md border border-slate-200 bg-slate-50 flex items-center justify-center text-[10px] text-slate-400">indisponível</div>
+  `).join("");
+}
+
+$("dt-centro-select").addEventListener("change", () => carregarDocumentosTurmas());
+$("dt-filtro-data-de").addEventListener("change", () => carregarDocumentosTurmas());
+$("dt-filtro-data-ate").addEventListener("change", () => carregarDocumentosTurmas());
+$("btn-fechar-painel-documentos-turma").addEventListener("click", () => $("painel-documentos-turma").classList.add("hidden"));
+$("painel-documentos-turma-overlay").addEventListener("click", () => $("painel-documentos-turma").classList.add("hidden"));
 
 })();
