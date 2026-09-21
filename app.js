@@ -5776,40 +5776,44 @@ $("acc-mes-proximo").addEventListener("click", () => {
 // no app agenda-instrutores. Aqui apenas consultamos e visualizamos.
 // ===========================================================
 let dtTurmasLista = [];
+let dtEmpresasLista = [];
 
 async function carregarDocumentosTurmasInit() {
   $("admin-descricao-pagina").textContent = "Consulte as fotos da turma e da lista de presença enviadas pelos instrutores.";
-  const { data: centros } = await supabase.from("centros_treinamento").select("*").eq("status", "Ativo").order("nome");
-  listaCentrosAtivos = centros || [];
-  const sel = $("dt-centro-select");
+  const { data: empresas } = await supabase.from("empresas").select("id, nome, cnpj, cnpj_grupo_economico").eq("status", "Ativo").order("nome");
+  dtEmpresasLista = empresas || [];
+  const sel = $("dt-empresa-select");
   const anterior = sel.value || "";
-  sel.innerHTML = `<option value="">— Selecione —</option>` +
-    listaCentrosAtivos.map((c) => `<option value="${c.id}">${c.nome}</option>`).join("");
-  sel.value = listaCentrosAtivos.some((c) => c.id === anterior) ? anterior : "";
+  sel.innerHTML = `<option value="">Todas as empresas</option>` +
+    dtEmpresasLista.map((e) => `<option value="${e.id}">${e.nome}</option>`).join("");
+  sel.value = dtEmpresasLista.some((e) => e.id === anterior) ? anterior : "";
+  $("dt-grupo-economico-bloco").classList.toggle("hidden", !sel.value);
   await carregarDocumentosTurmas();
 }
 
 async function carregarDocumentosTurmas() {
-  const centroId = $("dt-centro-select").value;
+  const empresaId = $("dt-empresa-select").value;
+  const grupoEconomico = $("dt-grupo-economico").checked;
   const dataDe = $("dt-filtro-data-de").value;
   const dataAte = $("dt-filtro-data-ate").value;
 
-  if (!centroId) {
-    dtTurmasLista = [];
-    $("dt-conteudo").classList.add("hidden");
-    $("dt-vazio").classList.remove("hidden");
-    $("dt-vazio").textContent = "Selecione o centro de treinamento e o período para ver as turmas.";
-    return;
-  }
-
   let q = supabase
     .from("turmas")
-    .select("*, tipos_treinamento(nome), instrutor1:instrutores!instrutor1_id(nome), instrutor2:instrutores!instrutor2_id(nome)")
-    .eq("centro_treinamento_id", centroId)
+    .select("*, tipos_treinamento(nome), instrutor1:instrutores!instrutor1_id(nome), instrutor2:instrutores!instrutor2_id(nome), orcamentos!inner(numero, empresa_id, empresas(nome))")
     .neq("status", "Cancelada")
     .order("identificacao", { ascending: true });
   if (dataDe) q = q.gte("data_inicio", dataDe);
   if (dataAte) q = q.lte("data_inicio", dataAte);
+  if (empresaId) {
+    if (grupoEconomico) {
+      const empresaSel = dtEmpresasLista.find((e) => e.id === empresaId);
+      const alvo = grupoDeEmpresa(empresaSel || {});
+      const ids = alvo ? dtEmpresasLista.filter((e) => grupoDeEmpresa(e) === alvo).map((e) => e.id) : [empresaId];
+      q = q.in("orcamentos.empresa_id", ids);
+    } else {
+      q = q.eq("orcamentos.empresa_id", empresaId);
+    }
+  }
 
   const { data, error } = await q;
   if (error) {
@@ -5841,7 +5845,7 @@ async function carregarDocumentosTurmas() {
   }));
 
   $("dt-vazio").classList.toggle("hidden", dtTurmasLista.length > 0);
-  if (dtTurmasLista.length === 0) $("dt-vazio").textContent = "Nenhuma turma encontrada para este centro e período.";
+  if (dtTurmasLista.length === 0) $("dt-vazio").textContent = "Nenhuma turma encontrada para esta seleção.";
   $("dt-conteudo").classList.toggle("hidden", dtTurmasLista.length === 0);
   renderizarDocumentosTurmas();
 }
@@ -5851,6 +5855,8 @@ function renderizarDocumentosTurmas() {
   cont.innerHTML = dtTurmasLista.map((t) => `
     <tr class="hover:bg-slate-50">
       <td class="px-3 py-2 font-mono text-slate-700">${t.identificacao || "—"}</td>
+      <td class="px-3 py-2 text-slate-500">${t.orcamentos?.numero || "—"}</td>
+      <td class="px-3 py-2 text-slate-700">${t.orcamentos?.empresas?.nome || "—"}</td>
       <td class="px-3 py-2 text-slate-500">${t.data_inicio || "—"}${t.data_fim && t.data_fim !== t.data_inicio ? ` a ${t.data_fim}` : ""}</td>
       <td class="px-3 py-2 text-slate-700">${t.instrutor1?.nome || "—"}</td>
       <td class="px-3 py-2 text-slate-700">${t.instrutor2?.nome || "—"}</td>
@@ -5921,7 +5927,12 @@ async function renderizarGradeMidiasTurma(elId, midias, textoVazio) {
   `).join("");
 }
 
-$("dt-centro-select").addEventListener("change", () => carregarDocumentosTurmas());
+$("dt-empresa-select").addEventListener("change", () => {
+  $("dt-grupo-economico-bloco").classList.toggle("hidden", !$("dt-empresa-select").value);
+  if (!$("dt-empresa-select").value) $("dt-grupo-economico").checked = false;
+  carregarDocumentosTurmas();
+});
+$("dt-grupo-economico").addEventListener("change", () => carregarDocumentosTurmas());
 $("dt-filtro-data-de").addEventListener("change", () => carregarDocumentosTurmas());
 $("dt-filtro-data-ate").addEventListener("change", () => carregarDocumentosTurmas());
 $("btn-fechar-painel-documentos-turma").addEventListener("click", () => $("painel-documentos-turma").classList.add("hidden"));

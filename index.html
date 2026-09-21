@@ -618,10 +618,16 @@
       <section id="secao-documentos-turmas" class="hidden">
         <div class="mb-5 bg-white border border-slate-200 rounded-xl p-4 flex flex-wrap items-end gap-4">
           <div class="flex-1 min-w-[260px]">
-            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Centro de Treinamento</label>
-            <select id="dt-centro-select" class="mt-1 w-full max-w-md rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">
-              <option value="">— Selecione —</option>
+            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Empresa</label>
+            <select id="dt-empresa-select" class="mt-1 w-full max-w-md rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">
+              <option value="">Todas as empresas</option>
             </select>
+          </div>
+          <div id="dt-grupo-economico-bloco" class="hidden pb-2">
+            <label class="inline-flex items-center gap-2 text-xs text-slate-600">
+              <input id="dt-grupo-economico" type="checkbox" class="rounded border-slate-300" />
+              Incluir empresas do mesmo grupo econômico
+            </label>
           </div>
           <div>
             <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Período — de</label>
@@ -634,7 +640,7 @@
         </div>
 
         <div id="dt-vazio" class="text-sm text-slate-400 bg-white border border-slate-200 rounded-xl p-6 text-center">
-          Selecione o centro de treinamento e o período para ver as turmas.
+          Nenhuma turma encontrada.
         </div>
 
         <div id="dt-conteudo" class="hidden bg-white border border-slate-200 rounded-lg overflow-x-auto">
@@ -642,6 +648,8 @@
             <thead>
               <tr class="bg-slate-50 text-slate-500 text-left text-xs">
                 <th class="px-3 py-2 font-medium">Turma</th>
+                <th class="px-3 py-2 font-medium">Orçamento</th>
+                <th class="px-3 py-2 font-medium">Empresa</th>
                 <th class="px-3 py-2 font-medium">Data</th>
                 <th class="px-3 py-2 font-medium">Instrutor 1</th>
                 <th class="px-3 py-2 font-medium">Instrutor 2</th>
