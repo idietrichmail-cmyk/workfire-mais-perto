@@ -36,12 +36,13 @@ function gerarGradeMes(ano, mes) {
 // Status possíveis de cada dia da agenda
 // ---------------------------------------------------------
 const STATUS_PADRAO = "bloqueado"; // dia sem registro ainda = tratado como bloqueado
-const STATUS_PROTEGIDOS = ["agendado", "aguardando"]; // não alteráveis por clique ou pelos botões de mês
+const STATUS_PROTEGIDOS = ["agendado", "pre_agendado", "aguardando"]; // não alteráveis por clique ou pelos botões de mês
 
 const ESTILO_STATUS = {
   disponivel: "bg-teal-600 text-white",
   bloqueado: "bg-slate-200 text-slate-500",
   agendado: "bg-blue-600 text-white",
+  pre_agendado: "bg-sky-200 text-sky-900",
   aguardando: "bg-amber-400 text-white",
 };
 
@@ -73,6 +74,7 @@ function renderizarGradeCalendario({ mes, diasStatus, elLabel, elSemana, elGrade
     btn.textContent = dia.getDate();
     btn.title =
       status === "agendado" ? "Agendado — não pode ser alterado aqui"
+      : status === "pre_agendado" ? "Pré-agendado — não pode ser alterado aqui"
       : status === "aguardando" ? "Aguardando confirmação — não pode ser alterado aqui"
       : "";
     btn.className = `aspect-square rounded-md text-xs font-medium transition-colors ${ESTILO_STATUS[status]} ${
@@ -99,7 +101,7 @@ function aplicarStatusNoMes(diasStatusAtual, mes, novoStatus) {
 }
 
 function contarStatus(diasStatus) {
-  const contagem = { disponivel: 0, bloqueado: 0, agendado: 0, aguardando: 0 };
+  const contagem = { disponivel: 0, bloqueado: 0, agendado: 0, pre_agendado: 0, aguardando: 0 };
   Object.values(diasStatus || {}).forEach((s) => {
     if (contagem[s] !== undefined) contagem[s]++;
   });
@@ -709,7 +711,8 @@ function renderizarCalendarioInstrutor() {
   });
 
   const contagem = contarStatus(perfilAtual.dias_status);
-  $("inst-contagem-dias").textContent = `${contagem.disponivel} dia(s) disponíveis · ${contagem.agendado} agendado(s)`;
+  $("inst-contagem-dias").textContent = `${contagem.disponivel} dia(s) disponíveis · ${contagem.agendado} agendado(s)` +
+    (contagem.pre_agendado > 0 ? ` · ${contagem.pre_agendado} pré-agendado(s)` : "");
 
   if (contagem.aguardando > 0) {
     $("inst-alerta-aguardando").classList.remove("hidden");
@@ -1136,7 +1139,9 @@ function renderizarCalendarioForm() {
     },
   });
   const contagem = contarStatus(diasStatusForm);
-  $("f-dias-contagem").textContent = `${contagem.disponivel} disponíveis · ${contagem.agendado} agendados · ${contagem.aguardando} aguardando`;
+  $("f-dias-contagem").textContent = `${contagem.disponivel} disponíveis · ${contagem.agendado} agendados` +
+    (contagem.pre_agendado > 0 ? ` · ${contagem.pre_agendado} pré-agendados` : "") +
+    ` · ${contagem.aguardando} aguardando`;
 }
 
 $("f-bloquear-mes").addEventListener("click", () => {
@@ -4297,6 +4302,7 @@ const AGEND_STATUS_COR = {
   "Não agendado": "bg-slate-100 text-slate-600",
   "Aguardando confirmação": "bg-amber-50 text-amber-700",
   Agendado: "bg-teal-50 text-teal-700",
+  "Pré-agendado": "bg-sky-50 text-sky-700",
 };
 const AGENDA_ITEM_COR = {
   "A agendar": "text-slate-400",
@@ -4304,8 +4310,12 @@ const AGENDA_ITEM_COR = {
   Agendado: "text-teal-700",
   "Não aplicável": "text-slate-300",
 };
-function badgeStatusAgendamento(st) {
-  const v = st || "Não agendado";
+// `preAgendamento` só tem efeito quando o status consolidado é "Agendado":
+// mostra "Pré-agendado" (azul clarinho) em vez de "Agendado" (teal). Os
+// demais status (Não agendado / Aguardando confirmação) não são afetados.
+function badgeStatusAgendamento(st, preAgendamento) {
+  let v = st || "Não agendado";
+  if (v === "Agendado" && preAgendamento) v = "Pré-agendado";
   return `<span class="text-[11px] font-medium px-2 py-0.5 rounded-full whitespace-nowrap ${AGEND_STATUS_COR[v] || ""}">${v}</span>`;
 }
 function textoAgendaItem(v) {
@@ -4411,7 +4421,7 @@ function celulaInstrutorSomenteLeitura(t, campo) {
 function renderizarListaAgendTurmas() {
   const cont = $("agend-turma-lista");
   if (agendTurmasLista.length === 0) {
-    cont.innerHTML = `<tr><td colspan="9" class="text-center text-slate-500 text-sm py-16">Nenhuma turma cadastrada para este orçamento.</td></tr>`;
+    cont.innerHTML = `<tr><td colspan="10" class="text-center text-slate-500 text-sm py-16">Nenhuma turma cadastrada para este orçamento.</td></tr>`;
     return;
   }
   const corStatus = {
@@ -4431,7 +4441,12 @@ function renderizarListaAgendTurmas() {
         <input type="date" data-agend-turma-data="${t.id}" value="${t.data_inicio || ""}" class="w-full min-w-[140px] text-xs rounded-md border border-slate-300 px-2 py-1.5" />
       </td>
       <td class="px-3 py-2"><span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${corStatus[t.status] || ""}">${t.status}</span></td>
-      <td class="px-3 py-2">${badgeStatusAgendamento(t.status_agendamento)}${turmaComDesmarcacaoPendente(t) ? `<div class="mt-0.5 text-[11px] text-rose-700 font-medium">desmarcação solicitada</div>` : ""}</td>
+      <td class="px-3 py-2">${badgeStatusAgendamento(t.status_agendamento, t.eh_pre_agendamento)}${turmaComDesmarcacaoPendente(t) ? `<div class="mt-0.5 text-[11px] text-rose-700 font-medium">desmarcação solicitada</div>` : ""}</td>
+      <td class="px-3 py-2 text-center">
+        <input type="checkbox" data-agend-turma-pre="${t.id}" ${t.eh_pre_agendamento ? "checked" : ""}
+          title="Marcar esta turma como pré-agendamento (dia aparece em azul clarinho na agenda do CT e do instrutor até virar agendamento definitivo)"
+          class="rounded border-slate-300" />
+      </td>
       <td class="px-3 py-2 text-xs">${celulaCentroAgendTurma(t)}</td>
       <td class="px-3 py-2">${celulaInstrutorAgendTurma(t, "instrutor1")}</td>
       <td class="px-3 py-2">${celulaInstrutorAgendTurma(t, "instrutor2")}</td>
@@ -4459,6 +4474,31 @@ function renderizarListaAgendTurmas() {
       definirDataAgendTurma(e.target.getAttribute("data-agend-turma-data"), e.target.value)
     );
   });
+  cont.querySelectorAll("[data-agend-turma-pre]").forEach((el) => {
+    el.addEventListener("change", (e) =>
+      definirPreAgendamentoTurma(e.target.getAttribute("data-agend-turma-pre"), e.target.checked)
+    );
+  });
+}
+
+// Liga/desliga a flag de pré-agendamento da turma. Não muda nada no fluxo de
+// confirmação (CT/instrutores) — só a cor exibida na Agenda por Centro de
+// Treinamento e na Agenda do Instrutor. Ao desmarcar ("virar agendamento"),
+// um trigger no banco reajusta automaticamente os dias já confirmados no
+// calendário dos instrutores de "pre_agendado" para "agendado".
+async function definirPreAgendamentoTurma(turmaId, marcado) {
+  const t = agendTurmasLista.find((x) => x.id === turmaId);
+  if (!t) return;
+  const anterior = t.eh_pre_agendamento;
+  t.eh_pre_agendamento = marcado;
+  renderizarListaAgendTurmas();
+
+  const { error } = await supabase.from("turmas").update({ eh_pre_agendamento: marcado }).eq("id", turmaId);
+  if (error) {
+    t.eh_pre_agendamento = anterior;
+    renderizarListaAgendTurmas();
+    alert("Não foi possível salvar o pré-agendamento. Tente novamente.");
+  }
 }
 
 // Grava a data do treinamento de uma turma direto na lista de Agendamento de Turmas.
@@ -5491,7 +5531,7 @@ async function carregarAgendaCentros(forcar = true) {
 
   let q = supabase
     .from("turmas")
-    .select("id, identificacao, data_inicio, horario, tipo_dia, status, status_agendamento, agenda_ct, agenda_instrutor1, agenda_instrutor2, centro_treinamento_id, centros_treinamento(nome), tipos_treinamento(nome), orcamentos(numero, observacao_ct, empresas(nome)), inst1:instrutores!turmas_instrutor1_id_fkey(nome), inst2:instrutores!turmas_instrutor2_id_fkey(nome)")
+    .select("id, identificacao, data_inicio, horario, tipo_dia, status, status_agendamento, eh_pre_agendamento, agenda_ct, agenda_instrutor1, agenda_instrutor2, centro_treinamento_id, centros_treinamento(nome), tipos_treinamento(nome), orcamentos(numero, observacao_ct, empresas(nome)), inst1:instrutores!turmas_instrutor1_id_fkey(nome), inst2:instrutores!turmas_instrutor2_id_fkey(nome)")
     .gte("data_inicio", ini)
     .lte("data_inicio", fim)
     .neq("status", "Cancelada")
@@ -5540,11 +5580,12 @@ function renderizarAgendaCentros() {
     const total = turmas.length;
     const aguardando = turmas.filter((t) => t.status_agendamento === "Aguardando confirmação").length;
     const agendadas = turmas.filter((t) => t.status_agendamento === "Agendado").length;
+    const preAgendadas = turmas.filter((t) => t.status_agendamento === "Agendado" && t.eh_pre_agendamento).length;
 
     let cor = "bg-white border-slate-200 text-slate-400";
     if (total > 0) {
       if (aguardando > 0) cor = "bg-amber-50 border-amber-300 text-amber-900";
-      else if (agendadas === total) cor = "bg-teal-50 border-teal-300 text-teal-900";
+      else if (agendadas === total) cor = preAgendadas > 0 ? "bg-sky-50 border-sky-300 text-sky-900" : "bg-teal-50 border-teal-300 text-teal-900";
       else cor = "bg-slate-50 border-slate-300 text-slate-700";
     }
     const selecionado = accDiaSelecionado === dataStr ? "ring-2 ring-amber-500" : "";
@@ -5555,7 +5596,7 @@ function renderizarAgendaCentros() {
     btn.className = `min-h-[74px] w-full rounded-lg border p-1.5 text-left transition-colors hover:border-amber-400 ${cor} ${selecionado}`;
     const comObservacao = turmas.some((t) => t.orcamentos?.observacao_ct);
     btn.title = total === 0 ? "Sem turmas"
-      : `${total} turma(s) · ${agendadas} agendada(s) · ${aguardando} aguardando confirmação${comObservacao ? " · há observação para o CT" : ""}`;
+      : `${total} turma(s) · ${agendadas} agendada(s)${preAgendadas > 0 ? ` (${preAgendadas} pré-agendada(s))` : ""} · ${aguardando} aguardando confirmação${comObservacao ? " · há observação para o CT" : ""}`;
     btn.innerHTML = `
       <div class="text-[11px] ${marcaHoje} flex items-center justify-between"><span>${dia.getDate()}</span>${comObservacao ? `<span title="Há observação para o Centro de Treinamento">📌</span>` : ""}</div>
       ${total > 0 ? `<div class="mt-1 text-lg leading-none font-semibold">${total}</div>
@@ -5572,9 +5613,12 @@ function renderizarAgendaCentros() {
   const totalMes = accTurmasDoMes.length;
   const aguardMes = accTurmasDoMes.filter((t) => t.status_agendamento === "Aguardando confirmação").length;
   const agendMes = accTurmasDoMes.filter((t) => t.status_agendamento === "Agendado").length;
+  const preAgendMes = accTurmasDoMes.filter((t) => t.status_agendamento === "Agendado" && t.eh_pre_agendamento).length;
   const centroTexto = $("acc-centro-select").value === "TODOS"
     ? `${listaCentrosAtivos.length} centro(s)` : $("acc-centro-select").selectedOptions[0].textContent;
-  $("acc-resumo").textContent = `${centroTexto} · ${totalMes} turma(s) no mês · ${agendMes} agendada(s) · ${aguardMes} aguardando confirmação`;
+  $("acc-resumo").textContent = `${centroTexto} · ${totalMes} turma(s) no mês · ${agendMes} agendada(s)` +
+    (preAgendMes > 0 ? ` (${preAgendMes} pré-agendada(s))` : "") +
+    ` · ${aguardMes} aguardando confirmação`;
 
   renderizarDetalheDiaAgendaCentros(porDia);
 }
@@ -5597,7 +5641,7 @@ function renderizarDetalheDiaAgendaCentros(porDia) {
     <div class="border border-slate-200 rounded-lg p-2.5">
       <div class="flex items-start justify-between gap-2">
         <span class="font-mono text-xs text-slate-700">${t.identificacao || "—"}</span>
-        ${badgeStatusAgendamento(t.status_agendamento)}
+        ${badgeStatusAgendamento(t.status_agendamento, t.eh_pre_agendamento)}
       </div>
       <div class="text-sm text-slate-800 mt-1">${t.tipos_treinamento?.nome || "—"}</div>
       <div class="text-xs text-slate-500">${t.orcamentos?.empresas?.nome || "—"} · orç. ${t.orcamentos?.numero || "—"}</div>
