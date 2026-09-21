@@ -3768,7 +3768,7 @@ async function carregarTurmasDoOrcamento() {
     .select("*, tipos_treinamento(nome), centros_treinamento(nome), instrutor1:instrutores!instrutor1_id(nome), instrutor2:instrutores!instrutor2_id(nome), empresas_transporte(nome)")
     .eq("orcamento_id", turmaOrcamentoSelecionadoId)
     .order("identificacao", { ascending: true });
-  turmasDoOrcamento = data || [];
+  turmasDoOrcamento = (data || []).sort(compararIdentificacaoTurma);
   renderizarFiltroStatusTurma();
   renderizarListaTurmas();
 }
@@ -4758,8 +4758,63 @@ async function carregarConfirmacaoCtInit() {
   $("cct-data-inicio").value = "";
   $("cct-data-fim").value = "";
   $("cct-resultado").classList.add("hidden");
+  await carregarTurmasPreAgendamentoDefinitivo();
   await carregarListaConfirmacaoCt();
 }
+
+// -----------------------------------------------------------
+// Aviso para o usuário da Confirmação do CT: turmas que saíram de
+// pré-agendamento e viraram agendamento definitivo (mesmo "processo" que já
+// avisa aqui — badge na tela, visto no próximo carregamento/auto-refresh —
+// usado para as solicitações de desmarcação).
+// -----------------------------------------------------------
+let turmasPreAgendamentoDefinitivo = [];
+
+async function carregarTurmasPreAgendamentoDefinitivo(forcar = true) {
+  const { data, error } = await supabase
+    .from("turmas")
+    .select("id, identificacao, data_inicio, pre_agendamento_confirmado_em, centros_treinamento(nome), orcamentos(numero, empresas(nome))")
+    .eq("pre_agendamento_confirmado_visto", false)
+    .order("pre_agendamento_confirmado_em", { ascending: false });
+  if (error) {
+    console.warn("Não foi possível carregar os avisos de agendamento definitivo:", error.message);
+    return;
+  }
+  if (!forcar && !dadosMudaram("preAgendamentoDefinitivo", data)) return;
+  if (forcar) dadosMudaram("preAgendamentoDefinitivo", data);
+  turmasPreAgendamentoDefinitivo = data || [];
+  renderizarTurmasPreAgendamentoDefinitivo();
+}
+
+function renderizarTurmasPreAgendamentoDefinitivo() {
+  const bloco = $("cct-definitivos-bloco");
+  if (turmasPreAgendamentoDefinitivo.length === 0) {
+    bloco.classList.add("hidden");
+    return;
+  }
+  bloco.classList.remove("hidden");
+  $("cct-definitivos-badge").textContent = String(turmasPreAgendamentoDefinitivo.length);
+  $("cct-definitivos-lista").innerHTML = turmasPreAgendamentoDefinitivo.map((t) => `
+    <div class="flex items-center justify-between gap-3 text-xs bg-white border border-sky-100 rounded-md px-3 py-2">
+      <span>
+        <span class="font-mono text-slate-700">${t.identificacao || "—"}</span>
+        — ${t.orcamentos?.empresas?.nome || "—"} · ${t.centros_treinamento?.nome || "—"}${t.data_inicio ? ` · ${formatarDataBr(t.data_inicio)}` : ""}
+      </span>
+      <button data-cct-definitivo-visto="${t.id}" class="text-sky-700 hover:underline whitespace-nowrap">marcar como visto</button>
+    </div>
+  `).join("");
+  $("cct-definitivos-lista").querySelectorAll("[data-cct-definitivo-visto]").forEach((el) =>
+    el.addEventListener("click", () => marcarPreAgendamentoDefinitivoVisto([el.getAttribute("data-cct-definitivo-visto")])));
+}
+
+async function marcarPreAgendamentoDefinitivoVisto(ids) {
+  if (!ids.length) return;
+  await supabase.from("turmas").update({ pre_agendamento_confirmado_visto: true }).in("id", ids);
+  await carregarTurmasPreAgendamentoDefinitivo();
+}
+
+$("btn-cct-definitivos-limpar").addEventListener("click", () =>
+  marcarPreAgendamentoDefinitivoVisto(turmasPreAgendamentoDefinitivo.map((t) => t.id)));
 
 async function carregarListaConfirmacaoCt(forcar = true) {
   const centroId = $("cct-centro-select").value;
@@ -5478,6 +5533,7 @@ async function refreshAgendamentoTurmas() {
 }
 
 async function refreshConfirmacaoCt() {
+  await carregarTurmasPreAgendamentoDefinitivo(false);
   if (!$("cct-centro-select").value) return;
   await carregarListaConfirmacaoCt(false);
 }

@@ -616,6 +616,18 @@
 
       <!-- ---------- OPERAÇÃO: CONFIRMAÇÃO DO CENTRO DE TREINAMENTO ---------- -->
       <section id="secao-confirmacao-ct" class="hidden">
+        <!-- Turmas que saíram de pré-agendamento e viraram agendamento definitivo -->
+        <div id="cct-definitivos-bloco" class="hidden mb-5 bg-sky-50 border border-sky-200 rounded-xl p-4">
+          <div class="flex items-center justify-between gap-3 mb-3">
+            <h3 class="text-sm font-semibold text-sky-800 flex items-center gap-2">
+              📌 Viraram agendamento definitivo
+              <span id="cct-definitivos-badge" class="text-[11px] font-medium bg-sky-600 text-white px-2 py-0.5 rounded-full">0</span>
+            </h3>
+            <button id="btn-cct-definitivos-limpar" type="button" class="text-xs text-sky-700 hover:underline">marcar tudo como visto</button>
+          </div>
+          <div id="cct-definitivos-lista" class="space-y-1.5"></div>
+        </div>
+
         <div class="mb-5 bg-white border border-slate-200 rounded-xl p-4 flex flex-wrap items-end gap-4">
           <div class="flex-1 min-w-[240px]">
             <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Centro de Treinamento</label>
