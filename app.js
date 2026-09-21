@@ -5844,15 +5844,23 @@ async function carregarDocumentosTurmas() {
     qtdFotosPresenca: midias.filter((m) => m.turma_id === t.id && m.tipo === "foto_presenca").length,
   }));
 
-  $("dt-vazio").classList.toggle("hidden", dtTurmasLista.length > 0);
-  if (dtTurmasLista.length === 0) $("dt-vazio").textContent = "Nenhuma turma encontrada para esta seleção.";
-  $("dt-conteudo").classList.toggle("hidden", dtTurmasLista.length === 0);
   renderizarDocumentosTurmas();
 }
 
 function renderizarDocumentosTurmas() {
+  const todasAsTurmas = $("dt-todas-turmas").checked;
+  const lista = todasAsTurmas
+    ? dtTurmasLista
+    : dtTurmasLista.filter((t) => t.qtdAlunos > 0 || t.qtdFotosTurma > 0 || t.qtdFotosPresenca > 0);
+
+  $("dt-vazio").classList.toggle("hidden", lista.length > 0);
+  $("dt-vazio").textContent = todasAsTurmas
+    ? "Nenhuma turma encontrada para esta seleção."
+    : "Nenhuma turma com fotos ou alunos cadastrados para esta seleção.";
+  $("dt-conteudo").classList.toggle("hidden", lista.length === 0);
+
   const cont = $("dt-lista");
-  cont.innerHTML = dtTurmasLista.map((t) => `
+  cont.innerHTML = lista.map((t) => `
     <tr class="hover:bg-slate-50">
       <td class="px-3 py-2 font-mono text-slate-700">${t.identificacao || "—"}</td>
       <td class="px-3 py-2 text-slate-500">${t.orcamentos?.numero || "—"}</td>
@@ -5933,6 +5941,7 @@ $("dt-empresa-select").addEventListener("change", () => {
   carregarDocumentosTurmas();
 });
 $("dt-grupo-economico").addEventListener("change", () => carregarDocumentosTurmas());
+$("dt-todas-turmas").addEventListener("change", () => renderizarDocumentosTurmas());
 $("dt-filtro-data-de").addEventListener("change", () => carregarDocumentosTurmas());
 $("dt-filtro-data-ate").addEventListener("change", () => carregarDocumentosTurmas());
 $("btn-fechar-painel-documentos-turma").addEventListener("click", () => $("painel-documentos-turma").classList.add("hidden"));
