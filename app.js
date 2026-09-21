@@ -36,15 +36,21 @@ function gerarGradeMes(ano, mes) {
 // Status possíveis de cada dia da agenda
 // ---------------------------------------------------------
 const STATUS_PADRAO = "bloqueado"; // dia sem registro ainda = tratado como bloqueado
-const STATUS_PROTEGIDOS = ["agendado", "pre_agendado", "aguardando"]; // não alteráveis por clique ou pelos botões de mês
+const STATUS_PROTEGIDOS = ["agendado", "aguardando"]; // não alteráveis por clique ou pelos botões de mês
 
 const ESTILO_STATUS = {
   disponivel: "bg-teal-600 text-white",
   bloqueado: "bg-slate-200 text-slate-500",
   agendado: "bg-blue-600 text-white",
-  pre_agendado: "bg-sky-200 text-sky-900",
   aguardando: "bg-amber-400 text-white",
 };
+// Estilo só de exibição para um dia "agendado" cuja turma está marcada como
+// pré-agendamento. NÃO é um valor gravado em dias_status — esse campo é
+// compartilhado com o app agenda-instrutores (outro repositório), que não
+// conhece essa distinção; gravar um valor novo ali quebra a proteção contra
+// clique daquele app (foi o que causou a desmarcação indevida). A cor é
+// calculada aqui, cruzando o dia "agendado" com `datasPreAgendadas`.
+const ESTILO_PRE_AGENDADO = "bg-sky-200 text-sky-900";
 
 function obterStatusDia(diasStatus, dataStr) {
   return (diasStatus && diasStatus[dataStr]) || STATUS_PADRAO;
@@ -53,7 +59,9 @@ function obterStatusDia(diasStatus, dataStr) {
 // Renderiza uma grade de calendário genérica (usada tanto na agenda do instrutor
 // quanto no formulário do administrador). `aoClicarDia` recebe (dataStr, statusAtual)
 // e só é chamado para dias que não estão em um status protegido.
-function renderizarGradeCalendario({ mes, diasStatus, elLabel, elSemana, elGrade, aoClicarDia }) {
+// `datasPreAgendadas` (Set opcional de "AAAA-MM-DD") marca, só visualmente,
+// quais dias "agendado" pertencem a uma turma em pré-agendamento.
+function renderizarGradeCalendario({ mes, diasStatus, elLabel, elSemana, elGrade, aoClicarDia, datasPreAgendadas }) {
   elLabel.textContent = `${nomesMeses[mes.getMonth()]} ${mes.getFullYear()}`;
   elSemana.innerHTML = diasSemana
     .map((d) => `<div class="text-center text-[10px] font-medium text-slate-400 py-1">${d}</div>`)
@@ -68,16 +76,17 @@ function renderizarGradeCalendario({ mes, diasStatus, elLabel, elSemana, elGrade
     }
     const dataStr = formatarData(dia);
     const status = obterStatusDia(diasStatus, dataStr);
+    const ehPreAgendado = status === "agendado" && datasPreAgendadas?.has(dataStr);
     const protegido = STATUS_PROTEGIDOS.includes(status);
     const btn = document.createElement("button");
     btn.type = "button";
     btn.textContent = dia.getDate();
     btn.title =
-      status === "agendado" ? "Agendado — não pode ser alterado aqui"
-      : status === "pre_agendado" ? "Pré-agendado — não pode ser alterado aqui"
+      ehPreAgendado ? "Pré-agendado — não pode ser alterado aqui"
+      : status === "agendado" ? "Agendado — não pode ser alterado aqui"
       : status === "aguardando" ? "Aguardando confirmação — não pode ser alterado aqui"
       : "";
-    btn.className = `aspect-square rounded-md text-xs font-medium transition-colors ${ESTILO_STATUS[status]} ${
+    btn.className = `aspect-square rounded-md text-xs font-medium transition-colors ${ehPreAgendado ? ESTILO_PRE_AGENDADO : ESTILO_STATUS[status]} ${
       protegido ? "cursor-not-allowed opacity-90" : "hover:opacity-80"
     }`;
     if (!protegido) btn.addEventListener("click", () => aoClicarDia(dataStr, status));
@@ -101,7 +110,7 @@ function aplicarStatusNoMes(diasStatusAtual, mes, novoStatus) {
 }
 
 function contarStatus(diasStatus) {
-  const contagem = { disponivel: 0, bloqueado: 0, agendado: 0, pre_agendado: 0, aguardando: 0 };
+  const contagem = { disponivel: 0, bloqueado: 0, agendado: 0, aguardando: 0 };
   Object.values(diasStatus || {}).forEach((s) => {
     if (contagem[s] !== undefined) contagem[s]++;
   });
@@ -134,8 +143,31 @@ let sessaoAtual = null;
 let perfilAtual = null; // linha da tabela instrutores do usuário logado
 let listaInstrutoresAdmin = [];
 let mesCalendarioInstrutor = new Date();
+let instrutorDatasPreAgendadas = new Set(); // datas "agendado" do instrutor logado cuja turma está em pré-agendamento (só exibição)
+
+// Busca, para um instrutor, as datas confirmadas cuja turma está marcada
+// como pré-agendamento — usado só para colorir o calendário (não altera
+// dias_status, que é compartilhado com o app agenda-instrutores).
+async function carregarDatasPreAgendadas(instrutorId) {
+  const vazio = new Set();
+  if (!instrutorId) return vazio;
+  const { data, error } = await supabase
+    .from("agendamentos")
+    .select("datas_status, turmas!inner(eh_pre_agendamento)")
+    .eq("instrutor_id", instrutorId)
+    .eq("turmas.eh_pre_agendamento", true);
+  if (error) return vazio;
+  const datas = new Set();
+  (data || []).forEach((a) => {
+    Object.entries(a.datas_status || {}).forEach(([data, v]) => {
+      if (v?.status === "confirmado") datas.add(data);
+    });
+  });
+  return datas;
+}
 let mesCalendarioForm = new Date();
 let diasStatusForm = {};
+let formDatasPreAgendadas = new Set(); // idem instrutorDatasPreAgendadas, para o instrutor aberto no painel admin
 let editandoId = null;
 let pendingDocFile = null;
 let pendingDocPreviewUrl = null;
@@ -671,11 +703,12 @@ function traduzirErroAuth(error) {
 // ===========================================================
 // APP DO INSTRUTOR
 // ===========================================================
-function entrarNaAgendaInstrutor() {
+async function entrarNaAgendaInstrutor() {
   mesCalendarioInstrutor = new Date();
   $("inst-nome").textContent = perfilAtual.nome.split(" ")[0];
   $("inst-especialidade").textContent = perfilAtual.especialidade || "";
   renderizarDadosInstrutor();
+  instrutorDatasPreAgendadas = await carregarDatasPreAgendadas(perfilAtual.id);
   renderizarCalendarioInstrutor();
   mostrarTela("tela-instrutor");
 }
@@ -704,6 +737,7 @@ function renderizarCalendarioInstrutor() {
     elLabel: $("inst-mes-label"),
     elSemana: $("inst-dias-semana"),
     elGrade: $("inst-grade-dias"),
+    datasPreAgendadas: instrutorDatasPreAgendadas,
     aoClicarDia: (dataStr, statusAtual) => {
       const novoStatus = statusAtual === "disponivel" ? "bloqueado" : "disponivel";
       salvarDiasStatusInstrutor({ ...perfilAtual.dias_status, [dataStr]: novoStatus });
@@ -711,8 +745,9 @@ function renderizarCalendarioInstrutor() {
   });
 
   const contagem = contarStatus(perfilAtual.dias_status);
+  const preCount = [...instrutorDatasPreAgendadas].filter((d) => obterStatusDia(perfilAtual.dias_status, d) === "agendado").length;
   $("inst-contagem-dias").textContent = `${contagem.disponivel} dia(s) disponíveis · ${contagem.agendado} agendado(s)` +
-    (contagem.pre_agendado > 0 ? ` · ${contagem.pre_agendado} pré-agendado(s)` : "");
+    (preCount > 0 ? ` · ${preCount} pré-agendado(s)` : "");
 
   if (contagem.aguardando > 0) {
     $("inst-alerta-aguardando").classList.remove("hidden");
@@ -1067,6 +1102,7 @@ function limparFormulario() {
   ["f-nome","f-cpf","f-email","f-telefone","f-especialidade","f-carga","f-observacoes"].forEach((id) => ($(id).value = ""));
   $("f-status").value = "Ativo";
   diasStatusForm = {};
+  formDatasPreAgendadas = new Set();
   pendingDocFile = null;
   pendingDocPreviewUrl = null;
   docUrlAtualForm = null;
@@ -1089,11 +1125,15 @@ $("btn-novo-instrutor").addEventListener("click", () => {
   $("painel-form").classList.remove("hidden");
 });
 
-function abrirEdicao(id) {
+async function abrirEdicao(id) {
   const inst = listaInstrutoresAdmin.find((i) => i.id === id);
   if (!inst) return;
   editandoId = id;
   limparFormulario();
+  carregarDatasPreAgendadas(id).then((datas) => {
+    formDatasPreAgendadas = datas;
+    if (editandoId === id) renderizarCalendarioForm();
+  });
   $("f-nome").value = inst.nome || "";
   $("f-cpf").value = inst.cpf || "";
   $("f-email").value = inst.email || "";
@@ -1132,6 +1172,7 @@ function renderizarCalendarioForm() {
     elLabel: $("f-mes-label"),
     elSemana: $("f-dias-semana"),
     elGrade: $("f-grade-dias"),
+    datasPreAgendadas: formDatasPreAgendadas,
     aoClicarDia: (dataStr, statusAtual) => {
       const novoStatus = statusAtual === "disponivel" ? "bloqueado" : "disponivel";
       diasStatusForm = { ...diasStatusForm, [dataStr]: novoStatus };
@@ -1139,8 +1180,9 @@ function renderizarCalendarioForm() {
     },
   });
   const contagem = contarStatus(diasStatusForm);
+  const preCount = [...formDatasPreAgendadas].filter((d) => obterStatusDia(diasStatusForm, d) === "agendado").length;
   $("f-dias-contagem").textContent = `${contagem.disponivel} disponíveis · ${contagem.agendado} agendados` +
-    (contagem.pre_agendado > 0 ? ` · ${contagem.pre_agendado} pré-agendados` : "") +
+    (preCount > 0 ? ` · ${preCount} pré-agendados` : "") +
     ` · ${contagem.aguardando} aguardando`;
 }
 
@@ -4482,10 +4524,12 @@ function renderizarListaAgendTurmas() {
 }
 
 // Liga/desliga a flag de pré-agendamento da turma. Não muda nada no fluxo de
-// confirmação (CT/instrutores) — só a cor exibida na Agenda por Centro de
-// Treinamento e na Agenda do Instrutor. Ao desmarcar ("virar agendamento"),
-// um trigger no banco reajusta automaticamente os dias já confirmados no
-// calendário dos instrutores de "pre_agendado" para "agendado".
+// confirmação (CT/instrutores) — dias_status do instrutor continua só
+// "agendado" (esse campo é compartilhado com o app agenda-instrutores, que
+// não conhece "pré-agendamento"). A cor azul clarinho é calculada na hora,
+// aqui no front, cruzando o dia "agendado" com eh_pre_agendamento da turma.
+// Ao desmarcar (virar agendamento definitivo), um trigger no banco avisa os
+// instrutores da turma pelo mesmo push usado quando uma aula é agendada.
 async function definirPreAgendamentoTurma(turmaId, marcado) {
   const t = agendTurmasLista.find((x) => x.id === turmaId);
   if (!t) return;
@@ -4793,7 +4837,7 @@ function renderizarListaConfirmacaoCt() {
       <td class="px-3 py-2 text-slate-500">${t.tipo_dia || "—"}</td>
       <td class="px-3 py-2">${linhaInst(t.inst1?.nome, respostaInstrutorCct(t, t.instrutor1_id), t.agenda_instrutor1)}${linhaInst(t.inst2?.nome, respostaInstrutorCct(t, t.instrutor2_id), t.agenda_instrutor2)}${!t.inst1 && !t.inst2 ? `<span class="text-slate-300 text-xs">—</span>` : ""}</td>
       <td class="px-3 py-2">${textoAgendaItem(t.agenda_ct)}</td>
-      <td class="px-3 py-2">${badgeStatusAgendamento(t.status_agendamento)}</td>
+      <td class="px-3 py-2">${badgeStatusAgendamento(t.status_agendamento, t.eh_pre_agendamento)}</td>
       <td class="px-3 py-2 text-right whitespace-nowrap">
         ${podeConfirmar && t.agenda_ct !== "Agendado" ? `<button data-cct-confirmar="${t.id}" class="text-xs font-medium text-white bg-teal-600 hover:bg-teal-700 px-2.5 py-1 rounded-md">Confirmar</button>` : ""}
         ${podeConfirmar && t.agenda_ct === "Aguardando confirmação" ? `<button data-cct-recusar="${t.id}" class="ml-1 text-xs font-medium text-rose-600 hover:bg-rose-50 border border-rose-200 px-2.5 py-1 rounded-md">Recusar</button>` : ""}
