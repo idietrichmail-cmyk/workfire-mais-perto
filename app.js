@@ -5857,17 +5857,17 @@ function renderizarDocumentosTurmas() {
       <td class="px-3 py-2 font-mono text-slate-700">${t.identificacao || "—"}</td>
       <td class="px-3 py-2 text-slate-500">${t.orcamentos?.numero || "—"}</td>
       <td class="px-3 py-2 text-slate-700">${t.orcamentos?.empresas?.nome || "—"}</td>
-      <td class="px-3 py-2 text-slate-500">${t.data_inicio || "—"}${t.data_fim && t.data_fim !== t.data_inicio ? ` a ${t.data_fim}` : ""}</td>
+      <td class="px-3 py-2 text-slate-500">${formatarDataBr(t.data_inicio)}${t.data_fim && t.data_fim !== t.data_inicio ? ` a ${formatarDataBr(t.data_fim)}` : ""}</td>
       <td class="px-3 py-2 text-slate-700">${t.instrutor1?.nome || "—"}</td>
       <td class="px-3 py-2 text-slate-700">${t.instrutor2?.nome || "—"}</td>
       <td class="px-3 py-2">
-        <button data-dt-alunos="${t.id}" class="text-xs font-medium text-slate-600 hover:text-slate-900 underline">${t.qtdAlunos} 👥</button>
+        <button data-dt-alunos="${t.id}" class="font-medium underline ${t.qtdAlunos ? "text-sm text-teal-700 hover:text-teal-900 font-semibold" : "text-xs text-slate-400 hover:text-slate-600"}">${t.qtdAlunos} 👥</button>
       </td>
       <td class="px-3 py-2">
-        <button data-dt-fotos="${t.id}" class="text-xs font-medium ${t.qtdFotosTurma ? "text-teal-700 hover:text-teal-900" : "text-slate-400 hover:text-slate-600"} underline">${t.qtdFotosTurma} 📷</button>
+        <button data-dt-fotos="${t.id}" class="font-medium underline ${t.qtdFotosTurma ? "text-sm text-teal-700 hover:text-teal-900 font-semibold" : "text-xs text-slate-400 hover:text-slate-600"}">${t.qtdFotosTurma} 📷</button>
       </td>
       <td class="px-3 py-2">
-        <button data-dt-fotos="${t.id}" class="text-xs font-medium ${t.qtdFotosPresenca ? "text-teal-700 hover:text-teal-900" : "text-slate-400 hover:text-slate-600"} underline">${t.qtdFotosPresenca} 📝</button>
+        <button data-dt-fotos="${t.id}" class="font-medium underline ${t.qtdFotosPresenca ? "text-sm text-teal-700 hover:text-teal-900 font-semibold" : "text-xs text-slate-400 hover:text-slate-600"}">${t.qtdFotosPresenca} 📝</button>
       </td>
     </tr>
   `).join("");
@@ -5884,7 +5884,7 @@ async function urlArquivoTurmaMidia(path) {
 async function abrirPainelDocumentosTurma(turmaId) {
   const t = dtTurmasLista.find((x) => x.id === turmaId);
   $("painel-documentos-turma-titulo").textContent = `Documentos — Turma ${t?.identificacao || ""}`;
-  $("painel-documentos-turma-info").textContent = [t?.data_inicio, [t?.instrutor1?.nome, t?.instrutor2?.nome].filter(Boolean).join(" e ")].filter(Boolean).join(" · ");
+  $("painel-documentos-turma-info").textContent = [t?.data_inicio && formatarDataBr(t.data_inicio), [t?.instrutor1?.nome, t?.instrutor2?.nome].filter(Boolean).join(" e ")].filter(Boolean).join(" · ");
   $("dt-painel-fotos-turma-grade").innerHTML = `<p class="col-span-full text-xs text-slate-400">Carregando…</p>`;
   $("dt-painel-fotos-presenca-grade").innerHTML = "";
   $("dt-painel-fotos-turma-contagem").textContent = "";
