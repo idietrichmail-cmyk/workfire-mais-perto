@@ -280,6 +280,7 @@ const MODULOS = [
   { id: "tipos_treinamento", label: "Treinamentos", icone: "🏷️", grupo: "Cadastros Básicos" },
   { id: "tipos_atividade", label: "Tipos de Atividade", icone: "🗂️", grupo: "Cadastros Básicos" },
   { id: "tipos_material", label: "Tipos de Material", icone: "🧰", grupo: "Cadastros Básicos" },
+  { id: "treinamentos_capacitacao", label: "Treinamentos de Capacitação", icone: "📚", grupo: "Cadastros Básicos" },
   // Comercial
   { id: "empresas", label: "Empresas", icone: "🏢", grupo: "Comercial" },
   { id: "orcamentos", label: "Orçamentos", icone: "💰", grupo: "Comercial" },
@@ -997,6 +998,9 @@ function irParaModulo(id) {
   } else if (id === "documentos_turmas") {
     $("secao-documentos-turmas").classList.remove("hidden");
     carregarDocumentosTurmasInit();
+  } else if (id === "treinamentos_capacitacao") {
+    $("secao-treinamentos-capacitacao").classList.remove("hidden");
+    carregarTreinamentosCapacitacaoInit();
   }
 }
 
@@ -5954,5 +5958,231 @@ $("dt-filtro-data-de").addEventListener("change", () => carregarDocumentosTurmas
 $("dt-filtro-data-ate").addEventListener("change", () => carregarDocumentosTurmas());
 $("btn-fechar-painel-documentos-turma").addEventListener("click", () => $("painel-documentos-turma").classList.add("hidden"));
 $("painel-documentos-turma-overlay").addEventListener("click", () => $("painel-documentos-turma").classList.add("hidden"));
+
+// ===========================================================
+// Treinamentos de Capacitação (cadastro + visualização)
+// Materiais de treinamento (PDF, vídeo, etc.) para os usuários dos
+// apps workfire-mais-perto e (futuramente) agenda-instrutores.
+// ===========================================================
+let tcLista = [];
+let tcEditandoId = null;
+let tcBusca = "";
+
+const TC_APLICATIVO_LABEL = {
+  "workfire-mais-perto": "workfire-mais-perto.netlify.app",
+  "agenda-instrutores": "agenda-instrutores.netlify.app",
+  "ambos": "Ambos os aplicativos",
+};
+
+function iconeArquivoTreinamento(nomeOuTipo) {
+  const s = (nomeOuTipo || "").toLowerCase();
+  if (s.includes("pdf")) return "📄";
+  if (s.includes("mp4") || s.includes("video") || s.includes("mov") || s.includes("avi")) return "🎬";
+  if (s.includes("image") || s.includes("png") || s.includes("jpg") || s.includes("jpeg")) return "🖼️";
+  return "📎";
+}
+
+async function carregarTreinamentosCapacitacaoInit() {
+  $("admin-descricao-pagina").textContent = "Cadastre os materiais de treinamento (PDF, vídeo, etc.) disponíveis para os usuários dos aplicativos.";
+  esconderErro("tc-form-erro");
+  $("tc-form-bloco").classList.add("hidden");
+  tcEditandoId = null;
+  tcBusca = "";
+  $("tc-busca").value = "";
+  await carregarTreinamentosCapacitacao();
+}
+
+async function carregarTreinamentosCapacitacao() {
+  const { data, error } = await supabase
+    .from("treinamentos_capacitacao")
+    .select("*")
+    .order("data_disponibilizacao", { ascending: false })
+    .order("created_at", { ascending: false });
+  if (error) {
+    $("tc-lista").innerHTML = `<tr><td colspan="6" class="text-center text-rose-500 text-sm py-8">Não foi possível carregar: ${error.message}</td></tr>`;
+    return;
+  }
+  tcLista = data || [];
+  renderizarListaTreinamentosCapacitacao();
+}
+
+function renderizarListaTreinamentosCapacitacao() {
+  const podeAlterar = podeFazer("treinamentos_capacitacao", "alterar");
+  const podeExcluir = podeFazer("treinamentos_capacitacao", "excluir");
+  const busca = tcBusca.toLowerCase();
+  const lista = tcLista.filter((t) => !busca || (t.descricao || "").toLowerCase().includes(busca));
+  const cont = $("tc-lista");
+  if (lista.length === 0) {
+    cont.innerHTML = `<tr><td colspan="6" class="text-center text-slate-400 text-sm py-10">Nenhum treinamento cadastrado.</td></tr>`;
+    return;
+  }
+  const badgeStatus = (s) => `<span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${s === "Inativo" ? "bg-rose-50 text-rose-600" : "bg-teal-50 text-teal-700"}">${s}</span>`;
+  cont.innerHTML = lista.map((t) => `
+    <tr class="hover:bg-slate-50">
+      <td class="px-3 py-2 text-slate-800 max-w-xs">${t.descricao || "—"}</td>
+      <td class="px-3 py-2 text-slate-500 whitespace-nowrap">${formatarDataBr(t.data_disponibilizacao)}</td>
+      <td class="px-3 py-2 text-slate-500 whitespace-nowrap">${TC_APLICATIVO_LABEL[t.aplicativo] || t.aplicativo}</td>
+      <td class="px-3 py-2 whitespace-nowrap">
+        <button data-tc-abrir-arquivo="${t.id}" class="text-slate-600 hover:text-slate-900 underline">${iconeArquivoTreinamento(t.arquivo_tipo || t.arquivo_nome)} ${t.arquivo_nome || "arquivo"}</button>
+      </td>
+      <td class="px-3 py-2 whitespace-nowrap">${badgeStatus(t.status)}</td>
+      <td class="px-3 py-2 text-right whitespace-nowrap">
+        ${podeAlterar ? `<button data-tc-editar="${t.id}" class="text-slate-500 hover:text-slate-800 mr-2">✏️</button>` : ""}
+        ${podeExcluir ? `<button data-tc-excluir="${t.id}" class="text-rose-500 hover:text-rose-700">🗑️</button>` : ""}
+      </td>
+    </tr>
+  `).join("");
+  cont.querySelectorAll("[data-tc-abrir-arquivo]").forEach((btn) => btn.addEventListener("click", () => abrirArquivoTreinamento(btn.getAttribute("data-tc-abrir-arquivo"))));
+  cont.querySelectorAll("[data-tc-editar]").forEach((btn) => btn.addEventListener("click", () => abrirEdicaoTreinamento(btn.getAttribute("data-tc-editar"))));
+  cont.querySelectorAll("[data-tc-excluir]").forEach((btn) => btn.addEventListener("click", () => excluirTreinamento(btn.getAttribute("data-tc-excluir"))));
+}
+
+async function urlArquivoTreinamento(path) {
+  if (!path) return null;
+  const { data, error } = await supabase.storage.from("treinamentos-capacitacao").createSignedUrl(path, 60 * 60);
+  return error ? null : data.signedUrl;
+}
+
+async function abrirArquivoTreinamento(id) {
+  const t = tcLista.find((x) => x.id === id) || tcTreinamentosDisponiveis.find((x) => x.id === id);
+  const u = await urlArquivoTreinamento(t?.arquivo_path);
+  if (u) window.open(u, "_blank");
+}
+
+$("tc-busca").addEventListener("input", () => {
+  tcBusca = $("tc-busca").value;
+  renderizarListaTreinamentosCapacitacao();
+});
+
+function limparFormularioTreinamento() {
+  tcEditandoId = null;
+  esconderErro("tc-form-erro");
+  $("tc-descricao").value = "";
+  $("tc-data").value = new Date().toISOString().slice(0, 10);
+  $("tc-aplicativo").value = "workfire-mais-perto";
+  $("tc-status").value = "Ativo";
+  $("tc-arquivo-input").value = "";
+  $("tc-arquivo-atual").textContent = "";
+}
+
+$("btn-tc-novo").addEventListener("click", () => {
+  limparFormularioTreinamento();
+  $("tc-form-bloco").classList.remove("hidden");
+});
+
+$("btn-tc-cancelar").addEventListener("click", () => {
+  $("tc-form-bloco").classList.add("hidden");
+});
+
+function abrirEdicaoTreinamento(id) {
+  const t = tcLista.find((x) => x.id === id);
+  if (!t) return;
+  tcEditandoId = id;
+  esconderErro("tc-form-erro");
+  $("tc-descricao").value = t.descricao || "";
+  $("tc-data").value = t.data_disponibilizacao || "";
+  $("tc-aplicativo").value = t.aplicativo || "workfire-mais-perto";
+  $("tc-status").value = t.status || "Ativo";
+  $("tc-arquivo-input").value = "";
+  $("tc-arquivo-atual").textContent = t.arquivo_nome ? `Arquivo atual: ${t.arquivo_nome} (selecione um novo arquivo apenas se quiser substituí-lo)` : "";
+  $("tc-form-bloco").classList.remove("hidden");
+}
+
+async function salvarTreinamento() {
+  esconderErro("tc-form-erro");
+  const descricao = $("tc-descricao").value.trim();
+  const data = $("tc-data").value;
+  const aplicativo = $("tc-aplicativo").value;
+  const status = $("tc-status").value;
+  const file = $("tc-arquivo-input").files[0];
+
+  if (!descricao) return mostrarErro("tc-form-erro", "Informe a descrição do treinamento.");
+  if (!data) return mostrarErro("tc-form-erro", "Informe a data de disponibilização.");
+  if (!tcEditandoId && !file) return mostrarErro("tc-form-erro", "Selecione o arquivo do treinamento.");
+
+  const btn = $("btn-tc-salvar");
+  btn.disabled = true; btn.textContent = "Salvando…";
+
+  let arquivoPath = null, arquivoNome = null, arquivoTipo = null;
+  if (file) {
+    const ext = (file.name.split(".").pop() || "bin").toLowerCase();
+    arquivoPath = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+    const { error: erroUp } = await supabase.storage.from("treinamentos-capacitacao").upload(arquivoPath, file, { upsert: true });
+    if (erroUp) {
+      btn.disabled = false; btn.textContent = "Salvar";
+      return mostrarErro("tc-form-erro", "Não foi possível enviar o arquivo. Tente novamente.");
+    }
+    arquivoNome = file.name;
+    arquivoTipo = file.type || null;
+  }
+
+  const registro = { descricao, data_disponibilizacao: data, aplicativo, status };
+  if (arquivoPath) { registro.arquivo_path = arquivoPath; registro.arquivo_nome = arquivoNome; registro.arquivo_tipo = arquivoTipo; }
+
+  let error;
+  if (tcEditandoId) {
+    ({ error } = await supabase.from("treinamentos_capacitacao").update(registro).eq("id", tcEditandoId));
+  } else {
+    ({ error } = await supabase.from("treinamentos_capacitacao").insert(registro));
+  }
+
+  btn.disabled = false; btn.textContent = "Salvar";
+  if (error) return mostrarErro("tc-form-erro", "Não foi possível salvar. Tente novamente.");
+
+  $("tc-form-bloco").classList.add("hidden");
+  await carregarTreinamentosCapacitacao();
+}
+
+$("btn-tc-salvar").addEventListener("click", salvarTreinamento);
+
+async function excluirTreinamento(id) {
+  const t = tcLista.find((x) => x.id === id);
+  if (!t || !confirmarExclusao(`o treinamento "${t.descricao || ""}"`.trim())) return;
+  if (t.arquivo_path) await supabase.storage.from("treinamentos-capacitacao").remove([t.arquivo_path]);
+  const { error } = await supabase.from("treinamentos_capacitacao").delete().eq("id", id);
+  if (!error) await carregarTreinamentosCapacitacao();
+}
+
+// ---------------------------------------------------------
+// Painel de visualização (qualquer usuário logado) — acessível pelo
+// topo do app, em qualquer tela.
+// ---------------------------------------------------------
+let tcTreinamentosDisponiveis = [];
+
+async function abrirPainelTreinamentos() {
+  $("painel-treinamentos-lista").innerHTML = `<p class="text-xs text-slate-400">Carregando…</p>`;
+  $("painel-treinamentos").classList.remove("hidden");
+
+  const { data, error } = await supabase
+    .from("treinamentos_capacitacao")
+    .select("*")
+    .order("data_disponibilizacao", { ascending: false });
+
+  if (error) {
+    $("painel-treinamentos-lista").innerHTML = `<p class="text-xs text-rose-500">Não foi possível carregar os treinamentos.</p>`;
+    return;
+  }
+  tcTreinamentosDisponiveis = data || [];
+  if (tcTreinamentosDisponiveis.length === 0) {
+    $("painel-treinamentos-lista").innerHTML = `<p class="text-xs text-slate-400">Nenhum treinamento disponível no momento.</p>`;
+    return;
+  }
+  $("painel-treinamentos-lista").innerHTML = tcTreinamentosDisponiveis.map((t) => `
+    <div class="border border-slate-200 rounded-lg p-3">
+      <p class="text-sm text-slate-800">${t.descricao || "—"}</p>
+      <p class="text-[11px] text-slate-400 mt-0.5">Disponível desde ${formatarDataBr(t.data_disponibilizacao)}</p>
+      <button data-tc-abrir-arquivo="${t.id}" class="mt-2 inline-flex items-center gap-1 text-xs font-medium text-teal-700 hover:text-teal-900 underline">${iconeArquivoTreinamento(t.arquivo_tipo || t.arquivo_nome)} Abrir ${t.arquivo_nome || "arquivo"}</button>
+    </div>
+  `).join("");
+  $("painel-treinamentos-lista").querySelectorAll("[data-tc-abrir-arquivo]").forEach((btn) =>
+    btn.addEventListener("click", () => abrirArquivoTreinamento(btn.getAttribute("data-tc-abrir-arquivo")))
+  );
+}
+
+$("btn-treinamentos-desktop").addEventListener("click", abrirPainelTreinamentos);
+$("btn-treinamentos-mobile").addEventListener("click", abrirPainelTreinamentos);
+$("btn-treinamentos-sidebar").addEventListener("click", abrirPainelTreinamentos);
+$("btn-fechar-painel-treinamentos").addEventListener("click", () => $("painel-treinamentos").classList.add("hidden"));
+$("painel-treinamentos-overlay").addEventListener("click", () => $("painel-treinamentos").classList.add("hidden"));
 
 })();

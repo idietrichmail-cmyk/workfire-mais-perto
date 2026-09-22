@@ -306,6 +306,7 @@
       </div>
       <nav id="admin-nav" class="flex-1 flex flex-col gap-1 text-sm overflow-y-auto"></nav>
       <div class="pt-4 mt-4 border-t border-slate-800 flex flex-col gap-1 text-sm">
+        <button id="btn-treinamentos-sidebar" class="flex items-center gap-2 rounded-md px-3 py-2 text-left w-full text-slate-300 hover:bg-slate-800 hover:text-white">📚 Treinamentos</button>
         <button id="btn-ver-instrutor" class="flex items-center gap-2 rounded-md px-3 py-2 text-left w-full text-slate-300 hover:bg-slate-800 hover:text-white">📱 Ver tela do instrutor</button>
         <button id="btn-admin-trocar-senha" class="flex items-center gap-2 rounded-md px-3 py-2 text-left w-full text-slate-300 hover:bg-slate-800 hover:text-white">🔑 Trocar minha senha</button>
         <button id="btn-admin-sair" class="flex items-center gap-2 rounded-md px-3 py-2 text-left w-full text-rose-400 hover:bg-rose-950 hover:text-rose-300">🚪 Sair</button>
@@ -315,6 +316,7 @@
     <main class="flex-1 px-5 md:px-10 py-8 max-w-6xl">
       <div class="mb-5 flex items-center gap-2">
         <select id="admin-nav-mobile" class="flex-1 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium"></select>
+        <button id="btn-treinamentos-mobile" class="shrink-0 rounded-md border border-slate-300 text-slate-600 text-xs font-medium px-3 py-2">📚</button>
         <button id="btn-admin-sair-mobile" class="shrink-0 rounded-md border border-rose-200 bg-rose-50 text-rose-600 text-xs font-medium px-3 py-2">🚪 Sair</button>
       </div>
 
@@ -325,6 +327,7 @@
           <p id="admin-descricao-pagina" class="text-slate-500 mt-2 max-w-xl">Registre os instrutores que poderão ser alocados na agenda de turmas e treinamentos.</p>
         </div>
         <div class="hidden sm:flex flex-col gap-2 shrink-0">
+          <button id="btn-treinamentos-desktop" class="inline-flex items-center gap-2 text-xs font-medium text-slate-600 border border-slate-300 rounded-md px-3 py-2 hover:bg-white">📚 Treinamentos</button>
           <button id="btn-ver-instrutor-desktop" class="inline-flex items-center gap-2 text-xs font-medium text-slate-600 border border-slate-300 rounded-md px-3 py-2 hover:bg-white">📱 Ver tela do instrutor</button>
           <button id="btn-admin-trocar-senha-desktop" class="inline-flex items-center gap-2 text-xs font-medium text-slate-500 hover:text-slate-800 px-3">🔑 Trocar minha senha</button>
           <button id="btn-admin-sair-desktop" class="inline-flex items-center gap-2 text-xs font-medium text-rose-500 hover:text-rose-700 px-3">🚪 Sair</button>
@@ -665,6 +668,68 @@
               </tr>
             </thead>
             <tbody id="dt-lista" class="divide-y divide-slate-100"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ---------- CADASTRO: TREINAMENTOS DE CAPACITAÇÃO ---------- -->
+      <section id="secao-treinamentos-capacitacao" class="hidden">
+        <div class="flex items-center justify-between mb-4">
+          <input id="tc-busca" placeholder="Buscar por descrição" class="w-full max-w-sm rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
+          <button id="btn-tc-novo" class="inline-flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium px-4 py-2 rounded-md">+ Novo treinamento</button>
+        </div>
+
+        <div id="tc-form-bloco" class="hidden border border-slate-200 bg-white rounded-lg p-4 mb-5">
+          <div id="tc-form-erro" class="hidden bg-rose-50 text-rose-600 text-sm rounded-md px-3 py-2 mb-3"></div>
+          <div class="grid sm:grid-cols-2 gap-3">
+            <div class="sm:col-span-2">
+              <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Descrição</label>
+              <textarea id="tc-descricao" rows="2" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"></textarea>
+            </div>
+            <div>
+              <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Data de disponibilização</label>
+              <input id="tc-data" type="date" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
+            </div>
+            <div>
+              <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Aplicativo</label>
+              <select id="tc-aplicativo" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">
+                <option value="workfire-mais-perto">workfire-mais-perto.netlify.app</option>
+                <option value="agenda-instrutores">agenda-instrutores.netlify.app</option>
+                <option value="ambos">Ambos os aplicativos</option>
+              </select>
+            </div>
+            <div>
+              <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Arquivo (PDF, vídeo, etc.)</label>
+              <input id="tc-arquivo-input" type="file" class="mt-1 block w-full text-xs text-slate-600 file:mr-3 file:rounded-md file:border-0 file:bg-slate-900 file:px-3 file:py-1.5 file:text-white" />
+              <p id="tc-arquivo-atual" class="text-[11px] text-slate-400 mt-1"></p>
+            </div>
+            <div>
+              <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Status</label>
+              <select id="tc-status" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">
+                <option value="Ativo">Ativo</option>
+                <option value="Inativo">Inativo</option>
+              </select>
+            </div>
+          </div>
+          <div class="flex items-center gap-3 mt-4">
+            <button id="btn-tc-salvar" class="bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium px-4 py-2 rounded-md">Salvar</button>
+            <button id="btn-tc-cancelar" class="text-sm font-medium text-slate-500 hover:text-slate-800">Cancelar</button>
+          </div>
+        </div>
+
+        <div class="bg-white border border-slate-200 rounded-lg overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="bg-slate-50 text-slate-500 text-left text-xs">
+                <th class="px-3 py-2 font-medium">Descrição</th>
+                <th class="px-3 py-2 font-medium">Disponível em</th>
+                <th class="px-3 py-2 font-medium">Aplicativo</th>
+                <th class="px-3 py-2 font-medium">Arquivo</th>
+                <th class="px-3 py-2 font-medium">Status</th>
+                <th class="px-3 py-2 font-medium"></th>
+              </tr>
+            </thead>
+            <tbody id="tc-lista" class="divide-y divide-slate-100"></tbody>
           </table>
         </div>
       </section>
@@ -1101,6 +1166,18 @@
   </div>
 
   <!-- Painel: Alunos por Turma -->
+  <div id="painel-treinamentos" class="hidden fixed inset-0 z-50 flex justify-end">
+    <div id="painel-treinamentos-overlay" class="absolute inset-0 bg-slate-900/40"></div>
+    <div class="relative w-full max-w-lg bg-white h-full shadow-xl px-6 py-6 overflow-y-auto">
+      <div class="flex items-center justify-between mb-1">
+        <h2 class="font-serif text-xl text-slate-900">📚 Treinamentos</h2>
+        <button id="btn-fechar-painel-treinamentos" class="text-slate-400 hover:text-slate-700 text-xl">×</button>
+      </div>
+      <p class="text-xs text-slate-500 mb-5">Materiais de treinamento disponíveis para você.</p>
+      <div id="painel-treinamentos-lista" class="space-y-3"></div>
+    </div>
+  </div>
+
   <div id="painel-documentos-turma" class="hidden fixed inset-0 z-50 flex justify-end">
     <div id="painel-documentos-turma-overlay" class="absolute inset-0 bg-slate-900/40"></div>
     <div class="relative w-full max-w-3xl bg-white h-full shadow-xl px-6 py-6 overflow-y-auto">
