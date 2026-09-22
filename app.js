@@ -510,6 +510,10 @@ $("btn-criar-senha").addEventListener("click", async () => {
   if (senha.length < 6) return mostrarErro("pa-erro", "A senha precisa ter pelo menos 6 caracteres.");
   if (senha !== confirmar) return mostrarErro("pa-erro", "As senhas não coincidem.");
 
+  const { data: podeCriar, error: podeCriarErro } = await supabase.rpc("pode_criar_senha_primeiro_acesso", { p_email: email, p_tipo: "instrutor" });
+  if (podeCriarErro) return mostrarErro("pa-erro", "Não foi possível validar o e-mail. Tente novamente.");
+  if (!podeCriar) return mostrarErro("pa-erro", "E-mail não encontrado no cadastro, ou já tem senha. Fale com o administrador.");
+
   const { data: signUpData, error: signUpErro } = await supabase.auth.signUp({ email, password: senha });
   if (signUpErro) return mostrarErro("pa-erro", traduzirErroAuth(signUpErro));
 
@@ -572,6 +576,10 @@ $("btn-criar-senha-sistema").addEventListener("click", async () => {
   if (!email || !senha) return mostrarErro("pas-erro", "Preencha e-mail e senha.");
   if (senha.length < 6) return mostrarErro("pas-erro", "A senha precisa ter pelo menos 6 caracteres.");
   if (senha !== confirmar) return mostrarErro("pas-erro", "As senhas não coincidem.");
+
+  const { data: podeCriar, error: podeCriarErro } = await supabase.rpc("pode_criar_senha_primeiro_acesso", { p_email: email, p_tipo: "sistema" });
+  if (podeCriarErro) return mostrarErro("pas-erro", "Não foi possível validar o e-mail. Tente novamente.");
+  if (!podeCriar) return mostrarErro("pas-erro", "E-mail não encontrado no cadastro, ou já tem senha. Fale com o administrador.");
 
   const { data: signUpData, error: signUpErro } = await supabase.auth.signUp({ email, password: senha });
   if (signUpErro) return mostrarErro("pas-erro", traduzirErroAuth(signUpErro));
@@ -696,7 +704,7 @@ $("btn-rec-salvar-senha").addEventListener("click", async () => {
 
 function traduzirErroAuth(error) {
   const msg = (error && error.message) || "";
-  if (msg.includes("already registered")) return "Este e-mail já tem uma senha criada. Faça login normalmente.";
+  if (msg.includes("already registered")) return "Este e-mail já tem uma senha criada. Tente fazer login normalmente; se não souber a senha, use \"Esqueci minha senha\" ou fale com o administrador.";
   if (msg.includes("Password")) return "Senha inválida (mínimo 6 caracteres).";
   return "Não foi possível concluir. Tente novamente.";
 }
