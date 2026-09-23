@@ -280,6 +280,7 @@ const MODULOS = [
   { id: "tipos_treinamento", label: "Treinamentos", icone: "🏷️", grupo: "Cadastros Básicos" },
   { id: "tipos_atividade", label: "Tipos de Atividade", icone: "🗂️", grupo: "Cadastros Básicos" },
   { id: "tipos_material", label: "Tipos de Material", icone: "🧰", grupo: "Cadastros Básicos" },
+  { id: "tipos_despesas", label: "Tipos de Despesas", icone: "💸", grupo: "Cadastros Básicos" },
   { id: "treinamentos_capacitacao", label: "Treinamentos de Capacitação", icone: "📚", grupo: "Cadastros Básicos" },
   // Comercial
   { id: "empresas", label: "Empresas", icone: "🏢", grupo: "Comercial" },
@@ -1609,6 +1610,47 @@ const CRUD_CONFIG = {
           <tr class="hover:bg-slate-50">
             <td class="px-3 py-2 text-slate-800">${i.descricao || "—"}</td>
             <td class="px-3 py-2 text-slate-600">${materialContagemPorTipo[i.id] || 0}</td>
+            <td class="px-3 py-2 whitespace-nowrap">${badge(i.status)}</td>
+            <td class="px-3 py-2 text-right whitespace-nowrap">
+              ${podeAlterar ? `<button data-crud-editar="${i.id}" class="text-slate-500 hover:text-slate-800 mr-2">✏️</button>` : ""}
+              ${podeExcluir ? `<button data-crud-excluir="${i.id}" class="text-rose-500 hover:text-rose-700">🗑️</button>` : ""}
+            </td>
+          </tr>`).join("")}
+        </tbody>
+      </table>`;
+    },
+  },
+  tipos_despesas: {
+    tabela: "tipos_despesas",
+    titulo: "Tipo de Despesa",
+    descricao: "Categorias usadas para classificar despesas, com o centro de custo padrão de cada uma.",
+    buscaPlaceholder: "Buscar por nome ou centro de custo",
+    ordenarPor: "nome",
+    campos: [
+      { id: "nome", label: "Nome do tipo de despesa", obrigatorio: true },
+      { id: "centro_custo", label: "Centro de custo" },
+      { id: "status", label: "Status", tipo: "select", opcoes: ["Ativo", "Inativo"], padrao: "Ativo" },
+    ],
+    campoBusca: (i) => `${i.nome} ${i.centro_custo || ""}`,
+    cardTitulo: (i) => i.nome,
+    cardLinhas: (i) => [i.centro_custo && `Centro de custo: ${i.centro_custo}`].filter(Boolean),
+    renderTabela: (lista, { podeAlterar, podeExcluir }) => {
+      const badge = (s) => `<span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${s === "Inativo" ? "bg-rose-50 text-rose-600" : "bg-teal-50 text-teal-700"}">${s || "—"}</span>`;
+      return `
+      <table class="w-full text-xs bg-white border border-slate-200 rounded-lg">
+        <thead>
+          <tr class="bg-slate-50 text-left text-slate-500 uppercase tracking-wide text-[10px]">
+            <th class="px-3 py-2 font-medium">Nome</th>
+            <th class="px-3 py-2 font-medium">Centro de custo</th>
+            <th class="px-3 py-2 font-medium">Status</th>
+            <th class="px-3 py-2"></th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          ${lista.map((i) => `
+          <tr class="hover:bg-slate-50">
+            <td class="px-3 py-2 text-slate-800">${i.nome || "—"}</td>
+            <td class="px-3 py-2 text-slate-600">${i.centro_custo || "—"}</td>
             <td class="px-3 py-2 whitespace-nowrap">${badge(i.status)}</td>
             <td class="px-3 py-2 text-right whitespace-nowrap">
               ${podeAlterar ? `<button data-crud-editar="${i.id}" class="text-slate-500 hover:text-slate-800 mr-2">✏️</button>` : ""}
@@ -6259,5 +6301,232 @@ $("btn-treinamentos-mobile").addEventListener("click", abrirPainelTreinamentos);
 $("btn-treinamentos-sidebar").addEventListener("click", abrirPainelTreinamentos);
 $("btn-fechar-painel-treinamentos").addEventListener("click", () => $("painel-treinamentos").classList.add("hidden"));
 $("painel-treinamentos-overlay").addEventListener("click", () => $("painel-treinamentos").classList.add("hidden"));
+
+// ===========================================================
+// SOLICITAÇÃO DE REEMBOLSO
+// Autosserviço para usuários do sistema E instrutores (cada um só
+// vê e edita os próprios reembolsos). Toda gravação passa pela RPC
+// salvar_reembolso, que já cuida da regra de "só edita enquanto
+// Não solicitado" e grava as datas de registro/solicitação.
+// ===========================================================
+let rbLista = [];
+let rbTiposDespesa = [];
+let rbEditandoId = null;
+let rbPendingFile = null;
+
+const RB_STATUS_COR = {
+  "Não solicitado": "bg-slate-100 text-slate-600",
+  "Aguardando aprovação": "bg-amber-50 text-amber-700",
+  "Aprovado": "bg-teal-50 text-teal-700",
+  "Pago": "bg-emerald-50 text-emerald-700",
+  "Recusado": "bg-rose-50 text-rose-600",
+  "Recusado parcial": "bg-orange-50 text-orange-700",
+};
+
+async function abrirPainelReembolsos() {
+  $("rb-view-form").classList.add("hidden");
+  $("rb-view-lista").classList.remove("hidden");
+  $("painel-reembolsos").classList.remove("hidden");
+  $("rb-lista").innerHTML = `<p class="text-xs text-slate-400">Carregando…</p>`;
+  await carregarTiposDespesaParaReembolso();
+  await carregarMeusReembolsos();
+}
+
+async function carregarTiposDespesaParaReembolso() {
+  const { data } = await supabase.from("tipos_despesas").select("id, nome, status").eq("status", "Ativo").order("nome");
+  rbTiposDespesa = data || [];
+  $("rb-tipo-despesa").innerHTML = `<option value="">— Selecione —</option>` +
+    rbTiposDespesa.map((t) => `<option value="${t.id}">${t.nome}</option>`).join("");
+}
+
+async function carregarMeusReembolsos() {
+  let query = supabase.from("reembolsos").select("*, tipos_despesas(nome)").order("data_registro", { ascending: false });
+  if (usuarioSistemaAtual) query = query.eq("usuario_sistema_id", usuarioSistemaAtual.id);
+  else if (perfilAtual) query = query.eq("instrutor_id", perfilAtual.id);
+  const { data, error } = await query;
+  if (error) {
+    $("rb-lista").innerHTML = `<p class="text-xs text-rose-500">Não foi possível carregar seus reembolsos.</p>`;
+    return;
+  }
+  rbLista = data || [];
+  renderizarListaReembolsos();
+}
+
+function renderizarListaReembolsos() {
+  const cont = $("rb-lista");
+  if (!rbLista.length) {
+    cont.innerHTML = `<p class="text-sm text-slate-400 text-center py-10">Nenhum reembolso solicitado ainda.</p>`;
+    return;
+  }
+  cont.innerHTML = rbLista.map((r) => {
+    const corStatus = RB_STATUS_COR[r.status] || "bg-slate-100 text-slate-600";
+    const podeEditar = r.status === "Não solicitado";
+    return `
+    <div class="border border-slate-200 rounded-lg p-3">
+      <div class="flex items-start justify-between gap-2">
+        <div>
+          <p class="text-sm font-medium text-slate-800">${(r.tipos_despesas && r.tipos_despesas.nome) || "—"}</p>
+          <p class="text-xs text-slate-500 mt-0.5">${formatarDataBr(r.data_despesa)} · ${fmtBRL(r.valor)}</p>
+        </div>
+        <span class="text-[11px] font-medium px-2 py-0.5 rounded-full whitespace-nowrap ${corStatus}">${r.status}</span>
+      </div>
+      ${r.descricao ? `<p class="text-xs text-slate-500 mt-2">${r.descricao}</p>` : ""}
+      ${r.treinamento ? `<p class="text-xs text-slate-400 mt-1">Treinamento: ${r.treinamento}</p>` : ""}
+      <div class="flex items-center gap-3 mt-2 pt-2 border-t border-slate-100">
+        ${r.anexo_path ? `<button data-rb-ver-anexo="${r.id}" class="text-xs font-medium text-teal-700 hover:text-teal-900">📎 Ver comprovante</button>` : `<span class="text-xs text-slate-300">Sem comprovante</span>`}
+        ${podeEditar ? `<button data-rb-editar="${r.id}" class="text-xs font-medium text-slate-500 hover:text-slate-800 ml-auto">✏️ Editar</button>` : ""}
+      </div>
+    </div>`;
+  }).join("");
+
+  cont.querySelectorAll("[data-rb-editar]").forEach((btn) =>
+    btn.addEventListener("click", () => abrirEdicaoReembolso(btn.getAttribute("data-rb-editar")))
+  );
+  cont.querySelectorAll("[data-rb-ver-anexo]").forEach((btn) =>
+    btn.addEventListener("click", () => abrirAnexoReembolso(btn.getAttribute("data-rb-ver-anexo")))
+  );
+}
+
+function limparFormularioReembolso() {
+  rbEditandoId = null;
+  rbPendingFile = null;
+  esconderErro("rb-form-erro");
+  $("rb-data").value = "";
+  $("rb-tipo-despesa").value = "";
+  $("rb-descricao").value = "";
+  $("rb-treinamento").value = "";
+  $("rb-valor").value = "";
+  $("rb-anexo-input").value = "";
+  $("rb-anexo-atual").classList.add("hidden");
+  $("rb-anexo-atual").textContent = "";
+  $("rb-anexo-selecionado").classList.add("hidden");
+  $("rb-anexo-selecionado").textContent = "";
+}
+
+function abrirNovoReembolso() {
+  limparFormularioReembolso();
+  $("rb-form-titulo").textContent = "Novo reembolso";
+  $("rb-view-lista").classList.add("hidden");
+  $("rb-view-form").classList.remove("hidden");
+}
+
+function abrirEdicaoReembolso(id) {
+  const r = rbLista.find((x) => x.id === id);
+  if (!r || r.status !== "Não solicitado") return;
+  limparFormularioReembolso();
+  rbEditandoId = id;
+  $("rb-data").value = r.data_despesa || "";
+  $("rb-tipo-despesa").value = r.tipo_despesa_id || "";
+  $("rb-descricao").value = r.descricao || "";
+  $("rb-treinamento").value = r.treinamento || "";
+  $("rb-valor").value = r.valor != null ? r.valor : "";
+  if (r.anexo_nome) {
+    $("rb-anexo-atual").textContent = `Comprovante atual: ${r.anexo_nome} (selecione um novo arquivo apenas se quiser substituí-lo)`;
+    $("rb-anexo-atual").classList.remove("hidden");
+  }
+  $("rb-form-titulo").textContent = "Editar reembolso";
+  $("rb-view-lista").classList.add("hidden");
+  $("rb-view-form").classList.remove("hidden");
+}
+
+function fecharFormReembolso() {
+  $("rb-view-form").classList.add("hidden");
+  $("rb-view-lista").classList.remove("hidden");
+}
+
+async function salvarReembolso(solicitar) {
+  esconderErro("rb-form-erro");
+  const dataDespesa = $("rb-data").value;
+  const tipoDespesaId = $("rb-tipo-despesa").value;
+  const descricao = $("rb-descricao").value.trim();
+  const treinamento = $("rb-treinamento").value.trim();
+  const valor = parseFloat($("rb-valor").value);
+
+  if (!dataDespesa) return mostrarErro("rb-form-erro", "Informe a data da despesa.");
+  if (!tipoDespesaId) return mostrarErro("rb-form-erro", "Selecione o tipo de despesa.");
+  if (!valor || valor <= 0) return mostrarErro("rb-form-erro", "Informe o valor do reembolso.");
+
+  const btnGravar = $("btn-rb-gravar");
+  const btnSolicitar = $("btn-rb-gravar-solicitar");
+  const textoGravar = btnGravar.textContent;
+  const textoSolicitar = btnSolicitar.textContent;
+  btnGravar.disabled = true;
+  btnSolicitar.disabled = true;
+  btnGravar.textContent = "Salvando…";
+  btnSolicitar.textContent = "Salvando…";
+
+  let anexoPath = null, anexoNome = null, anexoTipo = null;
+  if (rbPendingFile) {
+    const ext = (rbPendingFile.name.split(".").pop() || "bin").toLowerCase();
+    const caminho = `${sessaoAtual.user.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+    const { error: erroUp } = await supabase.storage.from("reembolsos-comprovantes").upload(caminho, rbPendingFile);
+    if (erroUp) {
+      btnGravar.disabled = false;
+      btnSolicitar.disabled = false;
+      btnGravar.textContent = textoGravar;
+      btnSolicitar.textContent = textoSolicitar;
+      return mostrarErro("rb-form-erro", "Não foi possível enviar o comprovante. Tente novamente.");
+    }
+    anexoPath = caminho;
+    anexoNome = rbPendingFile.name;
+    anexoTipo = rbPendingFile.type || null;
+  }
+
+  const { error } = await supabase.rpc("salvar_reembolso", {
+    p_id: rbEditandoId,
+    p_data_despesa: dataDespesa,
+    p_tipo_despesa_id: tipoDespesaId,
+    p_descricao: descricao || null,
+    p_treinamento: treinamento || null,
+    p_valor: valor,
+    p_anexo_path: anexoPath,
+    p_anexo_nome: anexoNome,
+    p_anexo_tipo: anexoTipo,
+    p_solicitar: solicitar,
+  });
+
+  btnGravar.disabled = false;
+  btnSolicitar.disabled = false;
+  btnGravar.textContent = textoGravar;
+  btnSolicitar.textContent = textoSolicitar;
+
+  if (error) return mostrarErro("rb-form-erro", error.message || "Não foi possível salvar o reembolso. Tente novamente.");
+
+  fecharFormReembolso();
+  await carregarMeusReembolsos();
+}
+
+async function urlAnexoReembolso(path) {
+  if (!path) return null;
+  const { data, error } = await supabase.storage.from("reembolsos-comprovantes").createSignedUrl(path, 60 * 60);
+  return error ? null : data.signedUrl;
+}
+
+async function abrirAnexoReembolso(id) {
+  const r = rbLista.find((x) => x.id === id);
+  const u = await urlAnexoReembolso(r && r.anexo_path);
+  if (u) window.open(u, "_blank");
+}
+
+$("rb-anexo-input").addEventListener("change", (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  rbPendingFile = file;
+  $("rb-anexo-selecionado").textContent = `Selecionado: ${file.name}`;
+  $("rb-anexo-selecionado").classList.remove("hidden");
+});
+
+$("btn-rb-novo").addEventListener("click", abrirNovoReembolso);
+$("btn-rb-fechar-form").addEventListener("click", fecharFormReembolso);
+$("btn-rb-cancelar-form").addEventListener("click", fecharFormReembolso);
+$("btn-rb-gravar").addEventListener("click", () => salvarReembolso(false));
+$("btn-rb-gravar-solicitar").addEventListener("click", () => salvarReembolso(true));
+
+$("btn-reembolso-desktop").addEventListener("click", abrirPainelReembolsos);
+$("btn-reembolso-mobile").addEventListener("click", abrirPainelReembolsos);
+$("btn-reembolso-sidebar").addEventListener("click", abrirPainelReembolsos);
+$("btn-reembolso-instrutor").addEventListener("click", abrirPainelReembolsos);
+$("btn-fechar-painel-reembolsos").addEventListener("click", () => $("painel-reembolsos").classList.add("hidden"));
+$("painel-reembolsos-overlay").addEventListener("click", () => $("painel-reembolsos").classList.add("hidden"));
 
 })();
