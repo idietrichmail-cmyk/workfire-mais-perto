@@ -1128,6 +1128,8 @@ function limparFormulario() {
   mesCalendarioForm = new Date();
   aptidoesSelecionadas = new Set();
   esconderErro("form-erro");
+  logConfirmacaoInstrutorLista = [];
+  $("f-log-confirmacao-bloco").classList.add("hidden");
 }
 
 $("btn-novo-instrutor").addEventListener("click", () => {
@@ -1175,7 +1177,80 @@ async function abrirEdicao(id) {
   $("btn-salvar-instrutor").textContent = "Salvar alterações";
   renderizarCalendarioForm();
   $("painel-form").classList.remove("hidden");
+  carregarLogConfirmacaoInstrutor(id);
 }
+
+// ===========================================================
+// Histórico de confirmações do instrutor (instrutor_confirmacao_log)
+// Visível na tela de edição do instrutor; exclusão restrita a admin.
+// ===========================================================
+let logConfirmacaoInstrutorLista = [];
+
+const LOG_CONFIRMACAO_TIPO_LABEL = {
+  solicitacao_confirmacao: "📨 Solicitação de confirmação enviada",
+  resposta_confirmacao: "✅ Resposta do instrutor à confirmação",
+  solicitacao_cancelamento: "🚫 Instrutor pediu cancelamento",
+  resposta_cancelamento: "📋 Centro de Treinamento respondeu ao cancelamento",
+};
+
+async function carregarLogConfirmacaoInstrutor(instrutorId) {
+  $("f-log-confirmacao-bloco").classList.remove("hidden");
+  $("f-log-confirmacao-lista").innerHTML = `<p class="text-xs text-slate-400">Carregando…</p>`;
+  const { data, error } = await supabase
+    .from("instrutor_confirmacao_log")
+    .select("*, turmas(identificacao), usuarios_sistema(nome)")
+    .eq("instrutor_id", instrutorId)
+    .order("criado_em", { ascending: false });
+  if (editandoId !== instrutorId) return; // painel pode ter mudado enquanto carregava
+  if (error) {
+    $("f-log-confirmacao-lista").innerHTML = `<p class="text-xs text-rose-500">Não foi possível carregar o histórico.</p>`;
+    return;
+  }
+  logConfirmacaoInstrutorLista = data || [];
+  renderizarLogConfirmacaoInstrutor();
+}
+
+function renderizarLogConfirmacaoInstrutor() {
+  const el = $("f-log-confirmacao-lista");
+  if (!logConfirmacaoInstrutorLista.length) {
+    el.innerHTML = `<p class="text-xs text-slate-400">Nenhum registro encontrado.</p>`;
+    return;
+  }
+  const podeExcluirLog = usuarioSistemaAtual && usuarioSistemaAtual.role === "admin";
+  el.innerHTML = logConfirmacaoInstrutorLista.map((l) => {
+    const dataHora = new Date(l.criado_em);
+    const horaFmt = isNaN(dataHora) ? "" : dataHora.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+    const turmaLabel = l.turmas?.identificacao ? `Turma ${l.turmas.identificacao}` : "";
+    const quemLabel = l.usuarios_sistema?.nome ? ` · por ${l.usuarios_sistema.nome}` : "";
+    const corResposta = l.resposta === "confirmado" || l.resposta === "aprovado" ? "text-teal-700" : (l.resposta === "negado" || l.resposta === "rejeitado" ? "text-rose-600" : "text-slate-700");
+    const respostaLabel = l.resposta ? ` — <span class="font-medium ${corResposta}">${l.resposta}</span>` : "";
+    return `
+    <div class="text-xs bg-white border border-slate-200 rounded-md px-2.5 py-2">
+      <div class="flex items-start justify-between gap-2">
+        <div class="flex-1">
+          <p class="font-medium text-slate-700">${LOG_CONFIRMACAO_TIPO_LABEL[l.tipo_evento] || l.tipo_evento}${respostaLabel}</p>
+          <p class="text-slate-500 mt-0.5">${[turmaLabel, `Data do treinamento: ${formatarDataBr(l.data_treinamento)}`].filter(Boolean).join(" · ")}</p>
+          ${l.justificativa ? `<p class="text-slate-400 italic mt-0.5">"${l.justificativa}"</p>` : ""}
+          <p class="text-slate-400 mt-0.5">${horaFmt}${quemLabel}</p>
+        </div>
+        ${podeExcluirLog ? `<button data-log-excluir="${l.id}" class="text-slate-400 hover:text-rose-600 text-xs shrink-0" title="Excluir registro">🗑️</button>` : ""}
+      </div>
+    </div>`;
+  }).join("");
+}
+
+$("f-log-confirmacao-lista").addEventListener("click", async (e) => {
+  const btn = e.target.closest("[data-log-excluir]");
+  if (!btn) return;
+  if (!(usuarioSistemaAtual && usuarioSistemaAtual.role === "admin")) return;
+  if (!confirmarExclusao("este registro do histórico de confirmações")) return;
+  const id = btn.getAttribute("data-log-excluir");
+  const { error } = await supabase.from("instrutor_confirmacao_log").delete().eq("id", id);
+  if (!error) {
+    logConfirmacaoInstrutorLista = logConfirmacaoInstrutorLista.filter((l) => l.id !== id);
+    renderizarLogConfirmacaoInstrutor();
+  }
+});
 
 $("btn-fechar-painel").addEventListener("click", () => $("painel-form").classList.add("hidden"));
 $("btn-cancelar-painel").addEventListener("click", () => $("painel-form").classList.add("hidden"));
