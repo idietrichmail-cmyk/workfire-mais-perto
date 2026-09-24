@@ -195,6 +195,19 @@ let listaEmpresasAtivas = [];
 let atividadeRefUsuarios = [];
 let atividadeRefTipos = [];
 let atividadeRefCentros = [];
+// Usuários do sistema disponíveis para seleção como "Gestor direto"
+// (cadastro de instrutores e de usuários do sistema). Carregada sob demanda
+// via RPC listar_usuarios_sistema_para_gestor (não depende do módulo de
+// permissões "Usuários do Sistema" estar liberado para quem está editando).
+let usuariosSistemaRefGestores = [];
+let usuariosSistemaRefGestoresCarregada = false;
+async function carregarUsuariosSistemaRefGestores(forcar) {
+  if (usuariosSistemaRefGestoresCarregada && !forcar) return usuariosSistemaRefGestores;
+  const { data, error } = await supabase.rpc("listar_usuarios_sistema_para_gestor");
+  usuariosSistemaRefGestores = error ? [] : (data || []);
+  usuariosSistemaRefGestoresCarregada = true;
+  return usuariosSistemaRefGestores;
+}
 // Listas de referência para o cadastro de Materiais
 let materialRefTipos = [];
 let materialRefFornecedores = [];
@@ -833,6 +846,19 @@ async function entrarNoPainelAdmin() {
   mostrarTela("tela-admin");
   renderizarNavAdmin();
   mostrarMenuInicio();
+  atualizarVisibilidadeAprovacoesReembolso();
+}
+
+// Mostra os botões "Aprovações de Reembolso" apenas para quem de fato
+// participa do fluxo (gestor direto de alguém, gestor financeiro, ou admin).
+async function atualizarVisibilidadeAprovacoesReembolso() {
+  const { data, error } = await supabase.rpc("reembolso_minha_situacao_aprovacao");
+  const situacao = error ? { eh_gestor: false, eh_financeiro: false, eh_admin: false } : (data || {});
+  const mostrar = !!(situacao.eh_gestor || situacao.eh_financeiro || situacao.eh_admin);
+  ["btn-aprov-reembolso-sidebar", "btn-aprov-reembolso-mobile", "btn-aprov-reembolso-desktop"].forEach((id) => {
+    const el = $(id);
+    if (el) el.classList.toggle("hidden", !mostrar);
+  });
 }
 
 // Abas de área no menu inicial: Geral, Cadastros Básicos, Comercial, Logística, Operações.
@@ -1118,6 +1144,7 @@ async function sairAdmin() {
 function limparFormulario() {
   ["f-nome","f-cpf","f-email","f-telefone","f-especialidade","f-carga","f-observacoes"].forEach((id) => ($(id).value = ""));
   $("f-status").value = "Ativo";
+  if ($("f-gestor-direto")) $("f-gestor-direto").value = "";
   diasStatusForm = {};
   formDatasPreAgendadas = new Set();
   pendingDocFile = null;
@@ -1133,7 +1160,15 @@ function limparFormulario() {
   $("f-log-confirmacao-bloco").classList.add("hidden");
 }
 
-$("btn-novo-instrutor").addEventListener("click", () => {
+function preencherSelectGestorDireto(valorAtual, excluirId) {
+  const sel = $("f-gestor-direto");
+  if (!sel) return;
+  const opcoes = usuariosSistemaRefGestores.filter((u) => u.id !== excluirId);
+  sel.innerHTML = `<option value="">— Selecione —</option>` +
+    opcoes.map((u) => `<option value="${u.id}" ${u.id === valorAtual ? "selected" : ""}>${u.nome}</option>`).join("");
+}
+
+$("btn-novo-instrutor").addEventListener("click", async () => {
   editandoId = null;
   limparFormulario();
   $("painel-titulo").textContent = "Novo instrutor";
@@ -1141,6 +1176,8 @@ $("btn-novo-instrutor").addEventListener("click", () => {
   preencherCentroPrincipalForm("");
   renderizarAptidoesForm();
   renderizarCalendarioForm();
+  await carregarUsuariosSistemaRefGestores();
+  preencherSelectGestorDireto(null, null);
   $("painel-form").classList.remove("hidden");
 });
 
@@ -1179,6 +1216,7 @@ async function abrirEdicao(id) {
   renderizarCalendarioForm();
   $("painel-form").classList.remove("hidden");
   carregarLogConfirmacaoInstrutor(id);
+  carregarUsuariosSistemaRefGestores().then(() => preencherSelectGestorDireto(inst.gestor_direto_id || null, null));
 }
 
 // ===========================================================
@@ -1321,9 +1359,11 @@ async function salvarInstrutor() {
   const nome = $("f-nome").value.trim();
   const especialidade = $("f-especialidade").value.trim();
   const email = $("f-email").value.trim();
+  const gestorDiretoId = ($("f-gestor-direto") && $("f-gestor-direto").value) || null;
   if (!nome) return mostrarErro("form-erro", "Informe o nome do instrutor.");
   if (!especialidade) return mostrarErro("form-erro", "Informe a especialidade do instrutor.");
   if (!email) return mostrarErro("form-erro", "Informe o e-mail do instrutor.");
+  if (!gestorDiretoId) return mostrarErro("form-erro", "Selecione o gestor direto do instrutor. Esse campo é obrigatório.");
 
   const payload = {
     nome,
@@ -1336,6 +1376,7 @@ async function salvarInstrutor() {
     observacoes: $("f-observacoes").value.trim(),
     dias_status: diasStatusForm,
     centro_treinamento_principal_id: $("f-centro-principal").value || null,
+    gestor_direto_id: gestorDiretoId,
   };
 
   $("btn-salvar-instrutor").disabled = true;
@@ -1353,6 +1394,9 @@ async function salvarInstrutor() {
     $("btn-salvar-instrutor").textContent = editandoId ? "Salvar alterações" : "Cadastrar instrutor";
     if (erro.message && erro.message.includes("duplicate")) {
       return mostrarErro("form-erro", "Já existe um instrutor cadastrado com esse e-mail.");
+    }
+    if (erro.message && erro.message.includes("gestor direto")) {
+      return mostrarErro("form-erro", erro.message);
     }
     return mostrarErro("form-erro", "Não foi possível salvar. Tente novamente.");
   }
@@ -1946,12 +1990,20 @@ const CRUD_CONFIG = {
     descricao: "Pessoas com acesso à área de trabalho e suas permissões.",
     buscaPlaceholder: "Buscar por nome ou e-mail",
     ordenarPor: "nome",
+    carregarRefs: async () => { await carregarUsuariosSistemaRefGestores(true); },
     campos: [
       { id: "nome", label: "Nome completo", obrigatorio: true },
       { id: "email", label: "E-mail (login)", tipo: "email", obrigatorio: true },
       { id: "telefone", label: "Telefone (celular)", obrigatorio: true },
       { id: "role", label: "Perfil", tipo: "select", opcoes: [{ value: "usuario", label: "Usuário" }, { value: "admin", label: "Administrador" }], padrao: "usuario" },
       { id: "status", label: "Status", tipo: "select", opcoes: ["Ativo", "Inativo"], padrao: "Ativo" },
+      {
+        id: "gestor_direto_id", label: "Gestor direto", tipo: "select",
+        opcoesFn: () => [{ value: "", label: "— Nenhum —" }].concat(
+          usuariosSistemaRefGestores.filter((u) => u.id !== (crudItemEmEdicao && crudItemEmEdicao.id)).map((u) => ({ value: u.id, label: u.nome }))
+        ),
+      },
+      { id: "gestor_financeiro", label: "É gestor financeiro (aprova reembolsos na 2ª fase)", tipo: "checkbox", padrao: false },
     ],
     campoBusca: (i) => `${i.nome} ${i.email} ${i.telefone || ""}`,
     cardTitulo: (i) => i.nome,
@@ -1963,6 +2015,8 @@ const CRUD_CONFIG = {
         : (i.convite_enviado_em ? `✉️ Convite enviado em ${new Date(i.convite_enviado_em).toLocaleDateString("pt-BR")}` : "⏳ Aguardando primeiro acesso"),
       i.reset_senha_liberado_em ? "🔓 Redefinição de senha liberada"
         : (i.reset_senha_solicitado_em ? "🔑 Redefinição de senha SOLICITADA" : null),
+      i.gestor_direto_id ? `🧭 Gestor direto: ${(usuariosSistemaRefGestores.find((u) => u.id === i.gestor_direto_id) || {}).nome || "—"}` : null,
+      i.gestor_financeiro ? "💰 Gestor financeiro (2ª fase de reembolsos)" : null,
     ].filter(Boolean),
     camposExtraHtml: (item) => {
       if (!item) return "";
@@ -6317,17 +6371,42 @@ let rbPendingFile = null;
 const RB_STATUS_COR = {
   "Não solicitado": "bg-slate-100 text-slate-600",
   "Aguardando aprovação": "bg-amber-50 text-amber-700",
+  "Aguardando aprovação financeira": "bg-amber-50 text-amber-700",
   "Aprovado": "bg-teal-50 text-teal-700",
+  "Aprovado parcial": "bg-teal-50 text-teal-700",
   "Pago": "bg-emerald-50 text-emerald-700",
   "Recusado": "bg-rose-50 text-rose-600",
   "Recusado parcial": "bg-orange-50 text-orange-700",
+  "Cancelado": "bg-slate-100 text-slate-400",
 };
+
+// Gestor direto de quem está logado (usuário do sistema ou instrutor).
+function gestorDiretoDoUsuarioAtual() {
+  return (usuarioSistemaAtual && usuarioSistemaAtual.gestor_direto_id) ||
+    (perfilAtual && perfilAtual.gestor_direto_id) || null;
+}
+
+// Sem gestor direto cadastrado, o reembolso não teria quem faça a 1ª
+// aprovação — mostra aviso e trava apenas o botão de solicitar (o rascunho
+// "Gravar" continua permitido).
+function atualizarAvisoSemGestorReembolso() {
+  const semGestor = !gestorDiretoDoUsuarioAtual();
+  const aviso = $("rb-sem-gestor-aviso");
+  if (aviso) aviso.classList.toggle("hidden", !semGestor);
+  const btnSolicitar = $("btn-rb-gravar-solicitar");
+  if (btnSolicitar) {
+    btnSolicitar.disabled = semGestor;
+    btnSolicitar.classList.toggle("opacity-50", semGestor);
+    btnSolicitar.classList.toggle("cursor-not-allowed", semGestor);
+  }
+}
 
 async function abrirPainelReembolsos() {
   $("rb-view-form").classList.add("hidden");
   $("rb-view-lista").classList.remove("hidden");
   $("painel-reembolsos").classList.remove("hidden");
   $("rb-lista").innerHTML = `<p class="text-xs text-slate-400">Carregando…</p>`;
+  atualizarAvisoSemGestorReembolso();
   await carregarTiposDespesaParaReembolso();
   await carregarMeusReembolsos();
 }
@@ -6352,6 +6431,27 @@ async function carregarMeusReembolsos() {
   renderizarListaReembolsos();
 }
 
+// Valor original sempre é mantido; o valor aprovado (gestor e/ou
+// financeiro) aparece destacado quando existir, sem apagar o solicitado.
+function detalhesValorReembolsoHtml(r) {
+  const linhas = [];
+  if (r.valor_aprovado_financeiro != null) {
+    linhas.push(`<p class="text-xs mt-1"><span class="text-slate-400">Valor solicitado: ${fmtBRL(r.valor)}</span></p>`);
+    linhas.push(`<p class="text-xs font-semibold text-teal-700">Valor aprovado: ${fmtBRL(r.valor_aprovado_financeiro)}</p>`);
+  } else if (r.valor_aprovado_gestor != null && r.status === "Aguardando aprovação financeira") {
+    linhas.push(`<p class="text-xs mt-1"><span class="text-slate-400">Valor solicitado: ${fmtBRL(r.valor)}</span></p>`);
+    linhas.push(`<p class="text-xs font-semibold text-amber-700">Valor liberado pelo gestor: ${fmtBRL(r.valor_aprovado_gestor)} <span class="font-normal text-slate-400">(aguardando aprovação financeira)</span></p>`);
+  }
+  if (r.status === "Recusado") {
+    const porFinanceiro = !!r.data_aprovacao_financeira;
+    const motivo = porFinanceiro ? r.justificativa_financeiro : r.justificativa_gestor;
+    linhas.push(`<p class="text-xs text-rose-600 mt-1">Recusado pelo ${porFinanceiro ? "financeiro" : "gestor direto"}${motivo ? `: "${motivo}"` : "."}</p>`);
+  } else if (r.status === "Aprovado parcial" && r.justificativa_financeiro) {
+    linhas.push(`<p class="text-xs text-slate-500 mt-1">Motivo da aprovação parcial: "${r.justificativa_financeiro}"</p>`);
+  }
+  return linhas.join("");
+}
+
 function renderizarListaReembolsos() {
   const cont = $("rb-lista");
   if (!rbLista.length) {
@@ -6370,6 +6470,7 @@ function renderizarListaReembolsos() {
         </div>
         <span class="text-[11px] font-medium px-2 py-0.5 rounded-full whitespace-nowrap ${corStatus}">${r.status}</span>
       </div>
+      ${detalhesValorReembolsoHtml(r)}
       ${r.descricao ? `<p class="text-xs text-slate-500 mt-2">${r.descricao}</p>` : ""}
       ${r.treinamento ? `<p class="text-xs text-slate-400 mt-1">Treinamento: ${r.treinamento}</p>` : ""}
       <div class="flex items-center gap-3 mt-2 pt-2 border-t border-slate-100">
@@ -6408,6 +6509,7 @@ function abrirNovoReembolso() {
   $("rb-form-titulo").textContent = "Novo reembolso";
   $("rb-view-lista").classList.add("hidden");
   $("rb-view-form").classList.remove("hidden");
+  atualizarAvisoSemGestorReembolso();
 }
 
 function abrirEdicaoReembolso(id) {
@@ -6427,6 +6529,7 @@ function abrirEdicaoReembolso(id) {
   $("rb-form-titulo").textContent = "Editar reembolso";
   $("rb-view-lista").classList.add("hidden");
   $("rb-view-form").classList.remove("hidden");
+  atualizarAvisoSemGestorReembolso();
 }
 
 function fecharFormReembolso() {
@@ -6528,5 +6631,263 @@ $("btn-reembolso-sidebar").addEventListener("click", abrirPainelReembolsos);
 $("btn-reembolso-instrutor").addEventListener("click", abrirPainelReembolsos);
 $("btn-fechar-painel-reembolsos").addEventListener("click", () => $("painel-reembolsos").classList.add("hidden"));
 $("painel-reembolsos-overlay").addEventListener("click", () => $("painel-reembolsos").classList.add("hidden"));
+
+// ===========================================================
+// APROVAÇÕES DE REEMBOLSO (duas fases)
+// Fase 1 — gestor direto do solicitante: aprova total, aprova parcial
+// (informando o valor liberado) ou recusa, sempre com justificativa.
+// Fase 2 — gestor financeiro: mesma dinâmica, a partir do valor que o
+// gestor direto liberou. Depois de aprovado (total ou parcial), o
+// financeiro marca o pagamento. Toda decisão passa pelas RPCs
+// decidir_reembolso_gestor / decidir_reembolso_financeiro /
+// marcar_reembolso_pago, que já validam quem pode agir em cada fase.
+// ===========================================================
+let aprovSituacao = { eh_gestor: false, eh_financeiro: false, eh_admin: false };
+let aprovListaGestor = [];
+let aprovListaFinanceiro = [];
+let aprovListaPagamento = [];
+let aprovDetalheAtual = null; // { fase: 'gestor' | 'financeiro', row }
+let aprovAcaoSelecionada = null; // 'aprovado' | 'parcial' | 'recusado'
+
+function iconeSolicitanteReembolso(tipo) {
+  return tipo === "instrutor" ? "🧑‍🏫" : "🧑‍💼";
+}
+
+async function abrirPainelAprovacoesReembolso() {
+  $("aprov-view-detalhe").classList.add("hidden");
+  $("aprov-view-lista").classList.remove("hidden");
+  $("painel-aprov-reembolsos").classList.remove("hidden");
+  await carregarSituacaoEPendenciasAprovacao();
+}
+
+async function carregarSituacaoEPendenciasAprovacao() {
+  const { data, error } = await supabase.rpc("reembolso_minha_situacao_aprovacao");
+  aprovSituacao = error ? { eh_gestor: false, eh_financeiro: false, eh_admin: false } : (data || {});
+  $("aprov-secao-gestor").classList.toggle("hidden", !(aprovSituacao.eh_gestor || aprovSituacao.eh_admin));
+  $("aprov-secao-financeiro").classList.toggle("hidden", !aprovSituacao.eh_financeiro);
+  $("aprov-secao-pagamento").classList.toggle("hidden", !aprovSituacao.eh_financeiro);
+  await carregarPendenciasAprovacao();
+}
+
+async function carregarPendenciasAprovacao() {
+  if (!$("aprov-secao-gestor").classList.contains("hidden")) {
+    $("aprov-lista-gestor").innerHTML = `<p class="text-xs text-slate-400">Carregando…</p>`;
+    const { data, error } = await supabase.rpc("listar_reembolsos_pendentes_gestor");
+    aprovListaGestor = error ? [] : (data || []);
+    renderizarListaAprovGestor();
+  }
+  if (!$("aprov-secao-financeiro").classList.contains("hidden")) {
+    $("aprov-lista-financeiro").innerHTML = `<p class="text-xs text-slate-400">Carregando…</p>`;
+    $("aprov-lista-pagamento").innerHTML = `<p class="text-xs text-slate-400">Carregando…</p>`;
+    const [{ data: pend, error: e1 }, { data: pag, error: e2 }] = await Promise.all([
+      supabase.rpc("listar_reembolsos_pendentes_financeiro"),
+      supabase.rpc("listar_reembolsos_aguardando_pagamento"),
+    ]);
+    aprovListaFinanceiro = e1 ? [] : (pend || []);
+    aprovListaPagamento = e2 ? [] : (pag || []);
+    renderizarListaAprovFinanceiro();
+    renderizarListaAprovPagamento();
+  }
+}
+
+function renderizarListaAprovGestor() {
+  const cont = $("aprov-lista-gestor");
+  if (!aprovListaGestor.length) {
+    cont.innerHTML = `<p class="text-xs text-slate-400 py-4 text-center">Nenhum reembolso aguardando sua aprovação.</p>`;
+    return;
+  }
+  cont.innerHTML = aprovListaGestor.map((r) => `
+    <button data-aprov-item="${r.id}" class="w-full text-left border border-slate-200 rounded-lg p-3 hover:border-amber-400">
+      <div class="flex items-start justify-between gap-2">
+        <div>
+          <p class="text-sm font-medium text-slate-800">${iconeSolicitanteReembolso(r.solicitante_tipo)} ${r.solicitante_nome}</p>
+          <p class="text-xs text-slate-500 mt-0.5">${r.tipo_despesa_nome || "—"} · ${formatarDataBr(r.data_despesa)}</p>
+        </div>
+        <span class="text-sm font-semibold text-slate-800 whitespace-nowrap">${fmtBRL(r.valor)}</span>
+      </div>
+      ${r.descricao ? `<p class="text-xs text-slate-500 mt-2">${r.descricao}</p>` : ""}
+    </button>`).join("");
+  cont.querySelectorAll("[data-aprov-item]").forEach((btn) =>
+    btn.addEventListener("click", () => abrirDetalheAprovacao("gestor", btn.getAttribute("data-aprov-item")))
+  );
+}
+
+function renderizarListaAprovFinanceiro() {
+  const cont = $("aprov-lista-financeiro");
+  if (!aprovListaFinanceiro.length) {
+    cont.innerHTML = `<p class="text-xs text-slate-400 py-4 text-center">Nenhum reembolso aguardando aprovação financeira.</p>`;
+    return;
+  }
+  cont.innerHTML = aprovListaFinanceiro.map((r) => `
+    <button data-aprov-item="${r.id}" class="w-full text-left border border-slate-200 rounded-lg p-3 hover:border-amber-400">
+      <div class="flex items-start justify-between gap-2">
+        <div>
+          <p class="text-sm font-medium text-slate-800">${iconeSolicitanteReembolso(r.solicitante_tipo)} ${r.solicitante_nome}</p>
+          <p class="text-xs text-slate-500 mt-0.5">${r.tipo_despesa_nome || "—"} · ${formatarDataBr(r.data_despesa)}</p>
+          <p class="text-xs text-slate-400 mt-0.5">Liberado pelo gestor${r.gestor_nome ? ` (${r.gestor_nome})` : ""}</p>
+        </div>
+        <div class="text-right whitespace-nowrap">
+          ${r.valor_aprovado_gestor != null && Number(r.valor_aprovado_gestor) !== Number(r.valor) ? `<p class="text-[11px] text-slate-400 line-through">${fmtBRL(r.valor)}</p>` : ""}
+          <span class="text-sm font-semibold text-teal-700">${fmtBRL(r.valor_aprovado_gestor != null ? r.valor_aprovado_gestor : r.valor)}</span>
+        </div>
+      </div>
+      ${r.justificativa_gestor ? `<p class="text-xs text-slate-500 mt-2 italic">"${r.justificativa_gestor}"</p>` : ""}
+    </button>`).join("");
+  cont.querySelectorAll("[data-aprov-item]").forEach((btn) =>
+    btn.addEventListener("click", () => abrirDetalheAprovacao("financeiro", btn.getAttribute("data-aprov-item")))
+  );
+}
+
+function renderizarListaAprovPagamento() {
+  const cont = $("aprov-lista-pagamento");
+  if (!aprovListaPagamento.length) {
+    cont.innerHTML = `<p class="text-xs text-slate-400 py-4 text-center">Nenhum reembolso aprovado aguardando pagamento.</p>`;
+    return;
+  }
+  cont.innerHTML = aprovListaPagamento.map((r) => `
+    <div class="border border-slate-200 rounded-lg p-3">
+      <div class="flex items-start justify-between gap-2">
+        <div>
+          <p class="text-sm font-medium text-slate-800">${iconeSolicitanteReembolso(r.solicitante_tipo)} ${r.solicitante_nome}</p>
+          <p class="text-xs text-slate-500 mt-0.5">${r.tipo_despesa_nome || "—"} · ${formatarDataBr(r.data_despesa)}</p>
+          <span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${RB_STATUS_COR[r.status] || "bg-slate-100 text-slate-600"}">${r.status}</span>
+        </div>
+        <span class="text-sm font-semibold text-teal-700 whitespace-nowrap">${fmtBRL(r.valor_aprovado_financeiro)}</span>
+      </div>
+      <div class="mt-2 pt-2 border-t border-slate-100 text-right">
+        <button data-aprov-pagar="${r.id}" class="text-xs font-medium text-white bg-emerald-600 hover:bg-emerald-700 rounded-md px-3 py-1.5">💰 Marcar como pago</button>
+      </div>
+    </div>`).join("");
+  cont.querySelectorAll("[data-aprov-pagar]").forEach((btn) =>
+    btn.addEventListener("click", () => marcarReembolsoComoPago(btn.getAttribute("data-aprov-pagar")))
+  );
+}
+
+async function marcarReembolsoComoPago(id) {
+  const btn = document.querySelector(`[data-aprov-pagar="${id}"]`);
+  if (btn) { btn.disabled = true; btn.textContent = "Confirmando…"; }
+  const { error } = await supabase.rpc("marcar_reembolso_pago", { p_id: id });
+  if (error) alert(error.message || "Não foi possível marcar como pago. Tente novamente.");
+  await carregarPendenciasAprovacao();
+}
+
+function abrirDetalheAprovacao(fase, id) {
+  const lista = fase === "gestor" ? aprovListaGestor : aprovListaFinanceiro;
+  const row = lista.find((r) => r.id === id);
+  if (!row) return;
+  aprovDetalheAtual = { fase, row };
+  aprovAcaoSelecionada = null;
+  renderizarDetalheAprovacao();
+  $("aprov-view-lista").classList.add("hidden");
+  $("aprov-view-detalhe").classList.remove("hidden");
+}
+
+function renderizarDetalheAprovacao() {
+  if (!aprovDetalheAtual) return;
+  const { fase, row } = aprovDetalheAtual;
+  $("aprov-detalhe-erro").classList.add("hidden");
+  $("aprov-detalhe-titulo").textContent = fase === "gestor" ? "Aprovação do gestor direto" : "Aprovação financeira";
+  const baseValor = fase === "financeiro" ? (row.valor_aprovado_gestor != null ? row.valor_aprovado_gestor : row.valor) : row.valor;
+
+  $("aprov-detalhe-corpo").innerHTML = `
+    <p class="text-sm font-medium text-slate-800">${iconeSolicitanteReembolso(row.solicitante_tipo)} ${row.solicitante_nome}</p>
+    <p class="text-xs text-slate-500 mt-1">${row.tipo_despesa_nome || "—"} · ${formatarDataBr(row.data_despesa)}</p>
+    ${row.descricao ? `<p class="text-xs text-slate-600 mt-2">${row.descricao}</p>` : ""}
+    ${row.treinamento ? `<p class="text-xs text-slate-400 mt-1">Treinamento: ${row.treinamento}</p>` : ""}
+    <p class="text-sm font-semibold text-slate-800 mt-2">Valor solicitado: ${fmtBRL(row.valor)}</p>
+    ${fase === "financeiro" && row.valor_aprovado_gestor != null ? `<p class="text-sm font-semibold text-amber-700">Valor liberado pelo gestor: ${fmtBRL(row.valor_aprovado_gestor)}</p>` : ""}
+    ${fase === "financeiro" && row.justificativa_gestor ? `<p class="text-xs text-slate-500 mt-1 italic">Nota do gestor: "${row.justificativa_gestor}"</p>` : ""}
+    ${row.anexo_path ? `<button type="button" id="aprov-ver-anexo" class="text-xs font-medium text-teal-700 hover:text-teal-900 mt-2">📎 Ver comprovante</button>` : `<p class="text-xs text-slate-300 mt-2">Sem comprovante</p>`}
+  `;
+  const btnAnexo = $("aprov-ver-anexo");
+  if (btnAnexo) btnAnexo.addEventListener("click", async () => {
+    const u = await urlAnexoReembolso(row.anexo_path);
+    if (u) window.open(u, "_blank");
+  });
+
+  $("aprov-acoes").innerHTML = `
+    <button type="button" data-aprov-acao="aprovado" class="flex-1 bg-teal-700 hover:bg-teal-800 text-white text-xs font-medium py-2 rounded-md">✅ Aprovar total</button>
+    <button type="button" data-aprov-acao="parcial" class="flex-1 bg-amber-600 hover:bg-amber-700 text-white text-xs font-medium py-2 rounded-md">➗ Aprovar parcial</button>
+    <button type="button" data-aprov-acao="recusado" class="flex-1 bg-rose-600 hover:bg-rose-700 text-white text-xs font-medium py-2 rounded-md">❌ Recusar</button>
+  `;
+  $("aprov-acoes").querySelectorAll("[data-aprov-acao]").forEach((btn) =>
+    btn.addEventListener("click", () => selecionarAcaoAprovacao(btn.getAttribute("data-aprov-acao"), baseValor))
+  );
+
+  $("aprov-valor-parcial-bloco").classList.add("hidden");
+  $("aprov-justificativa-bloco").classList.add("hidden");
+  $("aprov-confirmar-bloco").classList.add("hidden");
+  $("aprov-valor-parcial").value = "";
+  $("aprov-justificativa").value = "";
+  $("aprov-valor-parcial-label").textContent = `Valor aprovado (menor que ${fmtBRL(baseValor)})`;
+}
+
+function selecionarAcaoAprovacao(tipo, baseValor) {
+  aprovAcaoSelecionada = tipo;
+  $("aprov-valor-parcial-bloco").classList.toggle("hidden", tipo !== "parcial");
+  $("aprov-justificativa-bloco").classList.remove("hidden");
+  $("aprov-justificativa-obrigatoria").classList.toggle("hidden", tipo === "aprovado");
+  $("aprov-confirmar-bloco").classList.remove("hidden");
+  $("aprov-confirmar-titulo").textContent = tipo === "aprovado"
+    ? "Confirmar aprovação total"
+    : tipo === "parcial"
+      ? `Confirmar aprovação parcial (menor que ${fmtBRL(baseValor)})`
+      : "Confirmar recusa";
+}
+
+async function confirmarAcaoAprovacao() {
+  if (!aprovDetalheAtual || !aprovAcaoSelecionada) return;
+  $("aprov-detalhe-erro").classList.add("hidden");
+  const { fase, row } = aprovDetalheAtual;
+  const justificativa = $("aprov-justificativa").value.trim();
+  let valorParcial = null;
+  if (aprovAcaoSelecionada === "parcial") {
+    valorParcial = parseFloat($("aprov-valor-parcial").value);
+    if (!valorParcial || valorParcial <= 0) {
+      $("aprov-detalhe-erro").textContent = "Informe o valor aprovado.";
+      $("aprov-detalhe-erro").classList.remove("hidden");
+      return;
+    }
+  }
+  if (aprovAcaoSelecionada !== "aprovado" && !justificativa) {
+    $("aprov-detalhe-erro").textContent = "Informe a justificativa.";
+    $("aprov-detalhe-erro").classList.remove("hidden");
+    return;
+  }
+  const btn = $("btn-aprov-confirmar");
+  btn.disabled = true;
+  btn.textContent = "Enviando…";
+  const rpc = fase === "gestor" ? "decidir_reembolso_gestor" : "decidir_reembolso_financeiro";
+  const { error } = await supabase.rpc(rpc, {
+    p_id: row.id,
+    p_decisao: aprovAcaoSelecionada,
+    p_valor_aprovado: valorParcial,
+    p_justificativa: justificativa || null,
+  });
+  btn.disabled = false;
+  btn.textContent = "Confirmar";
+  if (error) {
+    $("aprov-detalhe-erro").textContent = error.message || "Não foi possível registrar a decisão. Tente novamente.";
+    $("aprov-detalhe-erro").classList.remove("hidden");
+    return;
+  }
+  fecharDetalheAprovacao();
+  await carregarPendenciasAprovacao();
+}
+
+function fecharDetalheAprovacao() {
+  aprovDetalheAtual = null;
+  aprovAcaoSelecionada = null;
+  $("aprov-view-detalhe").classList.add("hidden");
+  $("aprov-view-lista").classList.remove("hidden");
+}
+
+$("btn-aprov-confirmar").addEventListener("click", confirmarAcaoAprovacao);
+$("btn-aprov-fechar-detalhe").addEventListener("click", fecharDetalheAprovacao);
+$("btn-aprov-reembolso-desktop").addEventListener("click", abrirPainelAprovacoesReembolso);
+$("btn-aprov-reembolso-mobile").addEventListener("click", abrirPainelAprovacoesReembolso);
+$("btn-aprov-reembolso-sidebar").addEventListener("click", abrirPainelAprovacoesReembolso);
+$("btn-fechar-painel-aprov-reembolsos").addEventListener("click", () => $("painel-aprov-reembolsos").classList.add("hidden"));
+$("painel-aprov-reembolsos-overlay").addEventListener("click", () => $("painel-aprov-reembolsos").classList.add("hidden"));
 
 })();
