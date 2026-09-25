@@ -880,6 +880,7 @@
 
       <!-- ---------- FINANCEIRO: CONSULTA DE REEMBOLSOS ---------- -->
       <section id="secao-consulta-reembolsos" class="hidden">
+       <div id="cr-view-lista">
         <div class="mb-5 bg-white border border-slate-200 rounded-xl p-4 flex flex-wrap items-end gap-4">
           <div>
             <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Data da despesa — de</label>
@@ -933,11 +934,21 @@
                 <th class="px-3 py-2 font-medium">Status</th>
                 <th class="px-3 py-2 font-medium">Pago em</th>
                 <th class="px-3 py-2 font-medium text-right">Comprovante</th>
+                <th class="px-3 py-2 font-medium text-right">Detalhe</th>
               </tr>
             </thead>
             <tbody id="cr-lista" class="divide-y divide-slate-100"></tbody>
           </table>
         </div>
+       </div>
+
+       <div id="cr-view-detalhe" class="hidden max-w-lg">
+        <div class="flex items-center justify-between mb-1">
+          <h2 class="font-serif text-xl text-slate-900">Detalhe do reembolso</h2>
+          <button id="btn-cr-fechar-detalhe" type="button" class="text-xs font-medium text-slate-500 hover:text-slate-800">← Voltar</button>
+        </div>
+        <div id="cr-detalhe-corpo" class="mt-3 border border-slate-200 rounded-lg p-4 bg-white space-y-3"></div>
+       </div>
       </section>
     </main>
   </div>

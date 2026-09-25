@@ -7023,6 +7023,8 @@ let crGestoresRef = [];
 let crRefsCarregadas = false;
 
 async function carregarConsultaReembolsosInit() {
+  $("cr-view-detalhe").classList.add("hidden");
+  $("cr-view-lista").classList.remove("hidden");
   if (!crRefsCarregadas) {
     const [{ data: solicitantes }, { data: gestores }] = await Promise.all([
       supabase.rpc("listar_solicitantes_reembolso"),
@@ -7081,7 +7083,7 @@ async function buscarConsultaReembolsos() {
 function renderizarListaConsultaReembolsos() {
   const cont = $("cr-lista");
   if (!crLista.length) {
-    cont.innerHTML = `<tr><td colspan="8" class="px-3 py-6 text-center text-xs text-slate-400">Nenhum reembolso encontrado para os filtros selecionados.</td></tr>`;
+    cont.innerHTML = `<tr><td colspan="9" class="px-3 py-6 text-center text-xs text-slate-400">Nenhum reembolso encontrado para os filtros selecionados.</td></tr>`;
     $("cr-resumo").textContent = "0 reembolso(s)";
     return;
   }
@@ -7102,6 +7104,7 @@ function renderizarListaConsultaReembolsos() {
       <td class="px-3 py-2 whitespace-nowrap"><span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${corStatus}">${r.status}</span></td>
       <td class="px-3 py-2 whitespace-nowrap">${r.data_pagamento ? fmtDataHoraBR(r.data_pagamento) : "—"}</td>
       <td class="px-3 py-2 text-right">${r.anexo_path ? `<button type="button" data-cr-anexo="${r.id}" class="text-xs font-medium text-teal-700 hover:text-teal-900">📎 Ver</button>` : ""}</td>
+      <td class="px-3 py-2 text-right"><button type="button" data-cr-detalhe="${r.id}" class="text-xs font-medium text-slate-600 border border-slate-300 rounded-md px-2 py-1 hover:bg-slate-50">Detalhe</button></td>
     </tr>`;
   }).join("");
   cont.querySelectorAll("[data-cr-anexo]").forEach((btn) =>
@@ -7111,9 +7114,70 @@ function renderizarListaConsultaReembolsos() {
       if (u) window.open(u, "_blank");
     })
   );
+  cont.querySelectorAll("[data-cr-detalhe]").forEach((btn) =>
+    btn.addEventListener("click", () => abrirDetalheConsultaReembolso(btn.getAttribute("data-cr-detalhe")))
+  );
   const total = crLista.reduce((s, r) => s + Number(r.valor || 0), 0);
   $("cr-resumo").textContent = `${crLista.length} reembolso(s) · total solicitado: ${fmtBRL(total)}`;
 }
+
+let crDetalheAtual = null;
+
+function abrirDetalheConsultaReembolso(id) {
+  const r = crLista.find((x) => x.id === id);
+  if (!r) return;
+  crDetalheAtual = r;
+  renderizarDetalheConsultaReembolso();
+  $("cr-view-lista").classList.add("hidden");
+  $("cr-view-detalhe").classList.remove("hidden");
+}
+
+function renderizarDetalheConsultaReembolso() {
+  const r = crDetalheAtual;
+  if (!r) return;
+  const corStatus = RB_STATUS_COR[r.status] || "bg-slate-100 text-slate-600";
+  const linha = (label, valor) => valor ? `
+    <div>
+      <p class="text-[11px] font-medium text-slate-400 uppercase tracking-wide">${label}</p>
+      <p class="text-sm text-slate-800">${valor}</p>
+    </div>` : "";
+
+  $("cr-detalhe-corpo").innerHTML = `
+    <div class="flex items-start justify-between gap-2">
+      <p class="text-sm font-medium text-slate-800">${iconeSolicitanteReembolso(r.solicitante_tipo)} ${r.solicitante_nome}</p>
+      <span class="text-[11px] font-medium px-2 py-0.5 rounded-full whitespace-nowrap ${corStatus}">${r.status}</span>
+    </div>
+    <div class="grid grid-cols-2 gap-3">
+      ${linha("Gestor direto", r.gestor_direto_nome || "— sem gestor direto —")}
+      ${linha("Tipo de despesa", r.tipo_despesa_nome)}
+      ${linha("Data da despesa", formatarDataBr(r.data_despesa))}
+      ${linha("Solicitado em", r.data_solicitacao ? fmtDataHoraBR(r.data_solicitacao) : null)}
+      ${linha("Valor solicitado", fmtBRL(r.valor))}
+      ${linha("Valor aprovado (gestor)", r.valor_aprovado_gestor != null ? fmtBRL(r.valor_aprovado_gestor) : null)}
+      ${linha("Valor aprovado (financeiro)", r.valor_aprovado_financeiro != null ? fmtBRL(r.valor_aprovado_financeiro) : null)}
+      ${linha("Pago em", r.data_pagamento ? fmtDataHoraBR(r.data_pagamento) : null)}
+    </div>
+    ${r.treinamento ? `<div><p class="text-[11px] font-medium text-slate-400 uppercase tracking-wide">Treinamento</p><p class="text-sm text-slate-700">${r.treinamento}</p></div>` : ""}
+    ${r.descricao ? `<div><p class="text-[11px] font-medium text-slate-400 uppercase tracking-wide">Descrição</p><p class="text-sm text-slate-700">${r.descricao}</p></div>` : ""}
+    ${r.justificativa_gestor ? `<div><p class="text-[11px] font-medium text-slate-400 uppercase tracking-wide">Nota do gestor direto</p><p class="text-sm text-slate-700 italic">"${r.justificativa_gestor}"</p></div>` : ""}
+    ${r.justificativa_financeiro ? `<div><p class="text-[11px] font-medium text-slate-400 uppercase tracking-wide">Nota do financeiro</p><p class="text-sm text-slate-700 italic">"${r.justificativa_financeiro}"</p></div>` : ""}
+    ${r.motivo_cancelamento ? `<div><p class="text-[11px] font-medium text-slate-400 uppercase tracking-wide">Motivo do cancelamento</p><p class="text-sm text-slate-700 italic">"${r.motivo_cancelamento}"</p></div>` : ""}
+    ${r.anexo_path ? `<button type="button" id="cr-detalhe-ver-anexo" class="text-xs font-medium text-teal-700 hover:text-teal-900">📎 Ver comprovante</button>` : `<p class="text-xs text-slate-300">Sem comprovante</p>`}
+  `;
+  const btnAnexo = $("cr-detalhe-ver-anexo");
+  if (btnAnexo) btnAnexo.addEventListener("click", async () => {
+    const u = await urlAnexoReembolso(r.anexo_path);
+    if (u) window.open(u, "_blank");
+  });
+}
+
+function fecharDetalheConsultaReembolso() {
+  crDetalheAtual = null;
+  $("cr-view-detalhe").classList.add("hidden");
+  $("cr-view-lista").classList.remove("hidden");
+}
+
+$("btn-cr-fechar-detalhe").addEventListener("click", fecharDetalheConsultaReembolso);
 
 $("btn-cr-buscar").addEventListener("click", buscarConsultaReembolsos);
 $("btn-cr-limpar-filtros").addEventListener("click", () => {
