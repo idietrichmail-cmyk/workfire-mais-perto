@@ -181,6 +181,11 @@ const qs = (sel) => document.querySelector(sel);
 let usuarioSistemaAtual = null; // linha da tabela usuarios_sistema do usuário logado
 let permissoesAtual = {}; // { modulo: { pode_consultar, pode_incluir, pode_alterar, pode_excluir } }
 let moduloAtivo = null;
+// Situação do usuário logado no fluxo de aprovação de reembolso (gestor
+// direto de alguém, gestor financeiro, ou admin) — controla se o módulo
+// "Aprovações de Reembolso" (área Financeiro) aparece no menu. A checagem
+// "de verdade" acontece nas RPCs; isso é só para a visibilidade do menu.
+let aprovSituacao = { eh_gestor: false, eh_financeiro: false, eh_admin: false };
 
 let crudModuloId = null;
 let crudLista = [];
@@ -281,7 +286,7 @@ const FORMATOS_PRATICA = ["CT", "InCompany", "Móvel"];
 const AGENDA_STATUS = ["A agendar", "Agendado", "Aguardando confirmação", "Não aplicável"];
 const ORCAMENTO_STATUS = ["Aberto", "Aprovado", "Recusado", "Cancelado", "Concluído"];
 
-const AREAS = ["Geral", "Cadastros Básicos", "Comercial", "Compras", "Logística", "Operações"];
+const AREAS = ["Geral", "Cadastros Básicos", "Comercial", "Compras", "Logística", "Operações", "Financeiro"];
 
 const MODULOS = [
   // Cadastros Básicos
@@ -311,6 +316,8 @@ const MODULOS = [
   { id: "requisicoes_compra", label: "Requisições de Compra", icone: "🛒", grupo: "Operações" },
   { id: "confirmacao_ct", label: "Confirmação do Centro de Treinamento", icone: "✅", grupo: "Operações" },
   { id: "documentos_turmas", label: "Documentos de Turmas", icone: "📷", grupo: "Operações" },
+  // Financeiro
+  { id: "aprovacoes_reembolso", label: "Aprovações de Reembolso", icone: "✅", grupo: "Financeiro" },
 ];
 
 // Área selecionada no menu inicial. "Geral" mostra todas as áreas.
@@ -438,6 +445,12 @@ function rotuloCategoriaTreinamento(id) {
 
 function podeFazer(modulo, acao) {
   if (usuarioSistemaAtual && usuarioSistemaAtual.role === "admin") return true;
+  // "Aprovações de Reembolso" não usa a grade de permissões padrão: quem vê
+  // e acessa é quem de fato participa do fluxo (gestor direto de alguém, ou
+  // gestor financeiro), segundo a RPC reembolso_minha_situacao_aprovacao.
+  if (modulo === "aprovacoes_reembolso") {
+    return acao === "consultar" && !!(aprovSituacao.eh_gestor || aprovSituacao.eh_financeiro);
+  }
   const p = permissoesAtual[modulo];
   return !!(p && p["pode_" + acao]);
 }
@@ -846,19 +859,18 @@ async function entrarNoPainelAdmin() {
   mostrarTela("tela-admin");
   renderizarNavAdmin();
   mostrarMenuInicio();
-  atualizarVisibilidadeAprovacoesReembolso();
+  carregarSituacaoAprovacaoReembolso();
 }
 
-// Mostra os botões "Aprovações de Reembolso" apenas para quem de fato
-// participa do fluxo (gestor direto de alguém, gestor financeiro, ou admin).
-async function atualizarVisibilidadeAprovacoesReembolso() {
+// Descobre se o usuário logado participa do fluxo de aprovação de reembolso
+// (gestor direto de alguém, gestor financeiro, ou admin) para decidir se o
+// módulo "Aprovações de Reembolso" (área Financeiro) aparece no menu. Como
+// a chamada é assíncrona, o menu é re-renderizado quando ela volta.
+async function carregarSituacaoAprovacaoReembolso() {
   const { data, error } = await supabase.rpc("reembolso_minha_situacao_aprovacao");
-  const situacao = error ? { eh_gestor: false, eh_financeiro: false, eh_admin: false } : (data || {});
-  const mostrar = !!(situacao.eh_gestor || situacao.eh_financeiro || situacao.eh_admin);
-  ["btn-aprov-reembolso-sidebar", "btn-aprov-reembolso-mobile", "btn-aprov-reembolso-desktop"].forEach((id) => {
-    const el = $(id);
-    if (el) el.classList.toggle("hidden", !mostrar);
-  });
+  aprovSituacao = error ? { eh_gestor: false, eh_financeiro: false, eh_admin: false } : (data || {});
+  renderizarNavAdmin();
+  if (moduloAtivo === null) mostrarMenuInicio();
 }
 
 // Abas de área no menu inicial: Geral, Cadastros Básicos, Comercial, Logística, Operações.
@@ -1028,6 +1040,10 @@ function irParaModulo(id) {
   } else if (id === "treinamentos_capacitacao") {
     $("secao-treinamentos-capacitacao").classList.remove("hidden");
     carregarTreinamentosCapacitacaoInit();
+  } else if (id === "aprovacoes_reembolso") {
+    $("admin-descricao-pagina").textContent = "Reembolsos aguardando a sua decisão, como gestor direto e/ou gestor financeiro.";
+    $("secao-aprov-reembolsos").classList.remove("hidden");
+    carregarAprovacoesReembolsoInit();
   }
 }
 
@@ -6641,42 +6657,74 @@ $("painel-reembolsos-overlay").addEventListener("click", () => $("painel-reembol
 // financeiro marca o pagamento. Toda decisão passa pelas RPCs
 // decidir_reembolso_gestor / decidir_reembolso_financeiro /
 // marcar_reembolso_pago, que já validam quem pode agir em cada fase.
+// Quando a mesma pessoa acumula os dois papéis, a tela usa abas
+// separadas (Gestor direto / Financeiro) em vez de mostrar as duas
+// listas empilhadas. Dentro da aba financeira, o financeiro também
+// pode puxar reembolsos que ainda nem passaram pelo gestor direto
+// (dentro de um período) e decidir direto — nesse caso a RPC
+// decidir_reembolso_financeiro_direto registra as duas aprovações
+// (gestor direto + financeira) em nome do próprio financeiro.
 // ===========================================================
-let aprovSituacao = { eh_gestor: false, eh_financeiro: false, eh_admin: false };
+let aprovAbaAtiva = "gestor"; // 'gestor' | 'financeiro' — só importa quando os dois papéis existem
 let aprovListaGestor = [];
 let aprovListaFinanceiro = [];
 let aprovListaPagamento = [];
-let aprovDetalheAtual = null; // { fase: 'gestor' | 'financeiro', row }
+let aprovListaSemGestor = [];
+let aprovSemGestorVisivel = false;
+let aprovDetalheAtual = null; // { fase: 'gestor' | 'financeiro' | 'financeiro_direto', row }
 let aprovAcaoSelecionada = null; // 'aprovado' | 'parcial' | 'recusado'
 
 function iconeSolicitanteReembolso(tipo) {
   return tipo === "instrutor" ? "🧑‍🏫" : "🧑‍💼";
 }
 
-async function abrirPainelAprovacoesReembolso() {
+function aprovTemPapelGestor() {
+  return !!(aprovSituacao.eh_gestor || aprovSituacao.eh_admin);
+}
+function aprovTemPapelFinanceiro() {
+  return !!aprovSituacao.eh_financeiro;
+}
+
+async function carregarAprovacoesReembolsoInit() {
   $("aprov-view-detalhe").classList.add("hidden");
   $("aprov-view-lista").classList.remove("hidden");
-  $("painel-aprov-reembolsos").classList.remove("hidden");
   await carregarSituacaoEPendenciasAprovacao();
 }
 
 async function carregarSituacaoEPendenciasAprovacao() {
   const { data, error } = await supabase.rpc("reembolso_minha_situacao_aprovacao");
   aprovSituacao = error ? { eh_gestor: false, eh_financeiro: false, eh_admin: false } : (data || {});
-  $("aprov-secao-gestor").classList.toggle("hidden", !(aprovSituacao.eh_gestor || aprovSituacao.eh_admin));
-  $("aprov-secao-financeiro").classList.toggle("hidden", !aprovSituacao.eh_financeiro);
-  $("aprov-secao-pagamento").classList.toggle("hidden", !aprovSituacao.eh_financeiro);
+  const ambos = aprovTemPapelGestor() && aprovTemPapelFinanceiro();
+  $("aprov-tabs").classList.toggle("hidden", !ambos);
+  if (!ambos) aprovAbaAtiva = aprovTemPapelGestor() ? "gestor" : "financeiro";
+  atualizarAbaAtivaAprovacao();
   await carregarPendenciasAprovacao();
 }
 
+function atualizarAbaAtivaAprovacao() {
+  const temGestor = aprovTemPapelGestor();
+  const temFinanceiro = aprovTemPapelFinanceiro();
+  const ambos = temGestor && temFinanceiro;
+  $("aprov-secao-gestor").classList.toggle("hidden", !temGestor || (ambos && aprovAbaAtiva !== "gestor"));
+  $("aprov-secao-financeiro").classList.toggle("hidden", !temFinanceiro || (ambos && aprovAbaAtiva !== "financeiro"));
+  if (!ambos) return;
+  const ativo = "bg-slate-900 text-white";
+  const inativo = "bg-white text-slate-600 border border-slate-300";
+  $("aprov-tab-gestor").className = `flex-1 text-xs font-medium py-2 rounded-md ${aprovAbaAtiva === "gestor" ? ativo : inativo}`;
+  $("aprov-tab-financeiro").className = `flex-1 text-xs font-medium py-2 rounded-md ${aprovAbaAtiva === "financeiro" ? ativo : inativo}`;
+}
+
+$("aprov-tab-gestor").addEventListener("click", () => { aprovAbaAtiva = "gestor"; atualizarAbaAtivaAprovacao(); });
+$("aprov-tab-financeiro").addEventListener("click", () => { aprovAbaAtiva = "financeiro"; atualizarAbaAtivaAprovacao(); });
+
 async function carregarPendenciasAprovacao() {
-  if (!$("aprov-secao-gestor").classList.contains("hidden")) {
+  if (aprovTemPapelGestor()) {
     $("aprov-lista-gestor").innerHTML = `<p class="text-xs text-slate-400">Carregando…</p>`;
     const { data, error } = await supabase.rpc("listar_reembolsos_pendentes_gestor");
     aprovListaGestor = error ? [] : (data || []);
     renderizarListaAprovGestor();
   }
-  if (!$("aprov-secao-financeiro").classList.contains("hidden")) {
+  if (aprovTemPapelFinanceiro()) {
     $("aprov-lista-financeiro").innerHTML = `<p class="text-xs text-slate-400">Carregando…</p>`;
     $("aprov-lista-pagamento").innerHTML = `<p class="text-xs text-slate-400">Carregando…</p>`;
     const [{ data: pend, error: e1 }, { data: pag, error: e2 }] = await Promise.all([
@@ -6687,7 +6735,60 @@ async function carregarPendenciasAprovacao() {
     aprovListaPagamento = e2 ? [] : (pag || []);
     renderizarListaAprovFinanceiro();
     renderizarListaAprovPagamento();
+    if (aprovSemGestorVisivel) await buscarReembolsosSemGestorDireto();
   }
+}
+
+// Financeiro pode optar por ver (dentro de um período) reembolsos que
+// ainda não foram vistos pelo gestor direto, e decidir direto sobre eles.
+$("aprov-sem-gestor-toggle").addEventListener("change", (e) => {
+  aprovSemGestorVisivel = e.target.checked;
+  $("aprov-sem-gestor-bloco").classList.toggle("hidden", !aprovSemGestorVisivel);
+  if (aprovSemGestorVisivel) {
+    if (!$("aprov-sem-gestor-data-inicio").value) {
+      const hoje = new Date();
+      const inicio = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate() - 30);
+      $("aprov-sem-gestor-data-inicio").value = inicio.toISOString().slice(0, 10);
+      $("aprov-sem-gestor-data-fim").value = hoje.toISOString().slice(0, 10);
+    }
+    buscarReembolsosSemGestorDireto();
+  }
+});
+$("btn-aprov-sem-gestor-buscar").addEventListener("click", buscarReembolsosSemGestorDireto);
+
+async function buscarReembolsosSemGestorDireto() {
+  $("aprov-lista-sem-gestor").innerHTML = `<p class="text-xs text-slate-400">Carregando…</p>`;
+  const dataInicio = $("aprov-sem-gestor-data-inicio").value || null;
+  const dataFim = $("aprov-sem-gestor-data-fim").value || null;
+  const { data, error } = await supabase.rpc("listar_reembolsos_sem_gestor_direto", {
+    p_data_inicio: dataInicio,
+    p_data_fim: dataFim,
+  });
+  aprovListaSemGestor = error ? [] : (data || []);
+  renderizarListaAprovSemGestor();
+}
+
+function renderizarListaAprovSemGestor() {
+  const cont = $("aprov-lista-sem-gestor");
+  if (!aprovListaSemGestor.length) {
+    cont.innerHTML = `<p class="text-xs text-slate-400 py-4 text-center">Nenhum reembolso pendente do gestor direto nesse período.</p>`;
+    return;
+  }
+  cont.innerHTML = aprovListaSemGestor.map((r) => `
+    <button data-aprov-item="${r.id}" class="w-full text-left border border-amber-200 bg-amber-50 rounded-lg p-3 hover:border-amber-400">
+      <div class="flex items-start justify-between gap-2">
+        <div>
+          <p class="text-sm font-medium text-slate-800">${iconeSolicitanteReembolso(r.solicitante_tipo)} ${r.solicitante_nome}</p>
+          <p class="text-xs text-slate-500 mt-0.5">${r.tipo_despesa_nome || "—"} · ${formatarDataBr(r.data_despesa)}</p>
+          <p class="text-xs text-amber-700 mt-0.5">Solicitado em ${fmtDataHoraBR(r.data_solicitacao)} · ainda sem aprovação do gestor direto</p>
+        </div>
+        <span class="text-sm font-semibold text-slate-800 whitespace-nowrap">${fmtBRL(r.valor)}</span>
+      </div>
+      ${r.descricao ? `<p class="text-xs text-slate-500 mt-2">${r.descricao}</p>` : ""}
+    </button>`).join("");
+  cont.querySelectorAll("[data-aprov-item]").forEach((btn) =>
+    btn.addEventListener("click", () => abrirDetalheAprovacao("financeiro_direto", btn.getAttribute("data-aprov-item")))
+  );
 }
 
 function renderizarListaAprovGestor() {
@@ -6772,7 +6873,7 @@ async function marcarReembolsoComoPago(id) {
 }
 
 function abrirDetalheAprovacao(fase, id) {
-  const lista = fase === "gestor" ? aprovListaGestor : aprovListaFinanceiro;
+  const lista = fase === "gestor" ? aprovListaGestor : fase === "financeiro" ? aprovListaFinanceiro : aprovListaSemGestor;
   const row = lista.find((r) => r.id === id);
   if (!row) return;
   aprovDetalheAtual = { fase, row };
@@ -6786,7 +6887,11 @@ function renderizarDetalheAprovacao() {
   if (!aprovDetalheAtual) return;
   const { fase, row } = aprovDetalheAtual;
   $("aprov-detalhe-erro").classList.add("hidden");
-  $("aprov-detalhe-titulo").textContent = fase === "gestor" ? "Aprovação do gestor direto" : "Aprovação financeira";
+  $("aprov-detalhe-titulo").textContent = fase === "gestor"
+    ? "Aprovação do gestor direto"
+    : fase === "financeiro_direto"
+      ? "Aprovação financeira (direto, sem gestor)"
+      : "Aprovação financeira";
   const baseValor = fase === "financeiro" ? (row.valor_aprovado_gestor != null ? row.valor_aprovado_gestor : row.valor) : row.valor;
 
   $("aprov-detalhe-corpo").innerHTML = `
@@ -6797,6 +6902,7 @@ function renderizarDetalheAprovacao() {
     <p class="text-sm font-semibold text-slate-800 mt-2">Valor solicitado: ${fmtBRL(row.valor)}</p>
     ${fase === "financeiro" && row.valor_aprovado_gestor != null ? `<p class="text-sm font-semibold text-amber-700">Valor liberado pelo gestor: ${fmtBRL(row.valor_aprovado_gestor)}</p>` : ""}
     ${fase === "financeiro" && row.justificativa_gestor ? `<p class="text-xs text-slate-500 mt-1 italic">Nota do gestor: "${row.justificativa_gestor}"</p>` : ""}
+    ${fase === "financeiro_direto" ? `<p class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md p-2 mt-2">⚠️ Este reembolso ainda não passou pela aprovação do gestor direto. Ao decidir aqui, sua decisão registra as duas aprovações (gestor direto e financeira) em seu nome.</p>` : ""}
     ${row.anexo_path ? `<button type="button" id="aprov-ver-anexo" class="text-xs font-medium text-teal-700 hover:text-teal-900 mt-2">📎 Ver comprovante</button>` : `<p class="text-xs text-slate-300 mt-2">Sem comprovante</p>`}
   `;
   const btnAnexo = $("aprov-ver-anexo");
@@ -6857,7 +6963,11 @@ async function confirmarAcaoAprovacao() {
   const btn = $("btn-aprov-confirmar");
   btn.disabled = true;
   btn.textContent = "Enviando…";
-  const rpc = fase === "gestor" ? "decidir_reembolso_gestor" : "decidir_reembolso_financeiro";
+  const rpc = fase === "gestor"
+    ? "decidir_reembolso_gestor"
+    : fase === "financeiro_direto"
+      ? "decidir_reembolso_financeiro_direto"
+      : "decidir_reembolso_financeiro";
   const { error } = await supabase.rpc(rpc, {
     p_id: row.id,
     p_decisao: aprovAcaoSelecionada,
@@ -6884,10 +6994,5 @@ function fecharDetalheAprovacao() {
 
 $("btn-aprov-confirmar").addEventListener("click", confirmarAcaoAprovacao);
 $("btn-aprov-fechar-detalhe").addEventListener("click", fecharDetalheAprovacao);
-$("btn-aprov-reembolso-desktop").addEventListener("click", abrirPainelAprovacoesReembolso);
-$("btn-aprov-reembolso-mobile").addEventListener("click", abrirPainelAprovacoesReembolso);
-$("btn-aprov-reembolso-sidebar").addEventListener("click", abrirPainelAprovacoesReembolso);
-$("btn-fechar-painel-aprov-reembolsos").addEventListener("click", () => $("painel-aprov-reembolsos").classList.add("hidden"));
-$("painel-aprov-reembolsos-overlay").addEventListener("click", () => $("painel-aprov-reembolsos").classList.add("hidden"));
 
 })();
