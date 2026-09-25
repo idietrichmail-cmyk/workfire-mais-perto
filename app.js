@@ -6679,7 +6679,11 @@ function iconeSolicitanteReembolso(tipo) {
 }
 
 function aprovTemPapelGestor() {
-  return !!(aprovSituacao.eh_gestor || aprovSituacao.eh_admin);
+  // A aprovação do gestor direto é escopada por subordinado (quem o
+  // usuário de fato gerencia) — ser admin não deve, por si só, mostrar essa
+  // aba/lista, já que a RPC só devolve os reembolsos de quem é realmente
+  // gestor direto de alguém.
+  return !!aprovSituacao.eh_gestor;
 }
 function aprovTemPapelFinanceiro() {
   return !!aprovSituacao.eh_financeiro;
