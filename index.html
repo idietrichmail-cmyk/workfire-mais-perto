@@ -877,6 +877,68 @@
           </div>
         </div>
       </section>
+
+      <!-- ---------- FINANCEIRO: CONSULTA DE REEMBOLSOS ---------- -->
+      <section id="secao-consulta-reembolsos" class="hidden">
+        <div class="mb-5 bg-white border border-slate-200 rounded-xl p-4 flex flex-wrap items-end gap-4">
+          <div>
+            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Data da despesa — de</label>
+            <input type="date" id="cr-data-inicio" class="mt-1 block rounded-md border border-slate-300 px-3 py-2 text-sm" />
+          </div>
+          <div>
+            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">até</label>
+            <input type="date" id="cr-data-fim" class="mt-1 block rounded-md border border-slate-300 px-3 py-2 text-sm" />
+          </div>
+          <div class="flex-1 min-w-[200px]">
+            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Solicitante</label>
+            <select id="cr-solicitante" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">
+              <option value="">— Todos —</option>
+            </select>
+          </div>
+          <div class="flex-1 min-w-[200px]">
+            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Gestor direto</label>
+            <select id="cr-gestor-direto" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">
+              <option value="">— Todos —</option>
+            </select>
+          </div>
+          <div>
+            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Status</label>
+            <select id="cr-status" class="mt-1 rounded-md border border-slate-300 px-3 py-2 text-sm">
+              <option value="">— Todos —</option>
+              <option value="Não solicitado">Não solicitado</option>
+              <option value="Aguardando aprovação">Aguardando aprovação</option>
+              <option value="Aguardando aprovação financeira">Aguardando aprovação financeira</option>
+              <option value="Aprovado">Aprovado</option>
+              <option value="Aprovado parcial">Aprovado parcial</option>
+              <option value="Recusado">Recusado</option>
+              <option value="Cancelado">Cancelado</option>
+              <option value="Pago">Pago</option>
+            </select>
+          </div>
+          <div class="flex items-end gap-2">
+            <button id="btn-cr-buscar" type="button" class="bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium px-4 py-2 rounded-md">Buscar</button>
+            <button id="btn-cr-limpar-filtros" type="button" class="text-xs text-amber-700 hover:underline pb-2">limpar filtros</button>
+          </div>
+          <div id="cr-resumo" class="text-xs text-slate-500 w-full"></div>
+        </div>
+        <div class="bg-white border border-slate-200 rounded-lg overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="bg-slate-50 text-slate-500 text-left text-xs">
+                <th class="px-3 py-2 font-medium">Solicitante / Gestor direto</th>
+                <th class="px-3 py-2 font-medium">Data despesa</th>
+                <th class="px-3 py-2 font-medium">Tipo de despesa</th>
+                <th class="px-3 py-2 font-medium text-right">Valor solicitado</th>
+                <th class="px-3 py-2 font-medium text-right">Valor aprovado</th>
+                <th class="px-3 py-2 font-medium">Status</th>
+                <th class="px-3 py-2 font-medium">Pago em</th>
+                <th class="px-3 py-2 font-medium text-right">Comprovante</th>
+              </tr>
+            </thead>
+            <tbody id="cr-lista" class="divide-y divide-slate-100"></tbody>
+          </table>
+        </div>
+      </section>
     </main>
   </div>
 

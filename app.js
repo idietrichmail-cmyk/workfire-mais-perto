@@ -318,6 +318,7 @@ const MODULOS = [
   { id: "documentos_turmas", label: "Documentos de Turmas", icone: "📷", grupo: "Operações" },
   // Financeiro
   { id: "aprovacoes_reembolso", label: "Aprovações de Reembolso", icone: "✅", grupo: "Financeiro" },
+  { id: "consulta_reembolsos", label: "Consulta de Reembolsos", icone: "🔎", grupo: "Financeiro" },
 ];
 
 // Área selecionada no menu inicial. "Geral" mostra todas as áreas.
@@ -450,6 +451,11 @@ function podeFazer(modulo, acao) {
   // gestor financeiro), segundo a RPC reembolso_minha_situacao_aprovacao.
   if (modulo === "aprovacoes_reembolso") {
     return acao === "consultar" && !!(aprovSituacao.eh_gestor || aprovSituacao.eh_financeiro);
+  }
+  // "Consulta de Reembolsos" é um relatório global (todos os reembolsos,
+  // de todo mundo) — só quem participa do fluxo financeiro deve acessar.
+  if (modulo === "consulta_reembolsos") {
+    return acao === "consultar" && !!aprovSituacao.eh_financeiro;
   }
   const p = permissoesAtual[modulo];
   return !!(p && p["pode_" + acao]);
@@ -1044,6 +1050,10 @@ function irParaModulo(id) {
     $("admin-descricao-pagina").textContent = "Reembolsos aguardando a sua decisão, como gestor direto e/ou gestor financeiro.";
     $("secao-aprov-reembolsos").classList.remove("hidden");
     carregarAprovacoesReembolsoInit();
+  } else if (id === "consulta_reembolsos") {
+    $("admin-descricao-pagina").textContent = "Todos os reembolsos dentro de um período, com filtros por solicitante, gestor direto e status.";
+    $("secao-consulta-reembolsos").classList.remove("hidden");
+    carregarConsultaReembolsosInit();
   }
 }
 
@@ -6998,5 +7008,123 @@ function fecharDetalheAprovacao() {
 
 $("btn-aprov-confirmar").addEventListener("click", confirmarAcaoAprovacao);
 $("btn-aprov-fechar-detalhe").addEventListener("click", fecharDetalheAprovacao);
+
+// ===========================================================
+// CONSULTA DE REEMBOLSOS (relatório — Financeiro)
+// Lista todos os reembolsos dentro de um período, com filtros opcionais
+// por solicitante, gestor direto e status. É uma consulta global (não
+// escopada por subordinado) — só quem participa do fluxo financeiro
+// (gestor financeiro ou admin) tem acesso, igual às Aprovações de
+// Reembolso.
+// ===========================================================
+let crLista = [];
+let crSolicitantesRef = [];
+let crGestoresRef = [];
+let crRefsCarregadas = false;
+
+async function carregarConsultaReembolsosInit() {
+  if (!crRefsCarregadas) {
+    const [{ data: solicitantes }, { data: gestores }] = await Promise.all([
+      supabase.rpc("listar_solicitantes_reembolso"),
+      supabase.rpc("listar_usuarios_sistema_para_gestor"),
+    ]);
+    crSolicitantesRef = solicitantes || [];
+    crGestoresRef = gestores || [];
+    preencherFiltrosConsultaReembolsos();
+    crRefsCarregadas = true;
+  }
+  if (!$("cr-data-inicio").value) {
+    const hoje = new Date();
+    const inicioMes = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+    $("cr-data-inicio").value = inicioMes.toISOString().slice(0, 10);
+    $("cr-data-fim").value = hoje.toISOString().slice(0, 10);
+  }
+  await buscarConsultaReembolsos();
+}
+
+function preencherFiltrosConsultaReembolsos() {
+  $("cr-solicitante").innerHTML = `<option value="">— Todos —</option>` +
+    crSolicitantesRef.map((s) =>
+      `<option value="${s.solicitante_tipo}:${s.solicitante_id}">${s.solicitante_nome}${s.solicitante_tipo === "instrutor" ? " (instrutor)" : ""}</option>`
+    ).join("");
+  $("cr-gestor-direto").innerHTML = `<option value="">— Todos —</option>` +
+    crGestoresRef.map((g) => `<option value="${g.id}">${g.nome}</option>`).join("");
+}
+
+async function buscarConsultaReembolsos() {
+  $("cr-lista").innerHTML = `<tr><td colspan="8" class="px-3 py-6 text-center text-xs text-slate-400">Carregando…</td></tr>`;
+  $("cr-resumo").textContent = "";
+  const dataInicio = $("cr-data-inicio").value || null;
+  const dataFim = $("cr-data-fim").value || null;
+  const solicitanteVal = $("cr-solicitante").value;
+  const [solicitanteTipo, solicitanteId] = solicitanteVal ? solicitanteVal.split(":") : [null, null];
+  const gestorDiretoId = $("cr-gestor-direto").value || null;
+  const status = $("cr-status").value || null;
+
+  const { data, error } = await supabase.rpc("consultar_reembolsos", {
+    p_data_inicio: dataInicio,
+    p_data_fim: dataFim,
+    p_solicitante_tipo: solicitanteTipo,
+    p_solicitante_id: solicitanteId,
+    p_gestor_direto_id: gestorDiretoId,
+    p_status: status,
+  });
+  if (error) {
+    crLista = [];
+    $("cr-lista").innerHTML = `<tr><td colspan="8" class="px-3 py-6 text-center text-xs text-rose-500">${error.message || "Não foi possível carregar a consulta."}</td></tr>`;
+    return;
+  }
+  crLista = data || [];
+  renderizarListaConsultaReembolsos();
+}
+
+function renderizarListaConsultaReembolsos() {
+  const cont = $("cr-lista");
+  if (!crLista.length) {
+    cont.innerHTML = `<tr><td colspan="8" class="px-3 py-6 text-center text-xs text-slate-400">Nenhum reembolso encontrado para os filtros selecionados.</td></tr>`;
+    $("cr-resumo").textContent = "0 reembolso(s)";
+    return;
+  }
+  cont.innerHTML = crLista.map((r) => {
+    const corStatus = RB_STATUS_COR[r.status] || "bg-slate-100 text-slate-600";
+    const valorAprovado = r.valor_aprovado_financeiro != null ? r.valor_aprovado_financeiro
+      : r.valor_aprovado_gestor != null ? r.valor_aprovado_gestor : null;
+    return `
+    <tr class="border-b border-slate-100 last:border-0 align-top">
+      <td class="px-3 py-2">
+        <p class="text-slate-800">${iconeSolicitanteReembolso(r.solicitante_tipo)} ${r.solicitante_nome}</p>
+        <p class="text-[11px] text-slate-400">${r.gestor_direto_nome || "— sem gestor direto —"}</p>
+      </td>
+      <td class="px-3 py-2 whitespace-nowrap">${formatarDataBr(r.data_despesa)}</td>
+      <td class="px-3 py-2">${r.tipo_despesa_nome || "—"}</td>
+      <td class="px-3 py-2 text-right whitespace-nowrap">${fmtBRL(r.valor)}</td>
+      <td class="px-3 py-2 text-right whitespace-nowrap">${valorAprovado != null ? fmtBRL(valorAprovado) : "—"}</td>
+      <td class="px-3 py-2 whitespace-nowrap"><span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${corStatus}">${r.status}</span></td>
+      <td class="px-3 py-2 whitespace-nowrap">${r.data_pagamento ? fmtDataHoraBR(r.data_pagamento) : "—"}</td>
+      <td class="px-3 py-2 text-right">${r.anexo_path ? `<button type="button" data-cr-anexo="${r.id}" class="text-xs font-medium text-teal-700 hover:text-teal-900">📎 Ver</button>` : ""}</td>
+    </tr>`;
+  }).join("");
+  cont.querySelectorAll("[data-cr-anexo]").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      const r = crLista.find((x) => x.id === btn.getAttribute("data-cr-anexo"));
+      const u = await urlAnexoReembolso(r && r.anexo_path);
+      if (u) window.open(u, "_blank");
+    })
+  );
+  const total = crLista.reduce((s, r) => s + Number(r.valor || 0), 0);
+  $("cr-resumo").textContent = `${crLista.length} reembolso(s) · total solicitado: ${fmtBRL(total)}`;
+}
+
+$("btn-cr-buscar").addEventListener("click", buscarConsultaReembolsos);
+$("btn-cr-limpar-filtros").addEventListener("click", () => {
+  $("cr-solicitante").value = "";
+  $("cr-gestor-direto").value = "";
+  $("cr-status").value = "";
+  const hoje = new Date();
+  const inicioMes = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+  $("cr-data-inicio").value = inicioMes.toISOString().slice(0, 10);
+  $("cr-data-fim").value = hoje.toISOString().slice(0, 10);
+  buscarConsultaReembolsos();
+});
 
 })();
