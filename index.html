@@ -87,6 +87,10 @@
         <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Confirmar senha</label>
         <input id="pa-confirmar" type="password" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
       </div>
+      <label class="flex items-start gap-2 text-[11px] text-slate-500 leading-snug">
+        <input id="pa-lgpd" type="checkbox" class="mt-0.5 shrink-0 w-4 h-4 accent-amber-500" />
+        <span>Declaro estar ciente e de acordo com o tratamento de meus dados pessoais, para fins de registro e participação das atividades desenvolvidas para a Work Fire conforme a <a href="https://workfire.com.br/politica-de-privacidade/" target="_blank" rel="noopener" class="text-amber-600 underline">LGPD</a>.</span>
+      </label>
       <button id="btn-criar-senha" class="w-full bg-amber-500 hover:bg-amber-600 text-slate-900 text-sm font-semibold py-2.5 rounded-md">Criar senha e entrar</button>
       <button id="btn-voltar-login-1" class="w-full text-center text-[11px] text-slate-400 hover:text-slate-700 pt-1">← Voltar</button>
     </div>
@@ -235,7 +239,10 @@
         <p id="inst-nome" class="font-serif text-lg text-white leading-tight"></p>
         <p id="inst-especialidade" class="text-amber-400 text-xs mt-0.5"></p>
       </div>
-      <button id="btn-sair-instrutor" class="text-slate-400 hover:text-white p-2">🚪</button>
+      <div class="flex flex-col items-end gap-1">
+        <button id="btn-sair-instrutor" class="text-slate-400 hover:text-white p-2">🚪</button>
+        <button id="btn-inst-meus-dados" class="text-[10px] font-medium text-amber-400 hover:text-amber-300 px-2 py-1">📍 Meus dados</button>
+      </div>
     </div>
     <div class="flex-1 px-5 py-5 overflow-y-auto">
       <p class="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">Minha disponibilidade</p>
@@ -286,6 +293,60 @@
 
       <button id="btn-reembolso-instrutor" class="mt-5 w-full inline-flex items-center justify-center gap-2 border border-slate-300 text-slate-700 hover:bg-slate-100 text-sm font-medium py-2.5 rounded-md">💸 Solicitar reembolso</button>
       <button id="btn-inst-trocar-senha" class="mt-3 w-full text-center text-[11px] text-slate-400 hover:text-slate-700">Trocar minha senha</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== ENDEREÇO DO INSTRUTOR ===================== -->
+<div id="tela-instrutor-endereco" class="tela hidden min-h-screen bg-slate-950 flex items-center justify-center p-6">
+  <div class="w-full max-w-sm bg-slate-50 rounded-[2rem] shadow-2xl overflow-hidden border border-slate-800 min-h-[640px] flex flex-col">
+    <div class="bg-slate-900 px-5 pt-6 pb-5">
+      <p class="font-serif text-lg text-white leading-tight">Meu endereço</p>
+      <p id="inste-intro" class="text-slate-400 text-[11px] mt-1"></p>
+    </div>
+    <div class="flex-1 px-5 py-5 overflow-y-auto space-y-3">
+      <div id="inste-obrigatorio-aviso" class="hidden bg-amber-50 text-amber-700 text-xs rounded-lg px-3 py-2">
+        📍 Para continuar, precisamos do seu endereço.
+      </div>
+      <div>
+        <label class="text-xs font-medium text-slate-500">CEP</label>
+        <div class="flex gap-2 mt-0.5">
+          <input id="inste-cep" maxlength="9" placeholder="00000-000" class="flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
+          <button id="btn-inste-buscar-cep" type="button" class="shrink-0 text-xs font-medium text-slate-600 border border-slate-300 rounded-md px-3 py-2 hover:bg-white">🔎 Buscar</button>
+        </div>
+        <p id="inste-cep-status" class="text-[11px] mt-1 text-slate-400"></p>
+      </div>
+      <div>
+        <label class="text-xs font-medium text-slate-500">Endereço</label>
+        <input id="inste-endereco" placeholder="Rua, avenida..." class="mt-0.5 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="text-xs font-medium text-slate-500">Número</label>
+          <input id="inste-numero" class="mt-0.5 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
+        </div>
+        <div>
+          <label class="text-xs font-medium text-slate-500">Complemento</label>
+          <input id="inste-complemento" class="mt-0.5 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
+        </div>
+      </div>
+      <div>
+        <label class="text-xs font-medium text-slate-500">Bairro</label>
+        <input id="inste-bairro" class="mt-0.5 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
+      </div>
+      <div class="grid grid-cols-3 gap-3">
+        <div class="col-span-2">
+          <label class="text-xs font-medium text-slate-500">Cidade</label>
+          <input id="inste-cidade" class="mt-0.5 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
+        </div>
+        <div>
+          <label class="text-xs font-medium text-slate-500">UF</label>
+          <input id="inste-uf" maxlength="2" class="mt-0.5 w-full rounded-md border border-slate-300 px-3 py-2 text-sm uppercase focus:outline-none focus:ring-2 focus:ring-amber-500" />
+        </div>
+      </div>
+      <p id="inste-erro" class="hidden text-xs text-rose-600"></p>
+      <button id="btn-inste-salvar" class="w-full bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium py-2.5 rounded-md">Salvar endereço</button>
+      <button id="btn-inste-voltar" class="hidden w-full text-center text-[11px] text-slate-400 hover:text-slate-700">← Voltar</button>
     </div>
   </div>
 </div>

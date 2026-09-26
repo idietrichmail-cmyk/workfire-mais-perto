@@ -753,8 +753,118 @@ async function entrarNaAgendaInstrutor() {
   renderizarDadosInstrutor();
   instrutorDatasPreAgendadas = await carregarDatasPreAgendadas(perfilAtual.id);
   renderizarCalendarioInstrutor();
-  mostrarTela("tela-instrutor");
+  if (!enderecoInstrutorPreenchido(perfilAtual)) {
+    abrirTelaEnderecoInstrutor(true);
+  } else {
+    mostrarTela("tela-instrutor");
+  }
 }
+
+// ---------------------------------------------------------
+// ENDEREÇO DO INSTRUTOR (preenchimento obrigatório no login + atualização via "Meus dados")
+// ---------------------------------------------------------
+let enderecoInstrutorObrigatorio = false;
+
+function enderecoInstrutorPreenchido(inst) {
+  return !!(inst && inst.cep && inst.endereco && inst.numero && inst.bairro && inst.cidade && inst.uf);
+}
+
+function abrirTelaEnderecoInstrutor(obrigatorio) {
+  enderecoInstrutorObrigatorio = !!obrigatorio;
+  $("inste-cep").value = perfilAtual.cep || "";
+  $("inste-endereco").value = perfilAtual.endereco || "";
+  $("inste-numero").value = perfilAtual.numero || "";
+  $("inste-complemento").value = perfilAtual.complemento || "";
+  $("inste-bairro").value = perfilAtual.bairro || "";
+  $("inste-cidade").value = perfilAtual.cidade || "";
+  $("inste-uf").value = perfilAtual.uf || "";
+  $("inste-cep-status").textContent = "";
+  $("inste-erro").classList.add("hidden");
+  $("inste-obrigatorio-aviso").classList.toggle("hidden", !enderecoInstrutorObrigatorio);
+  $("inste-intro").textContent = enderecoInstrutorObrigatorio
+    ? "Precisamos do seu endereço para continuar."
+    : "Atualize seu endereço sempre que precisar.";
+  $("btn-inste-voltar").classList.toggle("hidden", enderecoInstrutorObrigatorio);
+  mostrarTela("tela-instrutor-endereco");
+}
+
+$("btn-inst-meus-dados").addEventListener("click", () => abrirTelaEnderecoInstrutor(false));
+$("btn-inste-voltar").addEventListener("click", () => mostrarTela("tela-instrutor"));
+
+$("btn-inste-salvar").addEventListener("click", async () => {
+  $("inste-erro").classList.add("hidden");
+  const cep = $("inste-cep").value.trim();
+  const endereco = $("inste-endereco").value.trim();
+  const numero = $("inste-numero").value.trim();
+  const complemento = $("inste-complemento").value.trim();
+  const bairro = $("inste-bairro").value.trim();
+  const cidade = $("inste-cidade").value.trim();
+  const uf = $("inste-uf").value.trim().toUpperCase();
+
+  if (!cep || !endereco || !numero || !bairro || !cidade || !uf) {
+    $("inste-erro").textContent = "Preencha CEP, endereço, número, bairro, cidade e UF (complemento é opcional).";
+    $("inste-erro").classList.remove("hidden");
+    return;
+  }
+
+  const btn = $("btn-inste-salvar");
+  btn.disabled = true;
+  btn.textContent = "Salvando…";
+
+  const payload = { cep, endereco, numero, complemento, bairro, cidade, uf };
+  const { data, error } = await supabase.from("instrutores").update(payload).eq("id", perfilAtual.id).select().single();
+
+  btn.disabled = false;
+  btn.textContent = "Salvar endereço";
+
+  if (error) {
+    $("inste-erro").textContent = "Não foi possível salvar. Tente novamente.";
+    $("inste-erro").classList.remove("hidden");
+    return;
+  }
+
+  perfilAtual = data;
+  mostrarTela("tela-instrutor");
+});
+
+async function buscarCepInstrutor() {
+  const status = $("inste-cep-status");
+  const cepDigits = $("inste-cep").value.replace(/\D/g, "");
+  if (cepDigits.length !== 8) {
+    status.className = "text-[11px] mt-1 text-rose-600";
+    status.textContent = "Informe um CEP válido (8 dígitos) antes de pesquisar.";
+    return;
+  }
+
+  const btn = $("btn-inste-buscar-cep");
+  const textoOriginal = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "Buscando…";
+  status.className = "text-[11px] mt-1 text-slate-400";
+  status.textContent = "Consultando a base de CEPs…";
+
+  try {
+    const resp = await fetch(`https://brasilapi.com.br/api/cep/v2/${cepDigits}`);
+    if (!resp.ok) throw new Error("CEP não encontrado");
+    const dados = await resp.json();
+
+    $("inste-endereco").value = dados.street || "";
+    $("inste-bairro").value = dados.neighborhood || "";
+    $("inste-cidade").value = dados.city || "";
+    $("inste-uf").value = dados.state || "";
+
+    status.className = "text-[11px] mt-1 text-teal-700";
+    status.textContent = "✅ Endereço encontrado. Confira e complete o número/complemento.";
+  } catch (e) {
+    status.className = "text-[11px] mt-1 text-rose-600";
+    status.textContent = "Não foi possível encontrar esse CEP. Confira o número e preencha o endereço manualmente.";
+  } finally {
+    btn.disabled = false;
+    btn.textContent = textoOriginal;
+  }
+}
+
+$("btn-inste-buscar-cep").addEventListener("click", buscarCepInstrutor);
 
 function renderizarDadosInstrutor() {
   const box = $("inst-dados");
@@ -1543,6 +1653,7 @@ const CRUD_CONFIG = {
     ordenarPor: "nome",
     campos: [
       { id: "nome", label: "Nome do centro", obrigatorio: true },
+      { id: "cep", label: "CEP", mascara: "cep", botaoAcao: { id: "btn-buscar-cep-centro", label: "🔎 Buscar endereço", onClick: buscarCepCentro } },
       { id: "endereco", label: "Endereço" },
       { id: "capacidade_diaria", label: "Capacidade diária (pessoas/dia)", tipo: "number" },
       { id: "qtd_salas_aula", label: "Qtd. Salas de Aula", tipo: "number" },
@@ -2816,6 +2927,58 @@ if ($("f-cep")) {
   });
 }
 if ($("btn-buscar-cep")) $("btn-buscar-cep").addEventListener("click", buscarCep);
+
+async function buscarCepCentro() {
+  const status = $("btn-buscar-cep-centro-status");
+  const cepDigits = $("crud-campo-cep").value.replace(/\D/g, "");
+  if (cepDigits.length !== 8) {
+    status.className = "text-[11px] mt-1 text-rose-600";
+    status.textContent = "Informe um CEP válido (8 dígitos) antes de pesquisar.";
+    return;
+  }
+
+  const btn = $("btn-buscar-cep-centro");
+  const textoOriginal = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "Buscando…";
+  status.className = "text-[11px] mt-1 text-slate-400";
+  status.textContent = "Consultando a base de CEPs…";
+
+  try {
+    const resp = await fetch(`https://brasilapi.com.br/api/cep/v2/${cepDigits}`);
+    if (!resp.ok) throw new Error("CEP não encontrado");
+    const dados = await resp.json();
+
+    if ($("crud-campo-endereco")) {
+      const partes = [
+        [dados.street, dados.neighborhood].filter(Boolean).join(", "),
+        dados.city && dados.state ? `${dados.city}/${dados.state}` : dados.city || dados.state,
+        dados.cep ? `CEP ${dados.cep}` : null,
+      ].filter(Boolean);
+      $("crud-campo-endereco").value = partes.join(" - ");
+    }
+
+    status.className = "text-[11px] mt-1 text-teal-700";
+    status.textContent = "✅ Endereço encontrado.";
+  } catch (e) {
+    status.className = "text-[11px] mt-1 text-rose-600";
+    status.textContent = "Não foi possível encontrar esse CEP. Confira o número e preencha o endereço manualmente.";
+  } finally {
+    btn.disabled = false;
+    btn.textContent = textoOriginal;
+  }
+}
+
+if ($("inste-cep")) {
+  $("inste-cep").addEventListener("input", () => {
+    const el = $("inste-cep");
+    const pos = el.selectionStart;
+    const antes = el.value.length;
+    el.value = MASCARAS.cep(el.value);
+    const depois = el.value.length;
+    el.setSelectionRange(pos + (depois - antes), pos + (depois - antes));
+  });
+}
 
 $("btn-crud-novo").addEventListener("click", abrirNovoCrud);
 $("btn-fechar-painel-crud").addEventListener("click", () => $("painel-crud").classList.add("hidden"));
