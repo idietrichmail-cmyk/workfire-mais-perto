@@ -2634,6 +2634,11 @@ const MASCARAS = {
     if (d.length > 3) return d.replace(/^(\d{3})(\d{0,3})/, "$1.$2");
     return d;
   },
+  cep: (v) => {
+    const d = v.replace(/\D/g, "").slice(0, 8);
+    if (d.length > 5) return d.replace(/^(\d{5})(\d{0,3})/, "$1-$2");
+    return d;
+  },
 };
 
 function cpfValido(valor) {
@@ -2713,6 +2718,166 @@ async function buscarCnpjReceitaFederal() {
     btn.textContent = textoOriginal;
   }
 }
+
+// ---------------------------------------------------------
+// Endereço do treinamento in-company (orçamento) — Teoria / Prática
+// ---------------------------------------------------------
+// "prefixo" é "teo" ou "pra". Quando "usar o mesmo endereço da empresa"
+// está marcado, o endereço cadastrado da empresa (texto único, sem campos
+// separados) é guardado no próprio campo "logradouro" e os demais campos
+// de endereço ficam em branco — "mesmo_empresa" é o que diferencia esse
+// caso na hora de exibir/reabrir o orçamento.
+
+function empresaSelecionadaOrc() {
+  return listaEmpresasAtivas.find((e) => e.id === $("orc-empresa").value);
+}
+
+function atualizarPreviewEnderecoEmpresaOrc() {
+  const emp = empresaSelecionadaOrc();
+  const texto = emp?.endereco ? emp.endereco : "Nenhum endereço cadastrado para esta empresa.";
+  if ($("orc-teo-empresa-endereco-preview")) $("orc-teo-empresa-endereco-preview").textContent = texto;
+  if ($("orc-pra-empresa-endereco-preview")) $("orc-pra-empresa-endereco-preview").textContent = texto;
+}
+
+// Mostra/esconde os blocos de endereço conforme o formato escolhido para
+// teoria/prática, e esconde o bloco da prática quando ele está marcado
+// como "mesmo endereço da teoria".
+function atualizarBlocosEnderecoInCompanyOrc() {
+  const teoriaInCompany = $("orc-formato-teoria").value === "InCompany";
+  const praticaInCompany = $("orc-formato-pratica").value === "InCompany";
+  const ambosInCompany = teoriaInCompany && praticaInCompany;
+
+  $("orc-endereco-teoria-bloco").classList.toggle("hidden", !teoriaInCompany);
+  $("orc-mesmo-endereco-bloco").classList.toggle("hidden", !ambosInCompany);
+  if (!ambosInCompany) $("orc-pra-mesmo-teoria").checked = false;
+
+  const praticaSincronizada = ambosInCompany && $("orc-pra-mesmo-teoria").checked;
+  $("orc-endereco-pratica-bloco").classList.toggle("hidden", !praticaInCompany || praticaSincronizada);
+
+  atualizarPreviewEnderecoEmpresaOrc();
+}
+
+function resetarEnderecoOrc(prefixo) {
+  $(`orc-${prefixo}-usar-empresa`).checked = false;
+  ["cep", "logradouro", "numero", "complemento", "bairro", "cidade", "uf"].forEach((c) => {
+    $(`orc-${prefixo}-${c}`).value = "";
+  });
+  $(`orc-${prefixo}-cep-status`).classList.add("hidden");
+  $(`orc-${prefixo}-endereco-campos`).classList.remove("hidden");
+}
+
+function preencherEnderecoOrc(prefixo, o, sufixoDb) {
+  $(`orc-${prefixo}-usar-empresa`).checked = !!o[`endereco_${sufixoDb}_mesmo_empresa`];
+  $(`orc-${prefixo}-cep`).value = o[`endereco_${sufixoDb}_cep`] || "";
+  $(`orc-${prefixo}-logradouro`).value = o[`endereco_${sufixoDb}_logradouro`] || "";
+  $(`orc-${prefixo}-numero`).value = o[`endereco_${sufixoDb}_numero`] || "";
+  $(`orc-${prefixo}-complemento`).value = o[`endereco_${sufixoDb}_complemento`] || "";
+  $(`orc-${prefixo}-bairro`).value = o[`endereco_${sufixoDb}_bairro`] || "";
+  $(`orc-${prefixo}-cidade`).value = o[`endereco_${sufixoDb}_cidade`] || "";
+  $(`orc-${prefixo}-uf`).value = o[`endereco_${sufixoDb}_uf`] || "";
+  $(`orc-${prefixo}-cep-status`).classList.add("hidden");
+  $(`orc-${prefixo}-endereco-campos`).classList.toggle("hidden", $(`orc-${prefixo}-usar-empresa`).checked);
+}
+
+function ligarToggleUsarEnderecoEmpresaOrc(prefixo) {
+  $(`orc-${prefixo}-usar-empresa`).addEventListener("change", () => {
+    $(`orc-${prefixo}-endereco-campos`).classList.toggle("hidden", $(`orc-${prefixo}-usar-empresa`).checked);
+  });
+}
+
+function ligarMascaraCepOrc(prefixo) {
+  const el = $(`orc-${prefixo}-cep`);
+  el.addEventListener("input", () => { el.value = MASCARAS.cep(el.value); });
+  el.addEventListener("blur", () => buscarCepOrcamento(prefixo));
+}
+
+// Consulta o CEP na mesma API já usada para o CNPJ (BrasilAPI) e preenche
+// logradouro/bairro/cidade/uf automaticamente — número e complemento ficam
+// para o usuário completar.
+async function buscarCepOrcamento(prefixo) {
+  const status = $(`orc-${prefixo}-cep-status`);
+  const digits = $(`orc-${prefixo}-cep`).value.replace(/\D/g, "");
+  status.classList.remove("hidden");
+  if (digits.length !== 8) {
+    status.className = "text-[11px] mt-1 text-rose-600";
+    status.textContent = "Informe um CEP válido (8 dígitos).";
+    return;
+  }
+  status.className = "text-[11px] mt-1 text-slate-400";
+  status.textContent = "Consultando o CEP…";
+  try {
+    const resp = await fetch(`https://brasilapi.com.br/api/cep/v2/${digits}`);
+    if (!resp.ok) throw new Error("CEP não encontrado");
+    const dados = await resp.json();
+    $(`orc-${prefixo}-logradouro`).value = dados.street || "";
+    $(`orc-${prefixo}-bairro`).value = dados.neighborhood || "";
+    $(`orc-${prefixo}-cidade`).value = dados.city || "";
+    $(`orc-${prefixo}-uf`).value = dados.state || "";
+    status.className = "text-[11px] mt-1 text-teal-700";
+    status.textContent = "✅ Endereço encontrado — confira o número e o complemento.";
+  } catch (e) {
+    status.className = "text-[11px] mt-1 text-rose-600";
+    status.textContent = "Não foi possível encontrar esse CEP. Confira o número ou preencha o endereço manualmente.";
+  }
+}
+
+// Monta o objeto de endereço (teoria ou prática) a partir dos campos do
+// formulário, para gravar no orçamento.
+function coletarEnderecoOrc(prefixo) {
+  if ($(`orc-${prefixo}-usar-empresa`).checked) {
+    const emp = empresaSelecionadaOrc();
+    return {
+      mesmo_empresa: true,
+      cep: null,
+      logradouro: emp?.endereco || null,
+      numero: null,
+      complemento: null,
+      bairro: null,
+      cidade: null,
+      uf: null,
+    };
+  }
+  return {
+    mesmo_empresa: false,
+    cep: $(`orc-${prefixo}-cep`).value.trim() || null,
+    logradouro: $(`orc-${prefixo}-logradouro`).value.trim() || null,
+    numero: $(`orc-${prefixo}-numero`).value.trim() || null,
+    complemento: $(`orc-${prefixo}-complemento`).value.trim() || null,
+    bairro: $(`orc-${prefixo}-bairro`).value.trim() || null,
+    cidade: $(`orc-${prefixo}-cidade`).value.trim() || null,
+    uf: $(`orc-${prefixo}-uf`).value.trim().toUpperCase() || null,
+  };
+}
+
+// Retorna uma mensagem de erro (ou null se estiver ok) exigindo que o
+// endereço do treinamento in-company esteja informado: ou "usar o mesmo
+// endereço da empresa" marcado (com a empresa tendo endereço cadastrado),
+// ou logradouro + cidade + UF preenchidos manualmente.
+function validarEnderecoInCompanyOrc(prefixo, rotulo) {
+  if ($(`orc-${prefixo}-usar-empresa`).checked) {
+    const emp = empresaSelecionadaOrc();
+    if (!emp?.endereco) {
+      return `A empresa selecionada não tem endereço cadastrado. Desmarque "usar o mesmo endereço da empresa" e informe o endereço do treinamento in-company (${rotulo}) manualmente.`;
+    }
+    return null;
+  }
+  const logradouro = $(`orc-${prefixo}-logradouro`).value.trim();
+  const cidade = $(`orc-${prefixo}-cidade`).value.trim();
+  const uf = $(`orc-${prefixo}-uf`).value.trim();
+  if (!logradouro || !cidade || !uf) {
+    return `Informe o endereço do treinamento in-company (${rotulo}): logradouro, cidade e UF são obrigatórios (ou marque "usar o mesmo endereço da empresa").`;
+  }
+  return null;
+}
+
+$("orc-formato-teoria").addEventListener("change", atualizarBlocosEnderecoInCompanyOrc);
+$("orc-formato-pratica").addEventListener("change", atualizarBlocosEnderecoInCompanyOrc);
+$("orc-empresa").addEventListener("change", atualizarPreviewEnderecoEmpresaOrc);
+$("orc-pra-mesmo-teoria").addEventListener("change", atualizarBlocosEnderecoInCompanyOrc);
+ligarToggleUsarEnderecoEmpresaOrc("teo");
+ligarToggleUsarEnderecoEmpresaOrc("pra");
+ligarMascaraCepOrc("teo");
+ligarMascaraCepOrc("pra");
 
 $("btn-crud-novo").addEventListener("click", abrirNovoCrud);
 $("btn-fechar-painel-crud").addEventListener("click", () => $("painel-crud").classList.add("hidden"));
@@ -3633,6 +3798,10 @@ function abrirNovoOrcamento() {
   $("orc-status").value = "Aberto";
   $("orc-observacoes").value = "";
   $("orc-observacao-ct").value = "";
+  resetarEnderecoOrc("teo");
+  resetarEnderecoOrc("pra");
+  $("orc-pra-mesmo-teoria").checked = false;
+  atualizarBlocosEnderecoInCompanyOrc();
   $("orc-turmas-bloco").classList.add("hidden");
   $("orc-turmas-tbody").innerHTML = "";
   $("painel-orcamento-titulo").textContent = "Novo orçamento";
@@ -3665,6 +3834,10 @@ async function abrirEdicaoOrcamento(id) {
   $("orc-status").value = o.status;
   $("orc-observacoes").value = o.observacoes || "";
   $("orc-observacao-ct").value = o.observacao_ct || "";
+  preencherEnderecoOrc("teo", o, "teoria");
+  preencherEnderecoOrc("pra", o, "pratica");
+  $("orc-pra-mesmo-teoria").checked = !!o.endereco_pratica_mesmo_teoria;
+  atualizarBlocosEnderecoInCompanyOrc();
   $("painel-orcamento-titulo").textContent = "Editar orçamento";
   $("btn-salvar-orcamento").textContent = "Salvar alterações";
   $("painel-orcamento").classList.remove("hidden");
@@ -3764,6 +3937,28 @@ async function salvarOrcamento() {
   if (!tipoId) return mostrarErro("orc-form-erro", "Selecione o treinamento.");
   if (qtdTurmas < 1) return mostrarErro("orc-form-erro", "Informe a quantidade de turmas (mínimo 1).");
 
+  const teoriaInCompany = $("orc-formato-teoria").value === "InCompany";
+  const praticaInCompany = $("orc-formato-pratica").value === "InCompany";
+  const praticaSincronizada = teoriaInCompany && praticaInCompany && $("orc-pra-mesmo-teoria").checked;
+  if (teoriaInCompany) {
+    const erroEnderecoTeoria = validarEnderecoInCompanyOrc("teo", "teoria");
+    if (erroEnderecoTeoria) return mostrarErro("orc-form-erro", erroEnderecoTeoria);
+  }
+  if (praticaInCompany && !praticaSincronizada) {
+    const erroEnderecoPratica = validarEnderecoInCompanyOrc("pra", "prática");
+    if (erroEnderecoPratica) return mostrarErro("orc-form-erro", erroEnderecoPratica);
+  }
+
+  const enderecoTeoria = teoriaInCompany
+    ? coletarEnderecoOrc("teo")
+    : { mesmo_empresa: false, cep: null, logradouro: null, numero: null, complemento: null, bairro: null, cidade: null, uf: null };
+  let enderecoPratica = { mesmo_teoria: false, mesmo_empresa: false, cep: null, logradouro: null, numero: null, complemento: null, bairro: null, cidade: null, uf: null };
+  if (praticaInCompany) {
+    enderecoPratica = praticaSincronizada
+      ? { mesmo_teoria: true, ...enderecoTeoria }
+      : { mesmo_teoria: false, ...coletarEnderecoOrc("pra") };
+  }
+
   const qtdAlunosPorTurma = $("orc-qtd-alunos-turma").value ? Number($("orc-qtd-alunos-turma").value) : 0;
   const payload = {
     empresa_id: empresaId,
@@ -3780,6 +3975,23 @@ async function salvarOrcamento() {
     status: $("orc-status").value,
     observacoes: $("orc-observacoes").value.trim(),
     observacao_ct: $("orc-observacao-ct").value.trim() || null,
+    endereco_teoria_mesmo_empresa: enderecoTeoria.mesmo_empresa,
+    endereco_teoria_cep: enderecoTeoria.cep,
+    endereco_teoria_logradouro: enderecoTeoria.logradouro,
+    endereco_teoria_numero: enderecoTeoria.numero,
+    endereco_teoria_complemento: enderecoTeoria.complemento,
+    endereco_teoria_bairro: enderecoTeoria.bairro,
+    endereco_teoria_cidade: enderecoTeoria.cidade,
+    endereco_teoria_uf: enderecoTeoria.uf,
+    endereco_pratica_mesmo_teoria: enderecoPratica.mesmo_teoria,
+    endereco_pratica_mesmo_empresa: enderecoPratica.mesmo_empresa,
+    endereco_pratica_cep: enderecoPratica.cep,
+    endereco_pratica_logradouro: enderecoPratica.logradouro,
+    endereco_pratica_numero: enderecoPratica.numero,
+    endereco_pratica_complemento: enderecoPratica.complemento,
+    endereco_pratica_bairro: enderecoPratica.bairro,
+    endereco_pratica_cidade: enderecoPratica.cidade,
+    endereco_pratica_uf: enderecoPratica.uf,
   };
   if (!editandoOrcamentoId) payload.numero = numero;
 

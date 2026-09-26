@@ -1019,6 +1019,97 @@
             <select id="orc-formato-pratica" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"></select>
           </div>
         </div>
+
+        <!-- Endereço do treinamento in-company — Teoria (só aparece quando o formato da teoria é InCompany) -->
+        <div id="orc-endereco-teoria-bloco" class="hidden border border-slate-200 rounded-lg p-3 space-y-3 bg-slate-50/60">
+          <p class="text-xs font-medium text-slate-500 uppercase tracking-wide">Endereço do treinamento in-company — Teoria</p>
+          <label class="flex items-start gap-2 text-xs text-slate-600">
+            <input id="orc-teo-usar-empresa" type="checkbox" class="mt-0.5 rounded border-slate-300" />
+            <span>Usar o mesmo endereço cadastrado da empresa
+              <br /><span id="orc-teo-empresa-endereco-preview" class="text-slate-400"></span>
+            </span>
+          </label>
+          <div id="orc-teo-endereco-campos" class="grid grid-cols-3 gap-3">
+            <div>
+              <label class="text-[11px] font-medium text-slate-500 uppercase tracking-wide">CEP</label>
+              <input id="orc-teo-cep" placeholder="00000-000" maxlength="9" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
+              <p id="orc-teo-cep-status" class="hidden text-[11px] mt-1 text-slate-400"></p>
+            </div>
+            <div class="col-span-2">
+              <label class="text-[11px] font-medium text-slate-500 uppercase tracking-wide">Logradouro</label>
+              <input id="orc-teo-logradouro" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
+            </div>
+            <div>
+              <label class="text-[11px] font-medium text-slate-500 uppercase tracking-wide">Número</label>
+              <input id="orc-teo-numero" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
+            </div>
+            <div class="col-span-2">
+              <label class="text-[11px] font-medium text-slate-500 uppercase tracking-wide">Complemento</label>
+              <input id="orc-teo-complemento" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
+            </div>
+            <div>
+              <label class="text-[11px] font-medium text-slate-500 uppercase tracking-wide">Bairro</label>
+              <input id="orc-teo-bairro" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
+            </div>
+            <div>
+              <label class="text-[11px] font-medium text-slate-500 uppercase tracking-wide">Cidade</label>
+              <input id="orc-teo-cidade" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
+            </div>
+            <div>
+              <label class="text-[11px] font-medium text-slate-500 uppercase tracking-wide">UF</label>
+              <input id="orc-teo-uf" maxlength="2" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm uppercase focus:outline-none focus:ring-2 focus:ring-amber-500" />
+            </div>
+          </div>
+        </div>
+
+        <!-- Só aparece quando teoria e prática são, ao mesmo tempo, InCompany -->
+        <label id="orc-mesmo-endereco-bloco" class="hidden flex items-center gap-2 text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-md px-3 py-2">
+          <input id="orc-pra-mesmo-teoria" type="checkbox" class="rounded border-slate-300" />
+          Mesmo endereço da teoria para a prática
+        </label>
+
+        <!-- Endereço do treinamento in-company — Prática (só aparece quando o formato da prática é InCompany e não está sincronizado com a teoria) -->
+        <div id="orc-endereco-pratica-bloco" class="hidden border border-slate-200 rounded-lg p-3 space-y-3 bg-slate-50/60">
+          <p class="text-xs font-medium text-slate-500 uppercase tracking-wide">Endereço do treinamento in-company — Prática</p>
+          <label class="flex items-start gap-2 text-xs text-slate-600">
+            <input id="orc-pra-usar-empresa" type="checkbox" class="mt-0.5 rounded border-slate-300" />
+            <span>Usar o mesmo endereço cadastrado da empresa
+              <br /><span id="orc-pra-empresa-endereco-preview" class="text-slate-400"></span>
+            </span>
+          </label>
+          <div id="orc-pra-endereco-campos" class="grid grid-cols-3 gap-3">
+            <div>
+              <label class="text-[11px] font-medium text-slate-500 uppercase tracking-wide">CEP</label>
+              <input id="orc-pra-cep" placeholder="00000-000" maxlength="9" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
+              <p id="orc-pra-cep-status" class="hidden text-[11px] mt-1 text-slate-400"></p>
+            </div>
+            <div class="col-span-2">
+              <label class="text-[11px] font-medium text-slate-500 uppercase tracking-wide">Logradouro</label>
+              <input id="orc-pra-logradouro" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
+            </div>
+            <div>
+              <label class="text-[11px] font-medium text-slate-500 uppercase tracking-wide">Número</label>
+              <input id="orc-pra-numero" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
+            </div>
+            <div class="col-span-2">
+              <label class="text-[11px] font-medium text-slate-500 uppercase tracking-wide">Complemento</label>
+              <input id="orc-pra-complemento" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
+            </div>
+            <div>
+              <label class="text-[11px] font-medium text-slate-500 uppercase tracking-wide">Bairro</label>
+              <input id="orc-pra-bairro" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
+            </div>
+            <div>
+              <label class="text-[11px] font-medium text-slate-500 uppercase tracking-wide">Cidade</label>
+              <input id="orc-pra-cidade" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
+            </div>
+            <div>
+              <label class="text-[11px] font-medium text-slate-500 uppercase tracking-wide">UF</label>
+              <input id="orc-pra-uf" maxlength="2" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm uppercase focus:outline-none focus:ring-2 focus:ring-amber-500" />
+            </div>
+          </div>
+        </div>
+
         <div class="grid grid-cols-3 gap-3">
           <div>
             <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Qtde de turmas</label>
@@ -1507,6 +1598,6 @@
 </div>
 
 <script src="config.js"></script>
-<script src="app.js?v=20260920"></script>
+<script src="app.js?v=20260926"></script>
 </body>
 </html>

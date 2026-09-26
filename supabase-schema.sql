@@ -1067,3 +1067,40 @@ alter table instrutores
 -- Usado na tela Agendamento de Turmas para, opcionalmente, listar apenas os
 -- instrutores cujo CT principal é o da turma. O outro filtro da tela usa
 -- instrutor_categorias x tipos_treinamento.categoria_treinamento_id.
+
+-- ===========================================================
+-- 2026-09-26 — Endereço do treinamento in-company no orçamento
+-- (migração "orcamento_enderecos_incompany")
+-- ===========================================================
+-- Quando o formato da teoria e/ou da prática do orçamento é "InCompany", o
+-- operador informa o endereço onde a aula será ministrada — teoria e
+-- prática podem ter endereços distintos.
+-- "endereco_*_mesmo_empresa" = true: o endereço usado é o mesmo do
+-- cadastro da empresa (texto único, cadastrado em empresas.endereco); nesse
+-- caso o texto completo fica guardado em "endereco_*_logradouro" e os
+-- demais campos de endereço ficam em branco.
+-- "endereco_pratica_mesmo_teoria" = true: o operador marcou "mesmo
+-- endereço da teoria para a prática" — os campos de endereço da prática
+-- são gravados como cópia dos da teoria (inclusive mesmo_empresa/cep/etc.)
+-- para que qualquer tela que leia só o lado "prática" já tenha o endereço
+-- completo, sem precisar checar essa flag.
+-- O preenchimento do CEP (quando não é o mesmo endereço da empresa) busca
+-- logradouro/bairro/cidade/UF na BrasilAPI (mesma API já usada para CNPJ).
+alter table orcamentos
+  add column if not exists endereco_teoria_mesmo_empresa boolean not null default false,
+  add column if not exists endereco_teoria_cep text,
+  add column if not exists endereco_teoria_logradouro text,
+  add column if not exists endereco_teoria_numero text,
+  add column if not exists endereco_teoria_complemento text,
+  add column if not exists endereco_teoria_bairro text,
+  add column if not exists endereco_teoria_cidade text,
+  add column if not exists endereco_teoria_uf text,
+  add column if not exists endereco_pratica_mesmo_teoria boolean not null default false,
+  add column if not exists endereco_pratica_mesmo_empresa boolean not null default false,
+  add column if not exists endereco_pratica_cep text,
+  add column if not exists endereco_pratica_logradouro text,
+  add column if not exists endereco_pratica_numero text,
+  add column if not exists endereco_pratica_complemento text,
+  add column if not exists endereco_pratica_bairro text,
+  add column if not exists endereco_pratica_cidade text,
+  add column if not exists endereco_pratica_uf text;
