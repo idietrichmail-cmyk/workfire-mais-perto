@@ -1312,6 +1312,20 @@
           </div>
         </div>
 
+        <!-- Horário de início da aula — padrão 7:30 em Centro de Treinamento e 7:00 em InCompany,
+             mas o usuário pode alterar. Só existem dois horários independentes quando teoria e
+             prática têm endereços distintos (ver orc-horario-pratica-bloco). -->
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Horário de início — Teoria</label>
+            <input id="orc-horario-teoria" type="time" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
+          </div>
+          <div id="orc-horario-pratica-bloco">
+            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Horário de início — Prática</label>
+            <input id="orc-horario-pratica" type="time" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
+          </div>
+        </div>
+
         <!-- Endereço do treinamento in-company — Teoria (só aparece quando o formato da teoria é InCompany) -->
         <div id="orc-endereco-teoria-bloco" class="hidden border border-slate-200 rounded-lg p-3 space-y-3 bg-slate-50/60">
           <p class="text-xs font-medium text-slate-500 uppercase tracking-wide">Endereço do treinamento in-company — Teoria</p>

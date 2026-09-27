@@ -252,6 +252,10 @@ let agDataForcada = null; // data que deve ficar selecionável mesmo fora da dis
 let listaOrcamentos = [];
 let editandoOrcamentoId = null;
 let orcFiltroStatus = new Set(["Aberto", "Aprovado", "Recusado", "Cancelado", "Concluído"]);
+// Controlam se o horário de início (teoria/prática) já foi digitado manualmente pelo
+// usuário — enquanto não for, trocar o formato continua atualizando o valor padrão.
+let orcHorarioTeoriaEditadoManualmente = false;
+let orcHorarioPraticaEditadoManualmente = false;
 
 let listaOrcamentosParaTurma = [];
 let turmaOrcamentoSelecionadoId = null;
@@ -3237,10 +3241,79 @@ function validarEnderecoInCompanyOrc(prefixo, rotulo) {
   return null;
 }
 
-$("orc-formato-teoria").addEventListener("change", atualizarBlocosEnderecoInCompanyOrc);
-$("orc-formato-pratica").addEventListener("change", atualizarBlocosEnderecoInCompanyOrc);
+// ---------------------------------------------------------
+// Horário de início da aula (orçamento) — Teoria / Prática
+// ---------------------------------------------------------
+// Padrão: 7:30 em Centro de Treinamento, 7:00 em InCompany (os demais
+// formatos usam 7:30 como referência geral). O usuário pode alterar
+// livremente — trocar o formato só atualiza o horário enquanto o campo
+// não tiver sido editado à mão. Só existem dois horários independentes
+// quando teoria e prática têm endereços distintos: quando estão
+// sincronizadas pelo "mesmo endereço da teoria", o horário da prática
+// acompanha o da teoria (o campo fica oculto).
+function horarioDefaultPorFormato(formato) {
+  return formato === "InCompany" ? "07:00" : "07:30";
+}
+
+function atualizarHorarioPadraoTeoriaOrc() {
+  if (orcHorarioTeoriaEditadoManualmente) return;
+  const formato = $("orc-formato-teoria").value;
+  $("orc-horario-teoria").value = formato ? horarioDefaultPorFormato(formato) : "";
+}
+
+function atualizarHorarioPadraoPraticaOrc() {
+  if (orcHorarioPraticaEditadoManualmente) return;
+  const formato = $("orc-formato-pratica").value;
+  $("orc-horario-pratica").value = formato ? horarioDefaultPorFormato(formato) : "";
+}
+
+function praticaSincronizadaComTeoriaOrc() {
+  const teoriaInCompany = $("orc-formato-teoria").value === "InCompany";
+  const praticaInCompany = $("orc-formato-pratica").value === "InCompany";
+  return teoriaInCompany && praticaInCompany && $("orc-pra-mesmo-teoria").checked;
+}
+
+// Mostra/esconde o campo de horário da prática conforme ela está ou não
+// sincronizada com o endereço da teoria.
+function atualizarBlocoHorarioPraticaOrc() {
+  const sincronizado = praticaSincronizadaComTeoriaOrc();
+  $("orc-horario-pratica-bloco").classList.toggle("hidden", sincronizado);
+  if (sincronizado) $("orc-horario-pratica").value = $("orc-horario-teoria").value;
+}
+
+function resetarHorarioOrc() {
+  $("orc-horario-teoria").value = "";
+  $("orc-horario-pratica").value = "";
+  orcHorarioTeoriaEditadoManualmente = false;
+  orcHorarioPraticaEditadoManualmente = false;
+}
+
+function preencherHorarioOrc(o) {
+  $("orc-horario-teoria").value = o.horario_inicio_teoria ? o.horario_inicio_teoria.slice(0, 5) : "";
+  $("orc-horario-pratica").value = o.horario_inicio_pratica ? o.horario_inicio_pratica.slice(0, 5) : "";
+  // Já preenchido a partir do orçamento salvo — troca de formato não deve sobrescrever.
+  orcHorarioTeoriaEditadoManualmente = true;
+  orcHorarioPraticaEditadoManualmente = true;
+}
+
+$("orc-horario-teoria").addEventListener("input", () => { orcHorarioTeoriaEditadoManualmente = true; });
+$("orc-horario-pratica").addEventListener("input", () => { orcHorarioPraticaEditadoManualmente = true; });
+
+$("orc-formato-teoria").addEventListener("change", () => {
+  atualizarBlocosEnderecoInCompanyOrc();
+  atualizarHorarioPadraoTeoriaOrc();
+  atualizarBlocoHorarioPraticaOrc();
+});
+$("orc-formato-pratica").addEventListener("change", () => {
+  atualizarBlocosEnderecoInCompanyOrc();
+  atualizarHorarioPadraoPraticaOrc();
+  atualizarBlocoHorarioPraticaOrc();
+});
 $("orc-empresa").addEventListener("change", atualizarPreviewEnderecoEmpresaOrc);
-$("orc-pra-mesmo-teoria").addEventListener("change", atualizarBlocosEnderecoInCompanyOrc);
+$("orc-pra-mesmo-teoria").addEventListener("change", () => {
+  atualizarBlocosEnderecoInCompanyOrc();
+  atualizarBlocoHorarioPraticaOrc();
+});
 ligarToggleUsarEnderecoEmpresaOrc("teo");
 ligarToggleUsarEnderecoEmpresaOrc("pra");
 ligarMascaraCepOrc("teo");
@@ -4434,8 +4507,10 @@ function abrirNovoOrcamento() {
   $("orc-observacao-ct").value = "";
   resetarEnderecoOrc("teo");
   resetarEnderecoOrc("pra");
+  resetarHorarioOrc();
   $("orc-pra-mesmo-teoria").checked = false;
   atualizarBlocosEnderecoInCompanyOrc();
+  atualizarBlocoHorarioPraticaOrc();
   $("orc-turmas-bloco").classList.add("hidden");
   $("orc-turmas-tbody").innerHTML = "";
   $("painel-orcamento-titulo").textContent = "Novo orçamento";
@@ -4470,8 +4545,10 @@ async function abrirEdicaoOrcamento(id) {
   $("orc-observacao-ct").value = o.observacao_ct || "";
   preencherEnderecoOrc("teo", o, "teoria");
   preencherEnderecoOrc("pra", o, "pratica");
+  preencherHorarioOrc(o);
   $("orc-pra-mesmo-teoria").checked = !!o.endereco_pratica_mesmo_teoria;
   atualizarBlocosEnderecoInCompanyOrc();
+  atualizarBlocoHorarioPraticaOrc();
   $("painel-orcamento-titulo").textContent = "Editar orçamento";
   $("btn-salvar-orcamento").textContent = "Salvar alterações";
   $("painel-orcamento").classList.remove("hidden");
@@ -4594,6 +4671,17 @@ async function salvarOrcamento() {
       : { mesmo_teoria: false, ...(await coletarEnderecoOrc("pra")) };
   }
 
+  // Garante um horário de início preenchido sempre que houver formato definido,
+  // mesmo que a troca de formato não tenha rodado (ex.: valor carregado de fora).
+  if (!$("orc-horario-teoria").value && $("orc-formato-teoria").value) {
+    $("orc-horario-teoria").value = horarioDefaultPorFormato($("orc-formato-teoria").value);
+  }
+  if (!praticaSincronizada && !$("orc-horario-pratica").value && $("orc-formato-pratica").value) {
+    $("orc-horario-pratica").value = horarioDefaultPorFormato($("orc-formato-pratica").value);
+  }
+  const horarioInicioTeoria = $("orc-horario-teoria").value || null;
+  const horarioInicioPratica = praticaSincronizada ? horarioInicioTeoria : ($("orc-horario-pratica").value || null);
+
   const qtdAlunosPorTurma = $("orc-qtd-alunos-turma").value ? Number($("orc-qtd-alunos-turma").value) : 0;
   const payload = {
     empresa_id: empresaId,
@@ -4610,6 +4698,8 @@ async function salvarOrcamento() {
     status: $("orc-status").value,
     observacoes: $("orc-observacoes").value.trim(),
     observacao_ct: $("orc-observacao-ct").value.trim() || null,
+    horario_inicio_teoria: horarioInicioTeoria,
+    horario_inicio_pratica: horarioInicioPratica,
     endereco_teoria_mesmo_empresa: enderecoTeoria.mesmo_empresa,
     endereco_teoria_cep: enderecoTeoria.cep,
     endereco_teoria_logradouro: enderecoTeoria.logradouro,
@@ -4701,6 +4791,13 @@ async function gerarTurmasParaOrcamento(orcamento, qtdTurmas) {
   const agendaMovel = movelAplicavel ? "A agendar" : "Não aplicável";
   const agendaInstrutor2 = orcamento.necessita_dois_instrutores ? "A agendar" : "Não aplicável";
 
+  // Horário de início já definido no orçamento (padrão 7:30 no CT / 7:00 in-company,
+  // ajustável pelo usuário) — vira o horário inicial de cada linha de turma gerada;
+  // em dias de "Teoria com Prática" usamos o horário da teoria, já que o dia começa
+  // por ela. O operador ainda pode ajustar o horário de cada turma individualmente.
+  const horarioTeoria = orcamento.horario_inicio_teoria ? orcamento.horario_inicio_teoria.slice(0, 5) : null;
+  const horarioPratica = orcamento.horario_inicio_pratica ? orcamento.horario_inicio_pratica.slice(0, 5) : null;
+
   const turmasPayload = [];
   for (let i = 0; i < qtdTurmas; i++) {
     const letra = letraIndice(i);
@@ -4713,6 +4810,7 @@ async function gerarTurmasParaOrcamento(orcamento, qtdTurmas) {
         centro_treinamento_id: orcamento.centro_treinamento_id,
         formato_teoria: orcamento.formato_teoria || null,
         formato_pratica: orcamento.formato_pratica || null,
+        horario: tipoDia === "Prática" ? horarioPratica : horarioTeoria,
         vagas: orcamento.qtd_alunos_por_turma || null,
         dias_totais: diasTotais || null,
         status: "Planejada",
