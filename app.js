@@ -926,7 +926,15 @@ async function geocodificarEnderecoInstrutorSelf() {
   const endereco = partes.join(", ");
   if (!endereco) return;
   try {
-    const resultado = await geocodificarEndereco(endereco);
+    const resultado = await geocodificarComFallback({
+      textosLivres: [endereco],
+      logradouro: $("inste-endereco").value.trim(),
+      numero: $("inste-numero").value.trim(),
+      bairro: $("inste-bairro").value.trim(),
+      cidade: $("inste-cidade").value.trim(),
+      uf: $("inste-uf").value.trim(),
+      cep: $("inste-cep") ? $("inste-cep").value : "",
+    });
     if (resultado) {
       $("inste-latitude").value = resultado.lat;
       $("inste-longitude").value = resultado.lon;
@@ -1768,7 +1776,14 @@ const CRUD_CONFIG = {
       // (sem usar a busca por CEP) e o operador nunca clicou em "Obter coordenadas".
       if (p.endereco && (p.latitude == null || p.longitude == null)) {
         try {
-          const resultado = await geocodificarEndereco(p.endereco);
+          const cidadeUf = extrairCidadeUfDeEndereco(p.endereco);
+          const enderecoLimpo = p.endereco.replace(/\s*-\s*CEP\s*[\d-]+\s*$/i, "").replace(/\//g, ", ");
+          const resultado = await geocodificarComFallback({
+            textosLivres: [p.endereco, enderecoLimpo],
+            cidade: cidadeUf ? cidadeUf.cidade : undefined,
+            uf: cidadeUf ? cidadeUf.uf : undefined,
+            cep: p.cep,
+          });
           if (resultado) {
             p.latitude = resultado.lat;
             p.longitude = resultado.lon;
@@ -3055,7 +3070,15 @@ async function geocodificarInstrutor() {
   status.textContent = "Consultando geolocalização…";
 
   try {
-    const resultado = await geocodificarEndereco(endereco);
+    const resultado = await geocodificarComFallback({
+      textosLivres: [endereco],
+      logradouro: $("f-endereco").value.trim(),
+      numero: $("f-numero").value.trim(),
+      bairro: $("f-bairro").value.trim(),
+      cidade: $("f-cidade").value.trim(),
+      uf: $("f-uf").value.trim(),
+      cep: $("f-cep") ? $("f-cep").value : "",
+    });
     if (!resultado) throw new Error("Endereço não encontrado");
     $("f-latitude").value = resultado.lat;
     $("f-longitude").value = resultado.lon;
@@ -3118,13 +3141,74 @@ async function buscarCepCentro() {
 // ---------------------------------------------------------
 // GEORREFERENCIAMENTO (latitude/longitude a partir do endereço, via OpenStreetMap Nominatim)
 // ---------------------------------------------------------
+async function geocodificarComParametros(params) {
+  try {
+    const query = new URLSearchParams({ format: "json", limit: "1", countrycodes: "br", ...params });
+    const url = `https://nominatim.openstreetmap.org/search?${query.toString()}`;
+    const resp = await fetch(url, { headers: { "Accept-Language": "pt-BR" } });
+    if (!resp.ok) return null;
+    const dados = await resp.json();
+    if (!Array.isArray(dados) || !dados.length) return null;
+    return { lat: Number(dados[0].lat), lon: Number(dados[0].lon) };
+  } catch (e) {
+    return null;
+  }
+}
+
 async function geocodificarEndereco(enderecoTexto) {
-  const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=br&q=${encodeURIComponent(enderecoTexto)}`;
-  const resp = await fetch(url, { headers: { "Accept-Language": "pt-BR" } });
-  if (!resp.ok) return null;
-  const dados = await resp.json();
-  if (!Array.isArray(dados) || !dados.length) return null;
-  return { lat: Number(dados[0].lat), lon: Number(dados[0].lon) };
+  return geocodificarComParametros({ q: enderecoTexto });
+}
+
+// Extrai "cidade" e "UF" de um texto de endereço no formato "... - Cidade/UF - CEP xxxxx"
+// (formato usado no campo de endereço em texto único dos centros de treinamento).
+function extrairCidadeUfDeEndereco(enderecoTexto) {
+  if (!enderecoTexto) return null;
+  const m = enderecoTexto.match(/-\s*([^-\/]+?)\s*\/\s*([A-Za-z]{2})\s*(?:-\s*CEP|$)/i);
+  if (!m) return null;
+  return { cidade: m[1].trim(), uf: m[2].trim().toUpperCase() };
+}
+
+// Tenta georreferenciar um endereço em vários níveis de detalhe, do mais específico ao
+// mais genérico, parando no primeiro resultado encontrado. O Nominatim não faz busca
+// "aproximada": qualquer trecho não reconhecido no texto (um número de casa que não
+// consta no mapa, um bairro raro, o sufixo "- CEP ...") faz a consulta inteira falhar,
+// mesmo que o restante do endereço esteja correto — por isso tentamos várias formas
+// antes de desistir.
+async function geocodificarComFallback({ textosLivres = [], logradouro, numero, bairro, cidade, uf, cep } = {}) {
+  const tentativas = [];
+
+  for (const texto of textosLivres) {
+    if (texto && texto.trim()) tentativas.push(() => geocodificarComParametros({ q: texto.trim() }));
+  }
+
+  if (logradouro && cidade && uf) {
+    const street = [logradouro, numero].filter(Boolean).join(", ");
+    tentativas.push(() => geocodificarComParametros({ street, city: cidade, state: uf }));
+    if (numero) {
+      tentativas.push(() => geocodificarComParametros({ street: logradouro, city: cidade, state: uf }));
+    }
+  }
+
+  if (cep) {
+    const cepDigits = cep.replace(/\D/g, "");
+    if (cepDigits.length === 8) {
+      tentativas.push(() => geocodificarComParametros({ postalcode: cepDigits, country: "Brazil" }));
+    }
+  }
+
+  if (bairro && cidade && uf) {
+    tentativas.push(() => geocodificarComParametros({ q: `${bairro}, ${cidade}, ${uf}` }));
+  }
+
+  if (cidade && uf) {
+    tentativas.push(() => geocodificarComParametros({ city: cidade, state: uf, country: "Brazil" }));
+  }
+
+  for (const tentativa of tentativas) {
+    const resultado = await tentativa();
+    if (resultado) return resultado;
+  }
+  return null;
 }
 
 async function geocodificarCentro() {
@@ -3144,7 +3228,15 @@ async function geocodificarCentro() {
   status.textContent = "Consultando geolocalização…";
 
   try {
-    const resultado = await geocodificarEndereco(endereco);
+    const cepCentro = $("crud-campo-cep") ? $("crud-campo-cep").value : "";
+    const cidadeUf = extrairCidadeUfDeEndereco(endereco);
+    const enderecoLimpo = endereco.replace(/\s*-\s*CEP\s*[\d-]+\s*$/i, "").replace(/\//g, ", ");
+    const resultado = await geocodificarComFallback({
+      textosLivres: [endereco, enderecoLimpo],
+      cidade: cidadeUf ? cidadeUf.cidade : undefined,
+      uf: cidadeUf ? cidadeUf.uf : undefined,
+      cep: cepCentro,
+    });
     if (!resultado) throw new Error("Endereço não encontrado");
     if ($("crud-campo-latitude")) $("crud-campo-latitude").value = resultado.lat;
     if ($("crud-campo-longitude")) $("crud-campo-longitude").value = resultado.lon;
