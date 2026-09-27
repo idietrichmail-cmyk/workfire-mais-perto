@@ -297,6 +297,26 @@
   </div>
 </div>
 
+<!-- ===================== ACEITE LGPD DO INSTRUTOR (já vinculado, sem aceite registrado) ===================== -->
+<div id="tela-instrutor-lgpd" class="tela hidden min-h-screen bg-slate-950 flex items-center justify-center p-6">
+  <div class="w-full max-w-sm bg-white rounded-[2rem] shadow-2xl overflow-hidden border border-slate-800">
+    <div class="bg-slate-900 px-6 pt-9 pb-10 text-center">
+      <div class="w-12 h-12 rounded-full bg-amber-500 mx-auto flex items-center justify-center mb-3 text-xl">📋</div>
+      <h1 class="font-serif text-xl text-white">Tratamento de dados (LGPD)</h1>
+      <p class="text-slate-400 text-xs mt-1">Precisamos do seu aceite para continuar</p>
+    </div>
+    <div class="px-6 py-6 space-y-4">
+      <div id="inst-lgpd-erro" class="hidden bg-rose-50 text-rose-600 text-xs rounded-md px-3 py-2"></div>
+      <label class="flex items-start gap-2 text-[11px] text-slate-500 leading-snug">
+        <input id="inst-lgpd-check" type="checkbox" class="mt-0.5 shrink-0 w-4 h-4 accent-amber-500" />
+        <span>Declaro estar ciente e de acordo com o tratamento de meus dados pessoais, para fins de registro e participação das atividades desenvolvidas para a Work Fire conforme a <a href="https://workfire.com.br/politica-de-privacidade/" target="_blank" rel="noopener" class="text-amber-600 underline">LGPD</a>.</span>
+      </label>
+      <button id="btn-inst-lgpd-aceitar" class="w-full bg-amber-500 hover:bg-amber-600 text-slate-900 text-sm font-semibold py-2.5 rounded-md">Aceitar e continuar</button>
+      <button id="btn-inst-lgpd-sair" class="w-full text-center text-[11px] text-slate-400 hover:text-slate-700 pt-1">🚪 Sair</button>
+    </div>
+  </div>
+</div>
+
 <!-- ===================== ENDEREÇO DO INSTRUTOR ===================== -->
 <div id="tela-instrutor-endereco" class="tela hidden min-h-screen bg-slate-950 flex items-center justify-center p-6">
   <div class="w-full max-w-sm bg-slate-50 rounded-[2rem] shadow-2xl overflow-hidden border border-slate-800 min-h-[640px] flex flex-col">

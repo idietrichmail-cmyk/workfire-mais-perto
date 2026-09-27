@@ -527,6 +527,7 @@ $("btn-login").addEventListener("click", async () => {
 $("btn-ir-primeiro-acesso").addEventListener("click", () => {
   esconderErro("pa-erro");
   $("pa-email").value = $("login-email").value;
+  $("pa-lgpd").checked = false;
   mostrarTela("tela-primeiro-acesso");
 });
 $("btn-voltar-login-1").addEventListener("click", () => mostrarTela("tela-login"));
@@ -543,6 +544,7 @@ $("btn-criar-senha").addEventListener("click", async () => {
   if (!email || !senha) return mostrarErro("pa-erro", "Preencha e-mail e senha.");
   if (senha.length < 6) return mostrarErro("pa-erro", "A senha precisa ter pelo menos 6 caracteres.");
   if (senha !== confirmar) return mostrarErro("pa-erro", "As senhas não coincidem.");
+  if (!$("pa-lgpd").checked) return mostrarErro("pa-erro", "É necessário aceitar o termo de tratamento de dados (LGPD) para continuar.");
 
   const { data: podeCriar, error: podeCriarErro } = await supabase.rpc("pode_criar_senha_primeiro_acesso", { p_email: email, p_tipo: "instrutor" });
   if (podeCriarErro) return mostrarErro("pa-erro", "Não foi possível validar o e-mail. Tente novamente.");
@@ -560,7 +562,7 @@ $("btn-criar-senha").addEventListener("click", async () => {
   }
 
   sessaoAtual = signUpData.session;
-  const { error: vinculoErro } = await supabase.rpc("vincular_instrutor", { p_email: email });
+  const { error: vinculoErro } = await supabase.rpc("vincular_instrutor", { p_email: email, p_lgpd_aceito: true });
   if (vinculoErro) {
     return mostrarErro("pa-erro", "E-mail não encontrado no cadastro, ou já vinculado. Fale com o administrador.");
   }
@@ -753,12 +755,51 @@ async function entrarNaAgendaInstrutor() {
   renderizarDadosInstrutor();
   instrutorDatasPreAgendadas = await carregarDatasPreAgendadas(perfilAtual.id);
   renderizarCalendarioInstrutor();
-  if (!enderecoInstrutorPreenchido(perfilAtual)) {
+  prosseguirAposLoginInstrutor();
+}
+
+function prosseguirAposLoginInstrutor() {
+  if (!perfilAtual.lgpd_aceito) {
+    abrirTelaLgpdInstrutor();
+  } else if (!enderecoInstrutorPreenchido(perfilAtual)) {
     abrirTelaEnderecoInstrutor(true);
   } else {
     mostrarTela("tela-instrutor");
   }
 }
+
+// ---------------------------------------------------------
+// ACEITE LGPD DO INSTRUTOR (obrigatório no login, para quem foi vinculado antes de o aceite existir)
+// ---------------------------------------------------------
+function abrirTelaLgpdInstrutor() {
+  $("inst-lgpd-check").checked = false;
+  esconderErro("inst-lgpd-erro");
+  mostrarTela("tela-instrutor-lgpd");
+}
+
+$("btn-inst-lgpd-aceitar").addEventListener("click", async () => {
+  esconderErro("inst-lgpd-erro");
+  if (!$("inst-lgpd-check").checked) {
+    return mostrarErro("inst-lgpd-erro", "É necessário aceitar o termo de tratamento de dados (LGPD) para continuar.");
+  }
+  const btn = $("btn-inst-lgpd-aceitar");
+  btn.disabled = true;
+  btn.textContent = "Salvando…";
+  const { data, error } = await supabase.rpc("aceitar_lgpd");
+  btn.disabled = false;
+  btn.textContent = "Aceitar e continuar";
+  if (error) {
+    return mostrarErro("inst-lgpd-erro", "Não foi possível registrar o aceite. Tente novamente.");
+  }
+  perfilAtual = data;
+  prosseguirAposLoginInstrutor();
+});
+
+$("btn-inst-lgpd-sair").addEventListener("click", async () => {
+  await supabase.auth.signOut();
+  perfilAtual = null;
+  mostrarTela("tela-login");
+});
 
 // ---------------------------------------------------------
 // ENDEREÇO DO INSTRUTOR (preenchimento obrigatório no login + atualização via "Meus dados")
