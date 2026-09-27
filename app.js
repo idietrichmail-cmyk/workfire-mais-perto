@@ -819,6 +819,8 @@ function abrirTelaEnderecoInstrutor(obrigatorio) {
   $("inste-bairro").value = perfilAtual.bairro || "";
   $("inste-cidade").value = perfilAtual.cidade || "";
   $("inste-uf").value = perfilAtual.uf || "";
+  $("inste-latitude").value = perfilAtual.latitude != null ? perfilAtual.latitude : "";
+  $("inste-longitude").value = perfilAtual.longitude != null ? perfilAtual.longitude : "";
   $("inste-cep-status").textContent = "";
   $("inste-erro").classList.add("hidden");
   $("inste-obrigatorio-aviso").classList.toggle("hidden", !enderecoInstrutorObrigatorio);
@@ -848,11 +850,17 @@ $("btn-inste-salvar").addEventListener("click", async () => {
     return;
   }
 
+  if (!$("inste-latitude").value || !$("inste-longitude").value) {
+    await geocodificarEnderecoInstrutorSelf();
+  }
+
   const btn = $("btn-inste-salvar");
   btn.disabled = true;
   btn.textContent = "Salvando…";
 
-  const payload = { cep, endereco, numero, complemento, bairro, cidade, uf };
+  const latitude = $("inste-latitude").value === "" ? null : Number($("inste-latitude").value);
+  const longitude = $("inste-longitude").value === "" ? null : Number($("inste-longitude").value);
+  const payload = { cep, endereco, numero, complemento, bairro, cidade, uf, latitude, longitude };
   const { data, error } = await supabase.from("instrutores").update(payload).eq("id", perfilAtual.id).select().single();
 
   btn.disabled = false;
@@ -902,6 +910,29 @@ async function buscarCepInstrutor() {
   } finally {
     btn.disabled = false;
     btn.textContent = textoOriginal;
+  }
+
+  // Georreferencia automaticamente assim que o endereço é encontrado — sem precisar de outro clique.
+  await geocodificarEnderecoInstrutorSelf();
+}
+
+async function geocodificarEnderecoInstrutorSelf() {
+  const partes = [
+    [$("inste-endereco").value.trim(), $("inste-numero").value.trim()].filter(Boolean).join(", "),
+    $("inste-bairro").value.trim(),
+    $("inste-cidade").value.trim(),
+    $("inste-uf").value.trim(),
+  ].filter(Boolean);
+  const endereco = partes.join(", ");
+  if (!endereco) return;
+  try {
+    const resultado = await geocodificarEndereco(endereco);
+    if (resultado) {
+      $("inste-latitude").value = resultado.lat;
+      $("inste-longitude").value = resultado.lon;
+    }
+  } catch (e) {
+    // Falha silenciosa: não bloqueia o preenchimento do endereço pelo instrutor.
   }
 }
 
@@ -1319,8 +1350,9 @@ async function sairAdmin() {
 
 // --- Formulário de cadastro/edição ---
 function limparFormulario() {
-  ["f-nome","f-cpf","f-email","f-telefone","f-especialidade","f-carga","f-observacoes","f-cep","f-endereco","f-numero","f-complemento","f-bairro","f-cidade","f-uf"].forEach((id) => ($(id).value = ""));
+  ["f-nome","f-cpf","f-email","f-telefone","f-especialidade","f-carga","f-observacoes","f-cep","f-endereco","f-numero","f-complemento","f-bairro","f-cidade","f-uf","f-latitude","f-longitude"].forEach((id) => ($(id).value = ""));
   $("f-cep-status").textContent = "";
+  $("f-geo-status").textContent = "";
   $("f-status").value = "Ativo";
   if ($("f-gestor-direto")) $("f-gestor-direto").value = "";
   diasStatusForm = {};
@@ -1382,6 +1414,8 @@ async function abrirEdicao(id) {
   $("f-bairro").value = inst.bairro || "";
   $("f-cidade").value = inst.cidade || "";
   $("f-uf").value = inst.uf || "";
+  $("f-latitude").value = inst.latitude != null ? inst.latitude : "";
+  $("f-longitude").value = inst.longitude != null ? inst.longitude : "";
   $("f-status").value = inst.status || "Ativo";
   diasStatusForm = { ...(inst.dias_status || {}) };
   docUrlAtualForm = inst.documento_url || null;
@@ -1550,6 +1584,12 @@ async function salvarInstrutor() {
   if (!email) return mostrarErro("form-erro", "Informe o e-mail do instrutor.");
   if (!gestorDiretoId) return mostrarErro("form-erro", "Selecione o gestor direto do instrutor. Esse campo é obrigatório.");
 
+  // Garante que todo instrutor fique georreferenciado, mesmo se o endereço foi digitado à mão
+  // (sem usar a busca por CEP) e o operador nunca clicou em "Obter coordenadas".
+  if ($("f-endereco").value.trim() && (!$("f-latitude").value || !$("f-longitude").value)) {
+    await geocodificarInstrutor();
+  }
+
   const payload = {
     nome,
     cpf: $("f-cpf").value.trim(),
@@ -1566,6 +1606,8 @@ async function salvarInstrutor() {
     bairro: $("f-bairro").value.trim(),
     cidade: $("f-cidade").value.trim(),
     uf: $("f-uf").value.trim().toUpperCase(),
+    latitude: $("f-latitude").value === "" ? null : Number($("f-latitude").value),
+    longitude: $("f-longitude").value === "" ? null : Number($("f-longitude").value),
     dias_status: diasStatusForm,
     centro_treinamento_principal_id: $("f-centro-principal").value || null,
     gestor_direto_id: gestorDiretoId,
@@ -1695,7 +1737,9 @@ const CRUD_CONFIG = {
     campos: [
       { id: "nome", label: "Nome do centro", obrigatorio: true },
       { id: "cep", label: "CEP", mascara: "cep", botaoAcao: { id: "btn-buscar-cep-centro", label: "🔎 Buscar endereço", onClick: buscarCepCentro } },
-      { id: "endereco", label: "Endereço" },
+      { id: "endereco", label: "Endereço", botaoAcao: { id: "btn-geocodificar-centro", label: "📍 Obter coordenadas", onClick: geocodificarCentro } },
+      { id: "latitude", label: "Latitude", tipo: "number" },
+      { id: "longitude", label: "Longitude", tipo: "number" },
       { id: "capacidade_diaria", label: "Capacidade diária (pessoas/dia)", tipo: "number" },
       { id: "qtd_salas_aula", label: "Qtd. Salas de Aula", tipo: "number" },
       { id: "qtd_pistas_treinamento", label: "Qtd. Pistas de Treinamento", tipo: "number" },
@@ -1717,7 +1761,23 @@ const CRUD_CONFIG = {
       i.qtd_espaco_confinado && `🕳️ ${i.qtd_espaco_confinado} espaço(s) confinado(s)`,
       i.qtd_petrolifera && `🛢️ ${i.qtd_petrolifera} petrolífera(s)`,
       i.qtd_uti && `🏥 ${i.qtd_uti} UTI(s)`,
+      i.latitude != null && i.longitude != null && `📍 <a href="https://www.google.com/maps?q=${i.latitude},${i.longitude}" target="_blank" rel="noopener" class="text-amber-600 underline">Ver no mapa</a>`,
     ].filter(Boolean),
+    ajustarPayload: async (p) => {
+      // Garante que todo centro fique georreferenciado, mesmo se o endereço foi digitado à mão
+      // (sem usar a busca por CEP) e o operador nunca clicou em "Obter coordenadas".
+      if (p.endereco && (p.latitude == null || p.longitude == null)) {
+        try {
+          const resultado = await geocodificarEndereco(p.endereco);
+          if (resultado) {
+            p.latitude = resultado.lat;
+            p.longitude = resultado.lon;
+          }
+        } catch (e) {
+          // Falha silenciosa: não bloqueia o cadastro do centro por indisponibilidade do serviço de mapas.
+        }
+      }
+    },
   },
   categorias_treinamento: {
     tabela: "categorias_treinamento",
@@ -2955,6 +3015,9 @@ async function buscarCep() {
     btn.disabled = false;
     btn.textContent = textoOriginal;
   }
+
+  // Georreferencia automaticamente assim que o endereço é encontrado — sem precisar de outro clique.
+  await geocodificarInstrutor();
 }
 
 if ($("f-cep")) {
@@ -2968,6 +3031,45 @@ if ($("f-cep")) {
   });
 }
 if ($("btn-buscar-cep")) $("btn-buscar-cep").addEventListener("click", buscarCep);
+
+async function geocodificarInstrutor() {
+  const status = $("f-geo-status");
+  const partes = [
+    [$("f-endereco").value.trim(), $("f-numero").value.trim()].filter(Boolean).join(", "),
+    $("f-bairro").value.trim(),
+    $("f-cidade").value.trim(),
+    $("f-uf").value.trim(),
+  ].filter(Boolean);
+  const endereco = partes.join(", ");
+  if (!endereco) {
+    status.className = "text-[11px] mt-1 text-rose-600";
+    status.textContent = "Preencha o endereço antes de obter as coordenadas.";
+    return;
+  }
+
+  const btn = $("btn-geocodificar-instrutor");
+  const textoOriginal = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "Localizando…";
+  status.className = "text-[11px] mt-1 text-slate-400";
+  status.textContent = "Consultando geolocalização…";
+
+  try {
+    const resultado = await geocodificarEndereco(endereco);
+    if (!resultado) throw new Error("Endereço não encontrado");
+    $("f-latitude").value = resultado.lat;
+    $("f-longitude").value = resultado.lon;
+    status.className = "text-[11px] mt-1 text-teal-700";
+    status.textContent = `✅ Coordenadas encontradas: ${resultado.lat}, ${resultado.lon}`;
+  } catch (e) {
+    status.className = "text-[11px] mt-1 text-rose-600";
+    status.textContent = "Não foi possível localizar esse endereço no mapa. Confira o endereço e tente novamente.";
+  } finally {
+    btn.disabled = false;
+    btn.textContent = textoOriginal;
+  }
+}
+if ($("btn-geocodificar-instrutor")) $("btn-geocodificar-instrutor").addEventListener("click", geocodificarInstrutor);
 
 async function buscarCepCentro() {
   const status = $("btn-buscar-cep-centro-status");
@@ -3004,6 +3106,53 @@ async function buscarCepCentro() {
   } catch (e) {
     status.className = "text-[11px] mt-1 text-rose-600";
     status.textContent = "Não foi possível encontrar esse CEP. Confira o número e preencha o endereço manualmente.";
+  } finally {
+    btn.disabled = false;
+    btn.textContent = textoOriginal;
+  }
+
+  // Georreferencia automaticamente assim que o endereço é encontrado — sem precisar de outro clique.
+  await geocodificarCentro();
+}
+
+// ---------------------------------------------------------
+// GEORREFERENCIAMENTO (latitude/longitude a partir do endereço, via OpenStreetMap Nominatim)
+// ---------------------------------------------------------
+async function geocodificarEndereco(enderecoTexto) {
+  const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=br&q=${encodeURIComponent(enderecoTexto)}`;
+  const resp = await fetch(url, { headers: { "Accept-Language": "pt-BR" } });
+  if (!resp.ok) return null;
+  const dados = await resp.json();
+  if (!Array.isArray(dados) || !dados.length) return null;
+  return { lat: Number(dados[0].lat), lon: Number(dados[0].lon) };
+}
+
+async function geocodificarCentro() {
+  const status = $("btn-geocodificar-centro-status");
+  const endereco = $("crud-campo-endereco").value.trim();
+  if (!endereco) {
+    status.className = "text-[11px] mt-1 text-rose-600";
+    status.textContent = "Preencha o endereço antes de obter as coordenadas.";
+    return;
+  }
+
+  const btn = $("btn-geocodificar-centro");
+  const textoOriginal = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "Localizando…";
+  status.className = "text-[11px] mt-1 text-slate-400";
+  status.textContent = "Consultando geolocalização…";
+
+  try {
+    const resultado = await geocodificarEndereco(endereco);
+    if (!resultado) throw new Error("Endereço não encontrado");
+    if ($("crud-campo-latitude")) $("crud-campo-latitude").value = resultado.lat;
+    if ($("crud-campo-longitude")) $("crud-campo-longitude").value = resultado.lon;
+    status.className = "text-[11px] mt-1 text-teal-700";
+    status.textContent = `✅ Coordenadas encontradas: ${resultado.lat}, ${resultado.lon}`;
+  } catch (e) {
+    status.className = "text-[11px] mt-1 text-rose-600";
+    status.textContent = "Não foi possível localizar esse endereço no mapa. Confira o endereço e tente novamente.";
   } finally {
     btn.disabled = false;
     btn.textContent = textoOriginal;
@@ -3071,7 +3220,7 @@ async function salvarCrud() {
     payload[campo.id] = valor;
   }
 
-  if (cfg.ajustarPayload) cfg.ajustarPayload(payload);
+  if (cfg.ajustarPayload) await cfg.ajustarPayload(payload);
 
   $("btn-salvar-crud").disabled = true;
   $("btn-salvar-crud").textContent = "Salvando…";

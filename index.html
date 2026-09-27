@@ -364,6 +364,8 @@
           <input id="inste-uf" maxlength="2" class="mt-0.5 w-full rounded-md border border-slate-300 px-3 py-2 text-sm uppercase focus:outline-none focus:ring-2 focus:ring-amber-500" />
         </div>
       </div>
+      <input id="inste-latitude" type="hidden" />
+      <input id="inste-longitude" type="hidden" />
       <p id="inste-erro" class="hidden text-xs text-rose-600"></p>
       <button id="btn-inste-salvar" class="w-full bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium py-2.5 rounded-md">Salvar endereço</button>
       <button id="btn-inste-voltar" class="hidden w-full text-center text-[11px] text-slate-400 hover:text-slate-700">← Voltar</button>
@@ -1107,6 +1109,20 @@
             <div>
               <label class="text-[11px] text-slate-400">UF</label>
               <input id="f-uf" maxlength="2" class="mt-0.5 w-full rounded-md border border-slate-300 px-3 py-2 text-sm uppercase focus:outline-none focus:ring-2 focus:ring-amber-500" />
+            </div>
+          </div>
+          <div class="mt-2 pt-2 border-t border-slate-100">
+            <button id="btn-geocodificar-instrutor" type="button" class="w-full text-xs font-medium text-slate-600 border border-slate-300 rounded-md px-3 py-2 hover:bg-slate-50">📍 Obter coordenadas do endereço</button>
+            <p id="f-geo-status" class="text-[11px] mt-1 text-slate-400"></p>
+            <div class="grid sm:grid-cols-2 gap-2 mt-2">
+              <div>
+                <label class="text-[11px] text-slate-400">Latitude</label>
+                <input id="f-latitude" type="number" step="any" class="mt-0.5 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
+              </div>
+              <div>
+                <label class="text-[11px] text-slate-400">Longitude</label>
+                <input id="f-longitude" type="number" step="any" class="mt-0.5 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
+              </div>
             </div>
           </div>
         </div>
