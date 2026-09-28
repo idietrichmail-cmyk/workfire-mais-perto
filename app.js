@@ -5229,6 +5229,8 @@ async function carregarAgendamentoTurmasInit() {
 
   preencherSelect("agend-centro-select", listaCentrosAtivos, "id", (c) => c.nome, "— Selecione —");
   $("agend-centro-select").value = "";
+  $("agend-orcamento-busca").value = "";
+  $("agend-orcamento-busca").disabled = true;
   $("agend-orcamento-select").innerHTML = `<option value="">— Selecione —</option>`;
   $("agend-orcamento-select").disabled = true;
   $("agend-orcamento-info").classList.add("hidden");
@@ -5354,6 +5356,8 @@ $("agend-centro-select").addEventListener("change", async () => {
   $("agend-turma-conteudo").classList.add("hidden");
 
   if (!agendTurmaCentroId) {
+    $("agend-orcamento-busca").value = "";
+    $("agend-orcamento-busca").disabled = true;
     $("agend-orcamento-select").innerHTML = `<option value="">— Selecione —</option>`;
     $("agend-orcamento-select").disabled = true;
     return;
@@ -5365,9 +5369,25 @@ $("agend-centro-select").addEventListener("change", async () => {
     .eq("centro_treinamento_id", agendTurmaCentroId)
     .order("created_at", { ascending: false });
   agendTurmaListaOrcamentos = orcs || [];
-  preencherSelect("agend-orcamento-select", agendTurmaListaOrcamentos, "id", (o) => `${o.numero} — ${o.empresas?.nome || "—"}`, "— Selecione —");
+  $("agend-orcamento-busca").value = "";
+  $("agend-orcamento-busca").disabled = false;
+  preencherSelectOrcamentosAgendTurma();
   $("agend-orcamento-select").disabled = false;
 });
+
+// Filtra agendTurmaListaOrcamentos pelo texto digitado em "agend-orcamento-busca"
+// (número do orçamento ou nome da empresa) e repopula o select, preservando a
+// seleção atual quando ela continua presente no resultado filtrado.
+function preencherSelectOrcamentosAgendTurma() {
+  const filtro = ($("agend-orcamento-busca").value || "").trim().toLowerCase();
+  const filtrados = !filtro ? agendTurmaListaOrcamentos : agendTurmaListaOrcamentos.filter((o) =>
+    (o.numero || "").toLowerCase().includes(filtro) || (o.empresas?.nome || "").toLowerCase().includes(filtro)
+  );
+  const valorAtual = $("agend-orcamento-select").value;
+  preencherSelect("agend-orcamento-select", filtrados, "id", (o) => `${o.numero} — ${o.empresas?.nome || "—"}`, "— Selecione —");
+  if (filtrados.some((o) => o.id === valorAtual)) $("agend-orcamento-select").value = valorAtual;
+}
+$("agend-orcamento-busca").addEventListener("input", preencherSelectOrcamentosAgendTurma);
 
 $("agend-orcamento-select").addEventListener("change", async () => {
   agendTurmaOrcamentoId = $("agend-orcamento-select").value || null;
@@ -5549,6 +5569,29 @@ function celulaCentroAgendTurma(t) {
     : `<span class="text-rose-600 font-medium">Indisponível</span>`) + agenda;
 }
 
+// Janela de 30 dias usada para mostrar, ao lado do nome de cada instrutor no
+// seletor, quantos dias ele tem disponíveis/agendados perto da data da turma:
+// 15 dias antes da data (exclusive) + 15 dias a partir da data (inclusive).
+function janelaDisponibilidadeAgendTurma(dataInicio) {
+  if (!dataInicio) return [];
+  const [ano, mes, dia] = dataInicio.split("-").map(Number);
+  const base = new Date(ano, mes - 1, dia);
+  const dias = [];
+  for (let i = -15; i <= 14; i++) {
+    dias.push(formatarData(new Date(base.getFullYear(), base.getMonth(), base.getDate() + i)));
+  }
+  return dias;
+}
+function contarDisponibilidadeJanela(instrutor, dias) {
+  let disponiveis = 0, agendados = 0;
+  dias.forEach((d) => {
+    const status = obterStatusDia(instrutor.dias_status, d);
+    if (status === "disponivel") disponiveis++;
+    else if (status === "agendado") agendados++;
+  });
+  return { disponiveis, agendados };
+}
+
 function celulaInstrutorAgendTurma(t, campo) {
   if (!agendTurmaSelecionadas.has(t.id)) return celulaInstrutorSomenteLeitura(t, campo);
   const escolha = agendTurmaInstrutores.get(t.id) || { instrutor1: "", instrutor2: "" };
@@ -5574,8 +5617,12 @@ function celulaInstrutorAgendTurma(t, campo) {
     if (inst) candidatos.unshift({ instrutor: inst, fullyAvailable: true });
   }
 
+  const janela = janelaDisponibilidadeAgendTurma(t.data_inicio);
   const opcoes = candidatos
-    .map((r) => `<option value="${r.instrutor.id}" ${r.instrutor.id === valorAtual ? "selected" : ""} ${!r.fullyAvailable ? 'style="background-color:#fed7aa;"' : ""}>${r.instrutor.nome}</option>`)
+    .map((r) => {
+      const { disponiveis, agendados } = contarDisponibilidadeJanela(r.instrutor, janela);
+      return `<option value="${r.instrutor.id}" ${r.instrutor.id === valorAtual ? "selected" : ""} ${!r.fullyAvailable ? 'style="background-color:#fed7aa;"' : ""}>${r.instrutor.nome} (${disponiveis} disp. / ${agendados} agend.)</option>`;
+    })
     .join("");
   const resp = respostaInstrutorAgendTurma(t, valorAtual);
   const vazio = candidatos.length === 0
