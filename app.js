@@ -5603,7 +5603,7 @@ function celulaInstrutorSomenteLeitura(t, campo) {
 function renderizarListaAgendTurmas() {
   const cont = $("agend-turma-lista");
   if (agendTurmasLista.length === 0) {
-    cont.innerHTML = `<tr><td colspan="12" class="text-center text-slate-500 text-sm py-16">Nenhuma turma cadastrada para este orçamento.</td></tr>`;
+    cont.innerHTML = `<tr><td colspan="10" class="text-center text-slate-500 text-sm py-16">Nenhuma turma cadastrada para este orçamento.</td></tr>`;
     return;
   }
   const corStatus = {
@@ -5616,30 +5616,38 @@ function renderizarListaAgendTurmas() {
   };
   cont.innerHTML = agendTurmasLista.map((t) => `
     <tr class="hover:bg-slate-50">
-      <td class="px-3 py-2"><input type="checkbox" data-agend-turma-check="${t.id}" ${agendTurmaSelecionadas.has(t.id) ? "checked" : ""} class="rounded border-slate-300" /></td>
-      <td class="px-3 py-2 font-mono text-slate-700">${t.identificacao || "—"}</td>
-      <td class="px-3 py-2 text-slate-500">${t.tipo_dia || "—"}</td>
-      <td class="px-3 py-2 text-slate-500">
+      <td class="px-3 pt-2 pb-1"><input type="checkbox" data-agend-turma-check="${t.id}" ${agendTurmaSelecionadas.has(t.id) ? "checked" : ""} class="rounded border-slate-300" /></td>
+      <td class="px-3 pt-2 pb-1 font-mono text-slate-700">${t.identificacao || "—"}</td>
+      <td class="px-3 pt-2 pb-1 text-slate-500">${t.tipo_dia || "—"}</td>
+      <td class="px-3 pt-2 pb-1 text-slate-500">
         <input type="date" data-agend-turma-data="${t.id}" value="${t.data_inicio || ""}" class="w-full min-w-[140px] text-xs rounded-md border border-slate-300 px-2 py-1.5" />
       </td>
-      <td class="px-3 py-2 text-slate-500">
-        <input type="time" data-agend-turma-horario="${t.id}" value="${t.horario || ""}" title="Horário de início da aula — alterar aqui não afeta as demais turmas. Se algum instrutor já confirmou, ele recebe um aviso do novo horário." class="w-full min-w-[100px] text-xs rounded-md border border-slate-300 px-2 py-1.5" />
-      </td>
-      <td class="px-3 py-2 text-slate-500">
-        ${algumInstrutorConfirmouAgendTurma(t)
-          ? `<input type="time" data-agend-turma-deslocamento="${t.id}" value="${t.horario_deslocamento || ""}" title="Horário em que o instrutor deve iniciar o deslocamento até esta turma" class="w-full min-w-[100px] text-xs rounded-md border border-slate-300 px-2 py-1.5" />`
-          : `<span class="text-[11px] text-slate-300" title="Só é possível definir depois que algum instrutor confirmar a data">—</span>`}
-      </td>
-      <td class="px-3 py-2"><span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${corStatus[t.status] || ""}">${t.status}</span></td>
-      <td class="px-3 py-2">${badgeStatusAgendamento(t.status_agendamento, t.eh_pre_agendamento)}${turmaComDesmarcacaoPendente(t) ? `<div class="mt-0.5 text-[11px] text-rose-700 font-medium">desmarcação solicitada</div>` : ""}</td>
-      <td class="px-3 py-2 text-center">
+      <td class="px-3 pt-2 pb-1"><span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${corStatus[t.status] || ""}">${t.status}</span></td>
+      <td class="px-3 pt-2 pb-1">${badgeStatusAgendamento(t.status_agendamento, t.eh_pre_agendamento)}${turmaComDesmarcacaoPendente(t) ? `<div class="mt-0.5 text-[11px] text-rose-700 font-medium">desmarcação solicitada</div>` : ""}</td>
+      <td class="px-3 pt-2 pb-1 text-center">
         <input type="checkbox" data-agend-turma-pre="${t.id}" ${t.eh_pre_agendamento ? "checked" : ""}
           title="Marcar esta turma como pré-agendamento (dia aparece em azul clarinho na agenda do CT e do instrutor até virar agendamento definitivo)"
           class="rounded border-slate-300" />
       </td>
-      <td class="px-3 py-2 text-xs">${celulaCentroAgendTurma(t)}</td>
-      <td class="px-3 py-2">${celulaInstrutorAgendTurma(t, "instrutor1")}</td>
-      <td class="px-3 py-2">${celulaInstrutorAgendTurma(t, "instrutor2")}</td>
+      <td class="px-3 pt-2 pb-1 text-xs">${celulaCentroAgendTurma(t)}</td>
+      <td class="px-3 pt-2 pb-1">${celulaInstrutorAgendTurma(t, "instrutor1")}</td>
+      <td class="px-3 pt-2 pb-1">${celulaInstrutorAgendTurma(t, "instrutor2")}</td>
+    </tr>
+    <tr class="border-b border-slate-100 hover:bg-slate-50">
+      <td colspan="10" class="px-3 pt-0 pb-2">
+        <div class="flex flex-wrap items-center gap-x-5 gap-y-1 pl-0.5">
+          <label class="flex items-center gap-1.5 text-[11px] text-slate-500">
+            Horário aula
+            <input type="time" data-agend-turma-horario="${t.id}" value="${t.horario || ""}" title="Horário de início da aula — alterar aqui não afeta as demais turmas. Se algum instrutor já confirmou, ele recebe um aviso do novo horário." class="text-xs rounded-md border border-slate-300 px-2 py-1 w-[6.5rem]" />
+          </label>
+          <label class="flex items-center gap-1.5 text-[11px] text-slate-500">
+            Horário deslocamento
+            ${algumInstrutorConfirmouAgendTurma(t)
+              ? `<input type="time" data-agend-turma-deslocamento="${t.id}" value="${t.horario_deslocamento || ""}" title="Horário em que o instrutor deve iniciar o deslocamento até esta turma" class="text-xs rounded-md border border-slate-300 px-2 py-1 w-[6.5rem]" />`
+              : `<span class="text-[11px] text-slate-300" title="Só é possível definir depois que algum instrutor confirmar a data">— (aguardando confirmação)</span>`}
+          </label>
+        </div>
+      </td>
     </tr>
   `).join("");
   cont.querySelectorAll("[data-agend-turma-check]").forEach((el) => {
