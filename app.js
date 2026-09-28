@@ -6993,6 +6993,21 @@ const ROTULO_DISPO = {
   cancelando: "Agendado — pedido de cancelamento pendente",
 };
 
+// Siglas dos Centros de Treinamento (economiza espaço na tabela de
+// disponibilidade). Centros ainda não cadastrados aqui caem no fallback
+// (3 primeiras letras do nome, sem o prefixo "Work Fire").
+const DISPO_SIGLA_CT = {
+  "8632e1df-c873-4349-835e-ba32d14f64eb": "GRU", // Work Fire Guarulhos
+  "a431cbd2-fe04-4c68-a539-6a1ad6fd1b12": "SAN", // Work Fire Santos
+  "6c5270dd-4b6b-48e0-a221-ef55dc7a452e": "SJC", // Work Fire São José dos Campos
+};
+function siglaCentroDispo(centro) {
+  if (!centro) return "—";
+  if (DISPO_SIGLA_CT[centro.id]) return DISPO_SIGLA_CT[centro.id];
+  const semPrefixo = centro.nome.replace(/^work ?fire\s*/i, "").trim();
+  return (semPrefixo || centro.nome).slice(0, 3).toUpperCase();
+}
+
 function statusDispoDia(instrutor, dataStr) {
   const base = obterStatusDia(instrutor.dias_status, dataStr);
   if (base === "agendado" && dispoDesmarcacaoPendenteSet.has(`${instrutor.id}|${dataStr}`)) return "cancelando";
@@ -7069,7 +7084,7 @@ async function carregarDisponibilidadeInstrutoresInit() {
   renderizarDisponibilidadeInstrutores();
 }
 
-const DISPO_LARG = { nome: 180, ct: 140, agend: 90, disp: 90, dia: 34 };
+const DISPO_LARG = { nome: 128, ct: 44, agend: 50, disp: 50, dia: 25 };
 const DISPO_LEFT = {
   nome: 0,
   ct: DISPO_LARG.nome,
@@ -7098,10 +7113,10 @@ function renderizarDisponibilidadeInstrutores() {
   $("dispo-thead").innerHTML = `
     <tr>
       <th class="sticky top-0 left-0 z-30 bg-slate-50 px-3 py-2 font-medium text-left border-b border-slate-200" style="width:${DISPO_LARG.nome}px;min-width:${DISPO_LARG.nome}px">Instrutor</th>
-      <th class="sticky top-0 z-30 bg-slate-50 px-3 py-2 font-medium text-left border-b border-slate-200" style="left:${DISPO_LEFT.ct}px;width:${DISPO_LARG.ct}px;min-width:${DISPO_LARG.ct}px">CT Principal</th>
-      <th class="sticky top-0 z-30 bg-slate-50 px-2 py-2 font-medium text-center border-b border-slate-200" style="left:${DISPO_LEFT.agend}px;width:${DISPO_LARG.agend}px;min-width:${DISPO_LARG.agend}px">Dias agendados</th>
-      <th class="sticky top-0 z-30 bg-slate-50 px-2 py-2 font-medium text-center border-b border-slate-200" style="left:${DISPO_LEFT.disp}px;width:${DISPO_LARG.disp}px;min-width:${DISPO_LARG.disp}px">Dias disponíveis</th>
-      ${dias.map((d) => `<th class="sticky top-0 z-20 bg-slate-50 px-1 py-2 font-medium text-center border-b border-slate-200" style="width:${DISPO_LARG.dia}px;min-width:${DISPO_LARG.dia}px">${d.getDate()}<div class="text-[9px] font-normal text-slate-400">${diasSemana[d.getDay()]}</div></th>`).join("")}
+      <th title="Centro de Treinamento principal" class="sticky top-0 z-30 bg-slate-50 px-1 py-2 font-medium text-center border-b border-slate-200" style="left:${DISPO_LEFT.ct}px;width:${DISPO_LARG.ct}px;min-width:${DISPO_LARG.ct}px">CT</th>
+      <th title="Dias agendados no mês" class="sticky top-0 z-30 bg-slate-50 px-1 py-2 font-medium text-center border-b border-slate-200" style="left:${DISPO_LEFT.agend}px;width:${DISPO_LARG.agend}px;min-width:${DISPO_LARG.agend}px">Agend.</th>
+      <th title="Dias disponíveis no mês" class="sticky top-0 z-30 bg-slate-50 px-1 py-2 font-medium text-center border-b border-slate-200" style="left:${DISPO_LEFT.disp}px;width:${DISPO_LARG.disp}px;min-width:${DISPO_LARG.disp}px">Dispon.</th>
+      ${dias.map((d) => `<th class="sticky top-0 z-20 bg-slate-50 px-0.5 py-2 font-medium text-center border-b border-slate-200" style="width:${DISPO_LARG.dia}px;min-width:${DISPO_LARG.dia}px">${d.getDate()}<div class="text-[8px] font-normal text-slate-400">${diasSemana[d.getDay()]}</div></th>`).join("")}
     </tr>`;
 
   const subtotaisDisp = {};
@@ -7120,21 +7135,21 @@ function renderizarDisponibilidadeInstrutores() {
     }).join("");
     return `
     <tr>
-      <td class="sticky left-0 z-10 bg-white px-3 py-1.5 text-slate-800 whitespace-nowrap overflow-hidden text-ellipsis" style="width:${DISPO_LARG.nome}px;min-width:${DISPO_LARG.nome}px">${inst.nome}${inst.status !== "Ativo" ? ` <span class="text-[10px] text-rose-500">(inativo)</span>` : ""}</td>
-      <td class="sticky z-10 bg-white px-3 py-1.5 text-slate-500 whitespace-nowrap overflow-hidden text-ellipsis" style="left:${DISPO_LEFT.ct}px;width:${DISPO_LARG.ct}px;min-width:${DISPO_LARG.ct}px">${ct?.nome || "—"}</td>
-      <td class="sticky z-10 bg-white px-2 py-1.5 text-center font-medium text-blue-700" style="left:${DISPO_LEFT.agend}px;width:${DISPO_LARG.agend}px;min-width:${DISPO_LARG.agend}px">${totalAgendados}</td>
-      <td class="sticky z-10 bg-white px-2 py-1.5 text-center font-medium text-teal-700" style="left:${DISPO_LEFT.disp}px;width:${DISPO_LARG.disp}px;min-width:${DISPO_LARG.disp}px">${totalDisponiveis}</td>
+      <td title="${inst.nome}" class="sticky left-0 z-10 bg-white px-2 py-1.5 text-slate-800 whitespace-nowrap overflow-hidden text-ellipsis" style="width:${DISPO_LARG.nome}px;min-width:${DISPO_LARG.nome}px">${inst.nome}${inst.status !== "Ativo" ? ` <span class="text-[10px] text-rose-500">(inat.)</span>` : ""}</td>
+      <td title="${ct?.nome || ""}" class="sticky z-10 bg-white px-1 py-1.5 text-slate-500 text-center whitespace-nowrap overflow-hidden text-ellipsis" style="left:${DISPO_LEFT.ct}px;width:${DISPO_LARG.ct}px;min-width:${DISPO_LARG.ct}px">${siglaCentroDispo(ct)}</td>
+      <td class="sticky z-10 bg-white px-1 py-1.5 text-center font-medium text-blue-700" style="left:${DISPO_LEFT.agend}px;width:${DISPO_LARG.agend}px;min-width:${DISPO_LARG.agend}px">${totalAgendados}</td>
+      <td class="sticky z-10 bg-white px-1 py-1.5 text-center font-medium text-teal-700" style="left:${DISPO_LEFT.disp}px;width:${DISPO_LARG.disp}px;min-width:${DISPO_LARG.disp}px">${totalDisponiveis}</td>
       ${celulas}
     </tr>`;
   }).join("");
 
   $("dispo-tfoot").innerHTML = `
     <tr class="border-t-2 border-slate-200">
-      <td colspan="4" class="sticky left-0 z-10 bg-slate-50 px-3 py-1.5 font-medium text-slate-600" style="width:${DISPO_LARG_STICKY_TOTAL}px;min-width:${DISPO_LARG_STICKY_TOTAL}px">Instrutores disponíveis no dia</td>
+      <td colspan="4" title="Quantidade de instrutores disponíveis em cada dia" class="sticky left-0 z-10 bg-slate-50 px-2 py-1.5 font-medium text-slate-600 text-xs whitespace-nowrap overflow-hidden text-ellipsis" style="width:${DISPO_LARG_STICKY_TOTAL}px;min-width:${DISPO_LARG_STICKY_TOTAL}px">📌 Disponíveis/dia</td>
       ${dias.map((d) => { const qtd = subtotaisDisp[formatarData(d)]; return `<td class="p-0.5 text-center" style="width:${DISPO_LARG.dia}px;min-width:${DISPO_LARG.dia}px"><span class="inline-flex items-center justify-center w-full h-6 rounded text-[11px] font-semibold ${corSubtotalDisponiveisDispo(qtd)}">${qtd}</span></td>`; }).join("")}
     </tr>
     <tr>
-      <td colspan="4" class="sticky left-0 z-10 bg-slate-50 px-3 py-1.5 font-medium text-slate-600" style="width:${DISPO_LARG_STICKY_TOTAL}px;min-width:${DISPO_LARG_STICKY_TOTAL}px">Instrutores agendados no dia</td>
+      <td colspan="4" title="Quantidade de instrutores agendados em cada dia" class="sticky left-0 z-10 bg-slate-50 px-2 py-1.5 font-medium text-slate-600 text-xs whitespace-nowrap overflow-hidden text-ellipsis" style="width:${DISPO_LARG_STICKY_TOTAL}px;min-width:${DISPO_LARG_STICKY_TOTAL}px">📘 Agendados/dia</td>
       ${dias.map((d) => { const qtd = subtotaisAgend[formatarData(d)]; return `<td class="p-0.5 text-center"><span class="inline-flex items-center justify-center w-full h-6 rounded text-[11px] font-semibold bg-blue-50 text-blue-700">${qtd}</span></td>`; }).join("")}
     </tr>`;
 }
