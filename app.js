@@ -789,7 +789,7 @@ $("btn-inst-lgpd-aceitar").addEventListener("click", async () => {
   const btn = $("btn-inst-lgpd-aceitar");
   btn.disabled = true;
   btn.textContent = "Salvando…";
-  const { data, error } = await supabase.rpc("aceitar_lgpd");
+  const { data, error } = await supabase.rpc("aceitar_lgpd", { p_aplicativo: "workfire-mais-perto" });
   btn.disabled = false;
   btn.textContent = "Aceitar e continuar";
   if (error) {
@@ -4039,12 +4039,13 @@ function renderizarListaDesmarcacoes() {
   );
 }
 
-// Aprova ou rejeita o pedido de desmarcação. Aprovando, a data é liberada
-// (instrutor volta a ficar disponível, turma volta para "A agendar") e passa
-// a aparecer na aba de negativas para substituição.
+// Aprova ou rejeita o pedido de desmarcação. A regra fica no banco
+// (responder_desmarcacao_agendamento), igual em todas as telas: aprovando,
+// o dia é liberado na agenda do instrutor e ele sai da turma, que volta
+// para "Não agendado" para nova seleção e nova solicitação de confirmação.
 async function resolverDesmarcacao(d, aprovar) {
   const pergunta = aprovar
-    ? `Aprovar a desmarcação de ${d.instrutorNome} em ${formatarDataAbrev(d.data)}?\n\nA data será liberada e vai aparecer em "Negativas de instrutores" para você substituir o instrutor.`
+    ? `Aprovar a desmarcação de ${d.instrutorNome} em ${formatarDataAbrev(d.data)}?\n\n• O dia será liberado na agenda do instrutor.\n• A turma volta para "Não agendado", sem instrutor, para nova seleção e nova solicitação de confirmação.`
     : `Rejeitar o pedido de ${d.instrutorNome} em ${formatarDataAbrev(d.data)}?\n\nA aula continua confirmada para ele.`;
   if (!confirm(pergunta)) return;
   const { error } = await supabase.rpc("resolver_desmarcacao_agendamento", {
