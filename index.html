@@ -706,6 +706,59 @@
         </div>
       </section>
 
+      <!-- ---------- OPERAÇÃO: DISPONIBILIDADE DOS INSTRUTORES ---------- -->
+      <section id="secao-disponibilidade-instrutores" class="hidden">
+        <div class="mb-5 bg-white border border-slate-200 rounded-xl p-4 flex flex-wrap items-end gap-4">
+          <div class="flex items-end gap-1.5">
+            <button id="dispo-mes-anterior" class="p-2 rounded-md hover:bg-slate-100 text-slate-500 border border-slate-300">‹</button>
+            <div>
+              <label class="text-xs font-medium text-slate-500 uppercase tracking-wide block">Mês</label>
+              <select id="dispo-mes-select" class="mt-1 rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"></select>
+            </div>
+            <div>
+              <label class="text-xs font-medium text-slate-500 uppercase tracking-wide block">Ano</label>
+              <select id="dispo-ano-select" class="mt-1 rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"></select>
+            </div>
+            <button id="dispo-mes-proximo" class="p-2 rounded-md hover:bg-slate-100 text-slate-500 border border-slate-300">›</button>
+          </div>
+          <div class="flex-1 min-w-[220px]">
+            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Centro de Treinamento</label>
+            <select id="dispo-centro-select" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">
+              <option value="">Todos os centros</option>
+            </select>
+          </div>
+          <div>
+            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Instrutores</label>
+            <select id="dispo-status-select" class="mt-1 rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">
+              <option value="Ativo">Somente ativos</option>
+              <option value="Todos">Todos os instrutores</option>
+            </select>
+          </div>
+          <button id="dispo-atualizar" class="inline-flex items-center gap-2 text-xs font-medium text-slate-600 border border-slate-300 rounded-md px-3 py-2 hover:bg-white mb-0.5">🔄 Atualizar</button>
+          <span id="dispo-resumo" class="text-xs text-slate-500 pb-2"></span>
+        </div>
+
+        <div class="flex flex-wrap gap-x-4 gap-y-1 mb-3 text-[11px] text-slate-500">
+          <span class="inline-flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm bg-teal-600 inline-block"></span>Disponível</span>
+          <span class="inline-flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm bg-amber-400 inline-block"></span>Aguardando confirmação</span>
+          <span class="inline-flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm bg-blue-600 inline-block"></span>Agendado</span>
+          <span class="inline-flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm bg-rose-600 inline-block"></span>Pedido de cancelamento</span>
+          <span class="inline-flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm bg-slate-200 inline-block"></span>Sem registro / bloqueado</span>
+        </div>
+
+        <div id="dispo-vazio" class="hidden text-sm text-slate-400 bg-white border border-slate-200 rounded-xl p-6 text-center">
+          Nenhum instrutor encontrado para os filtros selecionados.
+        </div>
+
+        <div id="dispo-tabela-wrap" class="bg-white border border-slate-200 rounded-lg overflow-auto max-h-[70vh]">
+          <table id="dispo-tabela" class="text-sm border-collapse">
+            <thead id="dispo-thead" class="text-slate-500 text-left text-xs"></thead>
+            <tbody id="dispo-tbody" class="divide-y divide-slate-100"></tbody>
+            <tfoot id="dispo-tfoot" class="text-xs"></tfoot>
+          </table>
+        </div>
+      </section>
+
       <!-- ---------- OPERAÇÃO: DOCUMENTOS DE TURMAS ---------- -->
       <section id="secao-documentos-turmas" class="hidden">
         <div class="mb-5 bg-white border border-slate-200 rounded-xl p-4 flex flex-wrap items-end gap-4">

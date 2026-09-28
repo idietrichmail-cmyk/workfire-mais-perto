@@ -314,6 +314,7 @@ const MODULOS = [
   { id: "agendamentos", label: "Agendar Treinamento", icone: "🗓️", grupo: "Logística" },
   { id: "agendamento_turmas", label: "Agendamento de Turmas", icone: "📆", grupo: "Logística" },
   { id: "agenda_centros", label: "Agenda por Centro de Treinamento", icone: "📅", grupo: "Logística" },
+  { id: "disponibilidade_instrutores", label: "Disponibilidade dos Instrutores", icone: "📊", grupo: "Logística" },
   { id: "turmas", label: "Turmas por Orçamento", icone: "🎓", grupo: "Logística" },
   // Operações
   { id: "atividades", label: "Atividades", icone: "📋", grupo: "Operações" },
@@ -1234,6 +1235,10 @@ function irParaModulo(id) {
   } else if (id === "agenda_centros") {
     $("secao-agenda-centros").classList.remove("hidden");
     carregarAgendaCentrosInit();
+  } else if (id === "disponibilidade_instrutores") {
+    $("admin-descricao-pagina").textContent = "Consulte a disponibilidade dos instrutores mês a mês, por centro de treinamento.";
+    $("secao-disponibilidade-instrutores").classList.remove("hidden");
+    carregarDisponibilidadeInstrutoresInit();
   } else if (id === "documentos_turmas") {
     $("secao-documentos-turmas").classList.remove("hidden");
     carregarDocumentosTurmasInit();
@@ -6960,6 +6965,202 @@ $("acc-mes-proximo").addEventListener("click", () => {
   accDiaSelecionado = null;
   carregarAgendaCentros();
 });
+
+// ===========================================================
+// Disponibilidade dos Instrutores (consulta mensal, somente leitura)
+// Cruza instrutores.dias_status (disponivel/bloqueado/agendado/aguardando)
+// com os pedidos de cancelamento pendentes em agendamentos.datas_status
+// (mesmo conceito de "desmarcação pendente" do Agendamento de Turmas) para
+// destacar, em vermelho, um dia "agendado" com pedido de cancelamento aberto.
+// ===========================================================
+let dispoMes = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+let dispoCentrosRef = [];
+let dispoInstrutoresRef = [];
+let dispoDesmarcacaoPendenteSet = new Set(); // "instrutorId|AAAA-MM-DD"
+
+const ESTILO_DISPO = {
+  disponivel: "bg-teal-600",
+  bloqueado: "bg-slate-200",
+  agendado: "bg-blue-600",
+  aguardando: "bg-amber-400",
+  cancelando: "bg-rose-600",
+};
+const ROTULO_DISPO = {
+  disponivel: "Disponível",
+  bloqueado: "Sem registro / bloqueado",
+  agendado: "Agendado",
+  aguardando: "Aguardando confirmação",
+  cancelando: "Agendado — pedido de cancelamento pendente",
+};
+
+function statusDispoDia(instrutor, dataStr) {
+  const base = obterStatusDia(instrutor.dias_status, dataStr);
+  if (base === "agendado" && dispoDesmarcacaoPendenteSet.has(`${instrutor.id}|${dataStr}`)) return "cancelando";
+  return base;
+}
+
+function diasDoMesLista(ano, mes) {
+  const ultimoDia = new Date(ano, mes + 1, 0).getDate();
+  const lista = [];
+  for (let d = 1; d <= ultimoDia; d++) lista.push(new Date(ano, mes, d));
+  return lista;
+}
+
+function corSubtotalDisponiveisDispo(qtd) {
+  if (qtd < 2) return "bg-rose-100 text-rose-700";
+  if (qtd <= 4) return "bg-amber-100 text-amber-700";
+  return "bg-emerald-100 text-emerald-700";
+}
+
+function montarDesmarcacaoPendenteDispo(agendamentos) {
+  dispoDesmarcacaoPendenteSet = new Set();
+  (agendamentos || []).forEach((a) => {
+    Object.entries(a.datas_status || {}).forEach(([data, info]) => {
+      if (info && info.solicitacao_cancelamento && info.solicitacao_cancelamento.pendente) {
+        dispoDesmarcacaoPendenteSet.add(`${a.instrutor_id}|${data}`);
+      }
+    });
+  });
+}
+
+function preencherSelectsMesDispo() {
+  const selMes = $("dispo-mes-select");
+  selMes.innerHTML = nomesMeses.map((m, i) => `<option value="${i}">${m}</option>`).join("");
+  selMes.value = String(dispoMes.getMonth());
+
+  const anoAtual = new Date().getFullYear();
+  const anos = new Set();
+  for (let a = anoAtual - 2; a <= anoAtual + 3; a++) anos.add(a);
+  anos.add(dispoMes.getFullYear());
+  const selAno = $("dispo-ano-select");
+  selAno.innerHTML = [...anos].sort((a, b) => a - b).map((a) => `<option value="${a}">${a}</option>`).join("");
+  selAno.value = String(dispoMes.getFullYear());
+}
+
+function preencherFiltroCentroDispo() {
+  const sel = $("dispo-centro-select");
+  const atual = sel.value;
+  sel.innerHTML = `<option value="">Todos os centros</option>` +
+    dispoCentrosRef.map((c) => `<option value="${c.id}">${c.nome}${c.status !== "Ativo" ? " (inativo)" : ""}</option>`).join("");
+  sel.value = atual || "";
+}
+
+function instrutoresFiltradosDispo() {
+  const centro = $("dispo-centro-select").value;
+  const statusFiltro = $("dispo-status-select").value; // "Ativo" | "Todos"
+  return dispoInstrutoresRef
+    .filter((i) => i.role !== "admin")
+    .filter((i) => statusFiltro !== "Ativo" || i.status === "Ativo")
+    .filter((i) => !centro || i.centro_treinamento_principal_id === centro)
+    .sort((a, b) => a.nome.localeCompare(b.nome));
+}
+
+async function carregarDisponibilidadeInstrutoresInit() {
+  preencherSelectsMesDispo();
+  const [{ data: centros }, { data: instrutores }, { data: agendamentos }] = await Promise.all([
+    supabase.from("centros_treinamento").select("id, nome, status").order("nome"),
+    supabase.from("instrutores").select("id, nome, status, role, centro_treinamento_principal_id, dias_status").order("nome"),
+    supabase.from("agendamentos").select("instrutor_id, datas_status"),
+  ]);
+  dispoCentrosRef = centros || [];
+  dispoInstrutoresRef = instrutores || [];
+  montarDesmarcacaoPendenteDispo(agendamentos);
+  preencherFiltroCentroDispo();
+  renderizarDisponibilidadeInstrutores();
+}
+
+const DISPO_LARG = { nome: 180, ct: 140, agend: 90, disp: 90, dia: 34 };
+const DISPO_LEFT = {
+  nome: 0,
+  ct: DISPO_LARG.nome,
+  agend: DISPO_LARG.nome + DISPO_LARG.ct,
+  disp: DISPO_LARG.nome + DISPO_LARG.ct + DISPO_LARG.agend,
+};
+const DISPO_LARG_STICKY_TOTAL = DISPO_LARG.nome + DISPO_LARG.ct + DISPO_LARG.agend + DISPO_LARG.disp;
+
+function renderizarDisponibilidadeInstrutores() {
+  const ano = dispoMes.getFullYear();
+  const mes = dispoMes.getMonth();
+  const dias = diasDoMesLista(ano, mes);
+  const instrutores = instrutoresFiltradosDispo();
+
+  $("dispo-resumo").textContent = `${instrutores.length} instrutor(es) · ${nomesMeses[mes]} ${ano}`;
+  const vazio = instrutores.length === 0;
+  $("dispo-vazio").classList.toggle("hidden", !vazio);
+  $("dispo-tabela-wrap").classList.toggle("hidden", vazio);
+  if (vazio) {
+    $("dispo-thead").innerHTML = "";
+    $("dispo-tbody").innerHTML = "";
+    $("dispo-tfoot").innerHTML = "";
+    return;
+  }
+
+  $("dispo-thead").innerHTML = `
+    <tr>
+      <th class="sticky top-0 left-0 z-30 bg-slate-50 px-3 py-2 font-medium text-left border-b border-slate-200" style="width:${DISPO_LARG.nome}px;min-width:${DISPO_LARG.nome}px">Instrutor</th>
+      <th class="sticky top-0 z-30 bg-slate-50 px-3 py-2 font-medium text-left border-b border-slate-200" style="left:${DISPO_LEFT.ct}px;width:${DISPO_LARG.ct}px;min-width:${DISPO_LARG.ct}px">CT Principal</th>
+      <th class="sticky top-0 z-30 bg-slate-50 px-2 py-2 font-medium text-center border-b border-slate-200" style="left:${DISPO_LEFT.agend}px;width:${DISPO_LARG.agend}px;min-width:${DISPO_LARG.agend}px">Dias agendados</th>
+      <th class="sticky top-0 z-30 bg-slate-50 px-2 py-2 font-medium text-center border-b border-slate-200" style="left:${DISPO_LEFT.disp}px;width:${DISPO_LARG.disp}px;min-width:${DISPO_LARG.disp}px">Dias disponíveis</th>
+      ${dias.map((d) => `<th class="sticky top-0 z-20 bg-slate-50 px-1 py-2 font-medium text-center border-b border-slate-200" style="width:${DISPO_LARG.dia}px;min-width:${DISPO_LARG.dia}px">${d.getDate()}<div class="text-[9px] font-normal text-slate-400">${diasSemana[d.getDay()]}</div></th>`).join("")}
+    </tr>`;
+
+  const subtotaisDisp = {};
+  const subtotaisAgend = {};
+  dias.forEach((d) => { subtotaisDisp[formatarData(d)] = 0; subtotaisAgend[formatarData(d)] = 0; });
+
+  $("dispo-tbody").innerHTML = instrutores.map((inst) => {
+    const ct = dispoCentrosRef.find((c) => c.id === inst.centro_treinamento_principal_id);
+    let totalAgendados = 0, totalDisponiveis = 0;
+    const celulas = dias.map((d) => {
+      const dataStr = formatarData(d);
+      const status = statusDispoDia(inst, dataStr);
+      if (status === "agendado" || status === "cancelando") { totalAgendados++; subtotaisAgend[dataStr]++; }
+      if (status === "disponivel") { totalDisponiveis++; subtotaisDisp[dataStr]++; }
+      return `<td class="p-0.5 text-center" style="width:${DISPO_LARG.dia}px;min-width:${DISPO_LARG.dia}px"><span title="${ROTULO_DISPO[status]} — ${formatarDataAbrev(dataStr)}" class="inline-flex w-full h-6 rounded ${ESTILO_DISPO[status]}"></span></td>`;
+    }).join("");
+    return `
+    <tr>
+      <td class="sticky left-0 z-10 bg-white px-3 py-1.5 text-slate-800 whitespace-nowrap overflow-hidden text-ellipsis" style="width:${DISPO_LARG.nome}px;min-width:${DISPO_LARG.nome}px">${inst.nome}${inst.status !== "Ativo" ? ` <span class="text-[10px] text-rose-500">(inativo)</span>` : ""}</td>
+      <td class="sticky z-10 bg-white px-3 py-1.5 text-slate-500 whitespace-nowrap overflow-hidden text-ellipsis" style="left:${DISPO_LEFT.ct}px;width:${DISPO_LARG.ct}px;min-width:${DISPO_LARG.ct}px">${ct?.nome || "—"}</td>
+      <td class="sticky z-10 bg-white px-2 py-1.5 text-center font-medium text-blue-700" style="left:${DISPO_LEFT.agend}px;width:${DISPO_LARG.agend}px;min-width:${DISPO_LARG.agend}px">${totalAgendados}</td>
+      <td class="sticky z-10 bg-white px-2 py-1.5 text-center font-medium text-teal-700" style="left:${DISPO_LEFT.disp}px;width:${DISPO_LARG.disp}px;min-width:${DISPO_LARG.disp}px">${totalDisponiveis}</td>
+      ${celulas}
+    </tr>`;
+  }).join("");
+
+  $("dispo-tfoot").innerHTML = `
+    <tr class="border-t-2 border-slate-200">
+      <td colspan="4" class="sticky left-0 z-10 bg-slate-50 px-3 py-1.5 font-medium text-slate-600" style="width:${DISPO_LARG_STICKY_TOTAL}px;min-width:${DISPO_LARG_STICKY_TOTAL}px">Instrutores disponíveis no dia</td>
+      ${dias.map((d) => { const qtd = subtotaisDisp[formatarData(d)]; return `<td class="p-0.5 text-center" style="width:${DISPO_LARG.dia}px;min-width:${DISPO_LARG.dia}px"><span class="inline-flex items-center justify-center w-full h-6 rounded text-[11px] font-semibold ${corSubtotalDisponiveisDispo(qtd)}">${qtd}</span></td>`; }).join("")}
+    </tr>
+    <tr>
+      <td colspan="4" class="sticky left-0 z-10 bg-slate-50 px-3 py-1.5 font-medium text-slate-600" style="width:${DISPO_LARG_STICKY_TOTAL}px;min-width:${DISPO_LARG_STICKY_TOTAL}px">Instrutores agendados no dia</td>
+      ${dias.map((d) => { const qtd = subtotaisAgend[formatarData(d)]; return `<td class="p-0.5 text-center"><span class="inline-flex items-center justify-center w-full h-6 rounded text-[11px] font-semibold bg-blue-50 text-blue-700">${qtd}</span></td>`; }).join("")}
+    </tr>`;
+}
+
+$("dispo-mes-select").addEventListener("change", (e) => {
+  dispoMes = new Date(dispoMes.getFullYear(), Number(e.target.value), 1);
+  renderizarDisponibilidadeInstrutores();
+});
+$("dispo-ano-select").addEventListener("change", (e) => {
+  dispoMes = new Date(Number(e.target.value), dispoMes.getMonth(), 1);
+  preencherSelectsMesDispo();
+  renderizarDisponibilidadeInstrutores();
+});
+$("dispo-mes-anterior").addEventListener("click", () => {
+  dispoMes = new Date(dispoMes.getFullYear(), dispoMes.getMonth() - 1, 1);
+  preencherSelectsMesDispo();
+  renderizarDisponibilidadeInstrutores();
+});
+$("dispo-mes-proximo").addEventListener("click", () => {
+  dispoMes = new Date(dispoMes.getFullYear(), dispoMes.getMonth() + 1, 1);
+  preencherSelectsMesDispo();
+  renderizarDisponibilidadeInstrutores();
+});
+$("dispo-centro-select").addEventListener("change", renderizarDisponibilidadeInstrutores);
+$("dispo-status-select").addEventListener("change", renderizarDisponibilidadeInstrutores);
+$("dispo-atualizar").addEventListener("click", carregarDisponibilidadeInstrutoresInit);
 
 // ===========================================================
 // Documentos de Turmas (fotos e lista de presença enviadas pelo
