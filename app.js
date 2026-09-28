@@ -12,7 +12,7 @@ const $ = (id) => document.getElementById(id);
 
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no rodapé do menu lateral.
-const APP_VERSAO = "Prod 1.00 · 28/09/2026";
+const APP_VERSAO = "Prod 1.01 · 28/09/2026";
 
 const diasSemana = ["D", "S", "T", "Q", "Q", "S", "S"];
 const nomesMeses = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
@@ -7144,7 +7144,7 @@ async function carregarDisponibilidadeInstrutoresInit() {
   renderizarDisponibilidadeInstrutores();
 }
 
-const DISPO_LARG = { nome: 104, ct: 34, agend: 50, disp: 50, dia: 25 };
+const DISPO_LARG = { nome: 104, ct: 28, agend: 42, disp: 42, dia: 25 };
 const DISPO_LEFT = {
   nome: 0,
   ct: DISPO_LARG.nome,
@@ -7173,9 +7173,9 @@ function renderizarDisponibilidadeInstrutores() {
   $("dispo-thead").innerHTML = `
     <tr>
       <th class="sticky top-0 left-0 z-30 bg-slate-50 px-3 py-2 font-medium text-left border-b border-slate-200" style="width:${DISPO_LARG.nome}px;min-width:${DISPO_LARG.nome}px">Instrutor</th>
-      <th title="Centro de Treinamento principal" class="sticky top-0 z-30 bg-slate-50 px-1 py-2 font-medium text-center border-b border-slate-200" style="left:${DISPO_LEFT.ct}px;width:${DISPO_LARG.ct}px;min-width:${DISPO_LARG.ct}px">CT</th>
-      <th title="Dias agendados no mês" class="sticky top-0 z-30 bg-slate-50 px-1 py-2 font-medium text-center border-b border-slate-200" style="left:${DISPO_LEFT.agend}px;width:${DISPO_LARG.agend}px;min-width:${DISPO_LARG.agend}px">Agend.</th>
-      <th title="Dias disponíveis no mês" class="sticky top-0 z-30 bg-slate-50 px-1 py-2 font-medium text-center border-b border-slate-200" style="left:${DISPO_LEFT.disp}px;width:${DISPO_LARG.disp}px;min-width:${DISPO_LARG.disp}px">Dispon.</th>
+      <th title="Centro de Treinamento principal" class="sticky top-0 z-30 bg-slate-50 px-0.5 py-2 text-[10px] font-medium text-center border-b border-slate-200" style="left:${DISPO_LEFT.ct}px;width:${DISPO_LARG.ct}px;min-width:${DISPO_LARG.ct}px">CT</th>
+      <th title="Dias agendados no mês" class="sticky top-0 z-30 bg-slate-50 px-0.5 py-2 text-[10px] font-medium text-center border-b border-slate-200" style="left:${DISPO_LEFT.agend}px;width:${DISPO_LARG.agend}px;min-width:${DISPO_LARG.agend}px">Agend.</th>
+      <th title="Dias disponíveis no mês" class="sticky top-0 z-30 bg-slate-50 px-0.5 py-2 text-[10px] font-medium text-center border-b border-slate-200" style="left:${DISPO_LEFT.disp}px;width:${DISPO_LARG.disp}px;min-width:${DISPO_LARG.disp}px">Dispon.</th>
       ${dias.map((d) => `<th class="sticky top-0 z-20 bg-slate-50 px-0.5 py-2 font-medium text-center border-b border-slate-200" style="width:${DISPO_LARG.dia}px;min-width:${DISPO_LARG.dia}px">${d.getDate()}<div class="text-[8px] font-normal text-slate-400">${diasSemana[d.getDay()]}</div></th>`).join("")}
     </tr>`;
 
@@ -7196,9 +7196,9 @@ function renderizarDisponibilidadeInstrutores() {
     return `
     <tr>
       <td title="${inst.nome}" class="sticky left-0 z-10 bg-white px-2 py-1.5 text-xs text-slate-800 whitespace-nowrap overflow-hidden text-ellipsis" style="width:${DISPO_LARG.nome}px;min-width:${DISPO_LARG.nome}px">${inst.nome}${inst.status !== "Ativo" ? ` <span class="text-[9px] text-rose-500">(inat.)</span>` : ""}</td>
-      <td title="${ct?.nome || ""}" class="sticky z-10 bg-white px-1 py-1.5 text-xs text-slate-500 text-center whitespace-nowrap overflow-hidden text-ellipsis" style="left:${DISPO_LEFT.ct}px;width:${DISPO_LARG.ct}px;min-width:${DISPO_LARG.ct}px">${siglaCentroDispo(ct)}</td>
-      <td class="sticky z-10 bg-white px-1 py-1.5 text-center font-medium text-blue-700" style="left:${DISPO_LEFT.agend}px;width:${DISPO_LARG.agend}px;min-width:${DISPO_LARG.agend}px">${totalAgendados}</td>
-      <td class="sticky z-10 bg-white px-1 py-1.5 text-center font-medium text-teal-700" style="left:${DISPO_LEFT.disp}px;width:${DISPO_LARG.disp}px;min-width:${DISPO_LARG.disp}px">${totalDisponiveis}</td>
+      <td title="${ct?.nome || ""}" class="sticky z-10 bg-white px-0.5 py-1.5 text-[10px] text-slate-500 text-center whitespace-nowrap overflow-hidden text-ellipsis" style="left:${DISPO_LEFT.ct}px;width:${DISPO_LARG.ct}px;min-width:${DISPO_LARG.ct}px">${siglaCentroDispo(ct)}</td>
+      <td class="sticky z-10 bg-white px-0.5 py-1.5 text-center text-[10px] font-medium text-blue-700" style="left:${DISPO_LEFT.agend}px;width:${DISPO_LARG.agend}px;min-width:${DISPO_LARG.agend}px">${totalAgendados}</td>
+      <td class="sticky z-10 bg-white px-0.5 py-1.5 text-center text-[10px] font-medium text-teal-700" style="left:${DISPO_LEFT.disp}px;width:${DISPO_LARG.disp}px;min-width:${DISPO_LARG.disp}px">${totalDisponiveis}</td>
       ${celulas}
     </tr>`;
   }).join("");
