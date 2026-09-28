@@ -5629,7 +5629,7 @@ function celulaInstrutorAgendTurma(t, campo) {
     ? `<div class="text-[10px] text-rose-600 mt-0.5">Nenhum instrutor atende aos filtros nesta data.</div>` : "";
   const alerta = valorAtual && filtros.aptos && !instrutorApto(listaInstrutoresAtivos.find((i) => i.id === valorAtual) || {}, t)
     ? `<div class="text-[10px] text-amber-600 mt-0.5">⚠️ não é apto a este tipo de treinamento</div>` : "";
-  return `<select data-agend-turma-instrutor="${t.id}" data-campo="${campo}" class="text-xs rounded-md border border-slate-300 px-1.5 py-1 max-w-[160px]">
+  return `<select data-agend-turma-instrutor="${t.id}" data-campo="${campo}" class="text-[10px] rounded-md border border-slate-300 px-1.5 py-1 w-full max-w-[230px]">
     <option value="">— Selecione —</option>
     ${opcoes}
   </select>${vazio}${alerta}
@@ -7139,7 +7139,7 @@ async function carregarDisponibilidadeInstrutoresInit() {
   renderizarDisponibilidadeInstrutores();
 }
 
-const DISPO_LARG = { nome: 128, ct: 44, agend: 50, disp: 50, dia: 25 };
+const DISPO_LARG = { nome: 104, ct: 34, agend: 50, disp: 50, dia: 25 };
 const DISPO_LEFT = {
   nome: 0,
   ct: DISPO_LARG.nome,
@@ -7190,8 +7190,8 @@ function renderizarDisponibilidadeInstrutores() {
     }).join("");
     return `
     <tr>
-      <td title="${inst.nome}" class="sticky left-0 z-10 bg-white px-2 py-1.5 text-slate-800 whitespace-nowrap overflow-hidden text-ellipsis" style="width:${DISPO_LARG.nome}px;min-width:${DISPO_LARG.nome}px">${inst.nome}${inst.status !== "Ativo" ? ` <span class="text-[10px] text-rose-500">(inat.)</span>` : ""}</td>
-      <td title="${ct?.nome || ""}" class="sticky z-10 bg-white px-1 py-1.5 text-slate-500 text-center whitespace-nowrap overflow-hidden text-ellipsis" style="left:${DISPO_LEFT.ct}px;width:${DISPO_LARG.ct}px;min-width:${DISPO_LARG.ct}px">${siglaCentroDispo(ct)}</td>
+      <td title="${inst.nome}" class="sticky left-0 z-10 bg-white px-2 py-1.5 text-xs text-slate-800 whitespace-nowrap overflow-hidden text-ellipsis" style="width:${DISPO_LARG.nome}px;min-width:${DISPO_LARG.nome}px">${inst.nome}${inst.status !== "Ativo" ? ` <span class="text-[9px] text-rose-500">(inat.)</span>` : ""}</td>
+      <td title="${ct?.nome || ""}" class="sticky z-10 bg-white px-1 py-1.5 text-xs text-slate-500 text-center whitespace-nowrap overflow-hidden text-ellipsis" style="left:${DISPO_LEFT.ct}px;width:${DISPO_LARG.ct}px;min-width:${DISPO_LARG.ct}px">${siglaCentroDispo(ct)}</td>
       <td class="sticky z-10 bg-white px-1 py-1.5 text-center font-medium text-blue-700" style="left:${DISPO_LEFT.agend}px;width:${DISPO_LARG.agend}px;min-width:${DISPO_LARG.agend}px">${totalAgendados}</td>
       <td class="sticky z-10 bg-white px-1 py-1.5 text-center font-medium text-teal-700" style="left:${DISPO_LEFT.disp}px;width:${DISPO_LARG.disp}px;min-width:${DISPO_LARG.disp}px">${totalDisponiveis}</td>
       ${celulas}
