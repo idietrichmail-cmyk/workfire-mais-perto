@@ -789,7 +789,7 @@ $("btn-inst-lgpd-aceitar").addEventListener("click", async () => {
   const btn = $("btn-inst-lgpd-aceitar");
   btn.disabled = true;
   btn.textContent = "Salvando…";
-  const { data, error } = await supabase.rpc("aceitar_lgpd", { p_aplicativo: "workfire-mais-perto" });
+  const { data, error } = await supabase.rpc("aceitar_lgpd");
   btn.disabled = false;
   btn.textContent = "Aceitar e continuar";
   if (error) {
@@ -4039,13 +4039,12 @@ function renderizarListaDesmarcacoes() {
   );
 }
 
-// Aprova ou rejeita o pedido de desmarcação. A regra fica no banco
-// (responder_desmarcacao_agendamento), igual em todas as telas: aprovando,
-// o dia é liberado na agenda do instrutor e ele sai da turma, que volta
-// para "Não agendado" para nova seleção e nova solicitação de confirmação.
+// Aprova ou rejeita o pedido de desmarcação. Aprovando, a data é liberada
+// (instrutor volta a ficar disponível, turma volta para "A agendar") e passa
+// a aparecer na aba de negativas para substituição.
 async function resolverDesmarcacao(d, aprovar) {
   const pergunta = aprovar
-    ? `Aprovar a desmarcação de ${d.instrutorNome} em ${formatarDataAbrev(d.data)}?\n\n• O dia será liberado na agenda do instrutor.\n• A turma volta para "Não agendado", sem instrutor, para nova seleção e nova solicitação de confirmação.`
+    ? `Aprovar a desmarcação de ${d.instrutorNome} em ${formatarDataAbrev(d.data)}?\n\nA data será liberada e vai aparecer em "Negativas de instrutores" para você substituir o instrutor.`
     : `Rejeitar o pedido de ${d.instrutorNome} em ${formatarDataAbrev(d.data)}?\n\nA aula continua confirmada para ele.`;
   if (!confirm(pergunta)) return;
   const { error } = await supabase.rpc("resolver_desmarcacao_agendamento", {
@@ -5528,6 +5527,13 @@ function turmaComDesmarcacaoPendente(t) {
   return [t.instrutor1_id, t.instrutor2_id].some((id) => respostaInstrutorAgendTurma(t, id)?.desmarcacaoPendente);
 }
 
+// A turma já tem algum instrutor que confirmou a data? É a partir daqui que o
+// horário de deslocamento passa a fazer sentido (e que mudar o horário da aula
+// dispara o aviso ao instrutor — ver trigger notificar_alteracao_horario_turma).
+function algumInstrutorConfirmouAgendTurma(t) {
+  return [t.instrutor1_id, t.instrutor2_id].some((id) => respostaInstrutorAgendTurma(t, id)?.status === "confirmado");
+}
+
 function celulaCentroAgendTurma(t) {
   const agenda = `<div class="mt-0.5">${textoAgendaItem(t.agenda_ct)}</div>`;
   if (!agendTurmaSelecionadas.has(t.id)) return `<span class="text-slate-300">—</span>${agenda}`;
@@ -5592,7 +5598,7 @@ function celulaInstrutorSomenteLeitura(t, campo) {
 function renderizarListaAgendTurmas() {
   const cont = $("agend-turma-lista");
   if (agendTurmasLista.length === 0) {
-    cont.innerHTML = `<tr><td colspan="10" class="text-center text-slate-500 text-sm py-16">Nenhuma turma cadastrada para este orçamento.</td></tr>`;
+    cont.innerHTML = `<tr><td colspan="12" class="text-center text-slate-500 text-sm py-16">Nenhuma turma cadastrada para este orçamento.</td></tr>`;
     return;
   }
   const corStatus = {
@@ -5610,6 +5616,14 @@ function renderizarListaAgendTurmas() {
       <td class="px-3 py-2 text-slate-500">${t.tipo_dia || "—"}</td>
       <td class="px-3 py-2 text-slate-500">
         <input type="date" data-agend-turma-data="${t.id}" value="${t.data_inicio || ""}" class="w-full min-w-[140px] text-xs rounded-md border border-slate-300 px-2 py-1.5" />
+      </td>
+      <td class="px-3 py-2 text-slate-500">
+        <input type="time" data-agend-turma-horario="${t.id}" value="${t.horario || ""}" title="Horário de início da aula — alterar aqui não afeta as demais turmas. Se algum instrutor já confirmou, ele recebe um aviso do novo horário." class="w-full min-w-[100px] text-xs rounded-md border border-slate-300 px-2 py-1.5" />
+      </td>
+      <td class="px-3 py-2 text-slate-500">
+        ${algumInstrutorConfirmouAgendTurma(t)
+          ? `<input type="time" data-agend-turma-deslocamento="${t.id}" value="${t.horario_deslocamento || ""}" title="Horário em que o instrutor deve iniciar o deslocamento até esta turma" class="w-full min-w-[100px] text-xs rounded-md border border-slate-300 px-2 py-1.5" />`
+          : `<span class="text-[11px] text-slate-300" title="Só é possível definir depois que algum instrutor confirmar a data">—</span>`}
       </td>
       <td class="px-3 py-2"><span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${corStatus[t.status] || ""}">${t.status}</span></td>
       <td class="px-3 py-2">${badgeStatusAgendamento(t.status_agendamento, t.eh_pre_agendamento)}${turmaComDesmarcacaoPendente(t) ? `<div class="mt-0.5 text-[11px] text-rose-700 font-medium">desmarcação solicitada</div>` : ""}</td>
@@ -5643,6 +5657,16 @@ function renderizarListaAgendTurmas() {
   cont.querySelectorAll("[data-agend-turma-data]").forEach((el) => {
     el.addEventListener("change", (e) =>
       definirDataAgendTurma(e.target.getAttribute("data-agend-turma-data"), e.target.value)
+    );
+  });
+  cont.querySelectorAll("[data-agend-turma-horario]").forEach((el) => {
+    el.addEventListener("change", (e) =>
+      definirHorarioAgendTurma(e.target.getAttribute("data-agend-turma-horario"), e.target.value)
+    );
+  });
+  cont.querySelectorAll("[data-agend-turma-deslocamento]").forEach((el) => {
+    el.addEventListener("change", (e) =>
+      definirHorarioDeslocamentoAgendTurma(e.target.getAttribute("data-agend-turma-deslocamento"), e.target.value)
     );
   });
   cont.querySelectorAll("[data-agend-turma-pre]").forEach((el) => {
@@ -5692,6 +5716,49 @@ async function definirDataAgendTurma(turmaId, novaData) {
   agendTurmaCentroStatus.delete(turmaId);
   agendTurmaInstrutores.delete(turmaId);
   renderizarListaAgendTurmas();
+}
+
+// Grava o horário de início da aula de uma turma específica, sem afetar as
+// demais. Se algum instrutor já tiver confirmado essa data, um trigger no
+// banco (notificar_alteracao_horario_turma) avisa automaticamente o(s)
+// instrutor(es) confirmado(s), com os dados do orçamento, da turma e o novo
+// horário — não é preciso fazer nada além de salvar aqui.
+async function definirHorarioAgendTurma(turmaId, novoHorario) {
+  const t = agendTurmasLista.find((x) => x.id === turmaId);
+  if (!t) return;
+  const anterior = t.horario;
+  const jaConfirmado = algumInstrutorConfirmouAgendTurma(t);
+  t.horario = novoHorario || null;
+
+  const { error } = await supabase.from("turmas").update({ horario: t.horario }).eq("id", turmaId);
+  if (error) {
+    t.horario = anterior;
+    renderizarListaAgendTurmas();
+    alert("Não foi possível salvar o horário de início da aula. Tente novamente.");
+    return;
+  }
+  if (jaConfirmado && anterior !== t.horario) {
+    console.info(`Turma ${t.identificacao || turmaId}: instrutor já confirmado, aviso de novo horário disparado automaticamente.`);
+  }
+  renderizarListaAgendTurmas();
+}
+
+// Grava o horário em que o instrutor deve iniciar o deslocamento até a turma.
+// Só é editável depois que algum instrutor confirmou a data (ver
+// algumInstrutorConfirmouAgendTurma), já que antes disso ainda não há
+// deslocamento a organizar.
+async function definirHorarioDeslocamentoAgendTurma(turmaId, novoHorario) {
+  const t = agendTurmasLista.find((x) => x.id === turmaId);
+  if (!t) return;
+  const anterior = t.horario_deslocamento;
+  t.horario_deslocamento = novoHorario || null;
+
+  const { error } = await supabase.from("turmas").update({ horario_deslocamento: t.horario_deslocamento }).eq("id", turmaId);
+  if (error) {
+    t.horario_deslocamento = anterior;
+    renderizarListaAgendTurmas();
+    alert("Não foi possível salvar o horário de deslocamento. Tente novamente.");
+  }
 }
 
 $("btn-agend-marcar-todas").addEventListener("click", () => {
