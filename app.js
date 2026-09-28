@@ -10,6 +10,10 @@
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const $ = (id) => document.getElementById(id);
 
+// Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
+// usuário, junto com o commit. Mostrada no rodapé do menu lateral.
+const APP_VERSAO = "Prod 1.00 · 28/09/2026";
+
 const diasSemana = ["D", "S", "T", "Q", "Q", "S", "S"];
 const nomesMeses = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
 const nomesMesesAbrev = ["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"];
@@ -1061,6 +1065,7 @@ async function entrarNoPainelAdmin() {
   renderizarNavAdmin();
   mostrarMenuInicio();
   carregarSituacaoAprovacaoReembolso();
+  if ($("app-versao-label")) $("app-versao-label").textContent = `Versão: ${APP_VERSAO}`;
 }
 
 // Descobre se o usuário logado participa do fluxo de aprovação de reembolso
