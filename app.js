@@ -11,8 +11,10 @@ const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const $ = (id) => document.getElementById(id);
 
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
-// usuário, junto com o commit. Mostrada no rodapé do menu lateral.
-const APP_VERSAO = "Prod 1.02 · 03/10/2026";
+// usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
+// rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
+const APP_VERSAO = "Prod 1.03 · 03/10/2026";
+if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 const diasSemana = ["D", "S", "T", "Q", "Q", "S", "S"];
 const nomesMeses = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
