@@ -463,8 +463,14 @@
       <section id="secao-crud" class="hidden">
         <div class="flex flex-col sm:flex-row gap-3 sm:items-center justify-between mb-5">
           <input id="crud-busca" placeholder="Buscar" class="flex-1 max-w-xs text-sm rounded-md border border-slate-300 bg-white px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-500" />
-          <button id="btn-crud-novo" class="inline-flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium px-4 py-2 rounded-md">+ Novo</button>
+          <div class="flex flex-wrap gap-2">
+            <input id="crud-importar-arquivo" type="file" accept=".xlsx" class="hidden" />
+            <button id="btn-crud-importar-clientes" class="hidden inline-flex items-center gap-2 border border-slate-300 text-slate-700 hover:bg-white text-sm font-medium px-4 py-2 rounded-md">📥 Importar planilha de clientes</button>
+            <button id="btn-crud-completar-enderecos" class="hidden inline-flex items-center gap-2 border border-slate-300 text-slate-700 hover:bg-white text-sm font-medium px-4 py-2 rounded-md">🔎 Completar endereços (Receita)</button>
+            <button id="btn-crud-novo" class="inline-flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium px-4 py-2 rounded-md">+ Novo</button>
+          </div>
         </div>
+        <div id="crud-importacao-painel" class="hidden mb-4 bg-white border border-slate-200 rounded-lg p-4 text-sm"></div>
         <div id="crud-filtros" class="hidden mb-4 bg-white border border-slate-200 rounded-lg p-3"></div>
         <div id="crud-lista" class="grid sm:grid-cols-2 xl:grid-cols-3 gap-4"></div>
       </section>
@@ -1970,6 +1976,6 @@
 </div>
 
 <script src="config.js"></script>
-<script src="app.js?v=20261003c"></script>
+<script src="app.js?v=20261003e"></script>
 </body>
 </html>

@@ -10,10 +10,25 @@
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const $ = (id) => document.getElementById(id);
 
+// O Supabase devolve no máximo 1.000 linhas por consulta; esta função busca
+// todas as páginas. Recebe uma função que monta a consulta (precisa ter
+// ordenação estável).
+async function buscarTodos(montarConsulta) {
+  const tam = 1000;
+  let todos = [];
+  for (let de = 0; ; de += tam) {
+    const { data, error } = await montarConsulta().range(de, de + tam - 1);
+    if (error) return { data: todos.length ? todos : null, error };
+    todos = todos.concat(data || []);
+    if (!data || data.length < tam) break;
+  }
+  return { data: todos, error: null };
+}
+
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.05 · 03/10/2026";
+const APP_VERSAO = "Prod 1.07 · 03/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 const diasSemana = ["D", "S", "T", "Q", "Q", "S", "S"];
@@ -1694,10 +1709,11 @@ const CRUD_CONFIG = {
     tabela: "empresas",
     titulo: "Empresa",
     descricao: "Empresas clientes que contratam treinamentos.",
-    buscaPlaceholder: "Buscar por nome ou CNPJ",
+    buscaPlaceholder: "Buscar por nome, nome fantasia ou CNPJ",
     ordenarPor: "nome",
     campos: [
-      { id: "nome", label: "Nome da empresa", obrigatorio: true },
+      { id: "nome", label: "Nome da empresa (razão social)", obrigatorio: true },
+      { id: "nome_fantasia", label: "Nome fantasia" },
       { id: "cnpj", label: "CNPJ", mascara: "cnpj", botaoAcao: { id: "btn-buscar-cnpj", label: "🔎 Pesquisar Receita Federal", onClick: buscarCnpjReceitaFederal } },
       {
         id: "cnpj_grupo_economico",
@@ -1718,9 +1734,9 @@ const CRUD_CONFIG = {
       { id: "endereco", label: "Endereço" },
       { id: "status", label: "Status", tipo: "select", opcoes: ["Ativo", "Inativo"], padrao: "Ativo" },
     ],
-    campoBusca: (i) => `${i.nome} ${i.cnpj || ""}`,
+    campoBusca: (i) => `${i.nome} ${i.nome_fantasia || ""} ${i.cnpj || ""}`,
     cardTitulo: (i) => i.nome,
-    cardLinhas: (i) => [i.cnpj && `CNPJ: ${i.cnpj}`, i.cnpj_grupo_economico && `Grupo: ${i.cnpj_grupo_economico}`, i.contato_nome, i.contato_email, i.contato_telefone].filter(Boolean),
+    cardLinhas: (i) => [i.nome_fantasia && `Fantasia: ${i.nome_fantasia}`, i.cnpj && `CNPJ: ${i.cnpj}`, i.cnpj_grupo_economico && `Grupo: ${i.cnpj_grupo_economico}`, i.contato_nome, i.contato_email, i.contato_telefone].filter(Boolean),
     renderTabela: (lista, { podeAlterar, podeExcluir }) => {
       const badge = (s) => `<span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${s === "Inativo" ? "bg-rose-50 text-rose-600" : "bg-teal-50 text-teal-700"}">${s || "—"}</span>`;
       return `
@@ -1728,6 +1744,7 @@ const CRUD_CONFIG = {
         <thead>
           <tr class="bg-slate-50 text-left text-slate-500 uppercase tracking-wide text-[10px]">
             <th class="px-3 py-2 font-medium">Empresa</th>
+            <th class="px-3 py-2 font-medium">Nome fantasia</th>
             <th class="px-3 py-2 font-medium">CNPJ</th>
             <th class="px-3 py-2 font-medium">Grupo econômico</th>
             <th class="px-3 py-2 font-medium">Contato</th>
@@ -1739,6 +1756,7 @@ const CRUD_CONFIG = {
           ${lista.map((i) => `
           <tr class="hover:bg-slate-50">
             <td class="px-3 py-2 text-slate-800 font-medium">${i.nome || "—"}</td>
+            <td class="px-3 py-2 text-slate-600">${i.nome_fantasia || "—"}</td>
             <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${i.cnpj || "—"}</td>
             <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${i.cnpj_grupo_economico || "—"}</td>
             <td class="px-3 py-2 text-slate-600">${[i.contato_nome, i.contato_telefone, i.contato_email].filter(Boolean).join(" · ") || "—"}</td>
@@ -2733,11 +2751,15 @@ async function carregarModuloCrud(id) {
   const cfg = CRUD_CONFIG[id];
   $("admin-descricao-pagina").textContent = cfg.descricao;
   if (cfg.carregarRefs) await cfg.carregarRefs();
-  const { data, error } = await supabase.from(cfg.tabela).select("*").order(cfg.ordenarPor, { ascending: cfg.ordenarAsc !== false });
+  if (id !== "empresas") $("crud-importacao-painel").classList.add("hidden");
+  const { data, error } = await buscarTodos(() => supabase.from(cfg.tabela).select("*").order(cfg.ordenarPor, { ascending: cfg.ordenarAsc !== false }).order("id"));
   crudLista = error ? [] : data;
   $("crud-busca").value = "";
   $("crud-busca").placeholder = cfg.buscaPlaceholder;
   $("btn-crud-novo").classList.toggle("hidden", !podeFazer(id, "incluir"));
+  const ehEmpresasComPermissao = id === "empresas" && podeFazer(id, "incluir");
+  $("btn-crud-importar-clientes").classList.toggle("hidden", !ehEmpresasComPermissao);
+  $("btn-crud-completar-enderecos").classList.toggle("hidden", !ehEmpresasComPermissao);
 
   const elFiltros = $("crud-filtros");
   if (cfg.renderFiltros) {
@@ -2764,6 +2786,13 @@ function renderizarListaCrud() {
   const busca = $("crud-busca").value.toLowerCase();
   let lista = crudLista.filter((item) => cfg.campoBusca(item).toLowerCase().includes(busca));
   if (cfg.aplicarFiltros) lista = cfg.aplicarFiltros(lista);
+  // Listas muito grandes (ex.: empresas importadas) mostram só as primeiras.
+  const LIMITE_CRUD = 300;
+  const totalFiltrado = lista.length;
+  if (totalFiltrado > LIMITE_CRUD) lista = lista.slice(0, LIMITE_CRUD);
+  const avisoLimite = totalFiltrado > LIMITE_CRUD
+    ? `<p class="col-span-full text-xs text-slate-500 text-center py-3">Mostrando ${LIMITE_CRUD} de ${totalFiltrado} registros — use a busca para refinar.</p>`
+    : "";
   const podeAlterar = podeFazer(crudModuloId, "alterar");
   const podeExcluir = podeFazer(crudModuloId, "excluir");
   const cont = $("crud-lista");
@@ -2772,7 +2801,7 @@ function renderizarListaCrud() {
 
   if (cfg.renderTabela) {
     cont.className = "overflow-x-auto";
-    cont.innerHTML = lista.length === 0 ? vazio : cfg.renderTabela(lista, { podeAlterar, podeExcluir });
+    cont.innerHTML = lista.length === 0 ? vazio : cfg.renderTabela(lista, { podeAlterar, podeExcluir }) + avisoLimite;
     cont.querySelectorAll("[data-crud-editar]").forEach((btn) =>
       btn.addEventListener("click", () => abrirEdicaoCrud(btn.getAttribute("data-crud-editar")))
     );
@@ -2801,7 +2830,7 @@ function renderizarListaCrud() {
         ${podeExcluir ? `<button data-crud-excluir="${item.id}" class="flex-1 text-xs font-medium text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-md py-1.5">🗑️ Excluir</button>` : ""}
       </div>
     </div>
-  `).join("");
+  `).join("") + avisoLimite;
 
   cont.querySelectorAll("[data-crud-editar]").forEach((btn) =>
     btn.addEventListener("click", () => abrirEdicaoCrud(btn.getAttribute("data-crud-editar")))
@@ -2966,6 +2995,263 @@ function ligarMascaras(cfg) {
   });
 }
 
+// ===========================================================
+// IMPORTAÇÃO DE CLIENTES (planilha do gestor3s) + endereços pela Receita
+// Regras: só entram CNPJ (dígitos verificadores ok) e CPF válidos; CNPJ
+// zerado/vazio/inválido é ignorado; linhas repetidas (mesmo documento + razão
+// + fantasia) entram uma vez; documentos que já existiam no cadastro antes da
+// importação não são tocados; registros marcados teste/duplicado são pulados.
+// O endereço vem da planilha e, quando faltar, é completado pela Receita.
+// ===========================================================
+const IMPORT_LIXO = /\bteste\b|duplicado|n[ãa]o considerar|\bapagar\b|n[ãa]o usar/i;
+
+function validarCnpjDigitos(c) {
+  if (c.length !== 14 || /^(\d)\1+$/.test(c)) return false;
+  const dv = (n) => {
+    const pesos = n === 12 ? [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2] : [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2];
+    const soma = pesos.reduce((acc, p, i) => acc + Number(c[i]) * p, 0);
+    const r = soma % 11;
+    return String(r < 2 ? 0 : 11 - r);
+  };
+  return c[12] === dv(12) && c[13] === dv(13);
+}
+function validarCpfDigitos(c) {
+  if (c.length !== 11 || /^(\d)\1+$/.test(c)) return false;
+  for (const n of [9, 10]) {
+    let soma = 0;
+    for (let i = 0; i < n; i++) soma += Number(c[i]) * (n + 1 - i);
+    if (((soma * 10) % 11) % 10 !== Number(c[n])) return false;
+  }
+  return true;
+}
+function formatarDocumentoImport(c) {
+  return c.length === 14
+    ? `${c.slice(0, 2)}.${c.slice(2, 5)}.${c.slice(5, 8)}/${c.slice(8, 12)}-${c.slice(12)}`
+    : `${c.slice(0, 3)}.${c.slice(3, 6)}.${c.slice(6, 9)}-${c.slice(9)}`;
+}
+function textoCelulaImport(v) {
+  if (v == null) return "";
+  if (typeof v === "object" && typeof v.text === "function") v = v.text();
+  return String(v).replace(/\s+/g, " ").trim();
+}
+function cepImport(v) {
+  let c = textoCelulaImport(v).replace(/\D/g, "");
+  if (c.length === 7) c = "0" + c;
+  return c.length === 8 ? `${c.slice(0, 5)}-${c.slice(5)}` : "";
+}
+function enderecoPlanilhaImport(r) {
+  const log = textoCelulaImport(r[3]).replace(/,+\s*$/, "").trim();
+  if (!log) return "";
+  const num = textoCelulaImport(r[4]);
+  const comp = textoCelulaImport(r[5]);
+  const bairro = textoCelulaImport(r[6]);
+  const uf = textoCelulaImport(r[7]);
+  const mun = textoCelulaImport(r[8]);
+  const cep = cepImport(r[9]);
+  const partes = [];
+  if (["S/N", "SN"].includes(num.toUpperCase())) partes.push(`${log}, s/n`);
+  else partes.push(num && num !== "0" ? `${log}, ${num}` : log);
+  if (comp) partes.push(comp);
+  if (bairro) partes.push(bairro);
+  const loc = mun && uf ? `${mun}/${uf}` : (mun || uf);
+  if (loc) partes.push(loc);
+  if (cep) partes.push(`CEP ${cep}`);
+  return partes.join(" - ");
+}
+function telefonePlanilhaImport(r) {
+  const a = textoCelulaImport(r[11]);
+  const b = textoCelulaImport(r[13]);
+  if (a && b && a.replace(/\D/g, "") !== b.replace(/\D/g, "")) return `${a} / ${b}`;
+  return a || b;
+}
+
+// Lê as linhas da planilha e aplica as regras; devolve { registros, resumo }.
+function prepararClientesPlanilha(linhas) {
+  const resumo = { total: 0, zerado: 0, semCnpj: 0, invalido: 0, teste: 0, repetido: 0, ok: 0, comEndereco: 0, semEndereco: 0, cpf: 0 };
+  const registros = [];
+  const vistos = new Set();
+  linhas.slice(1).forEach((r) => {
+    resumo.total++;
+    const c = textoCelulaImport(r[2]).replace(/\D/g, "");
+    if (!c) { resumo.semCnpj++; return; }
+    if (/^0+$/.test(c)) { resumo.zerado++; return; }
+    if (!((c.length === 14 && validarCnpjDigitos(c)) || (c.length === 11 && validarCpfDigitos(c)))) { resumo.invalido++; return; }
+    const razao = textoCelulaImport(r[1]);
+    const fantasia = textoCelulaImport(r[0]);
+    if (IMPORT_LIXO.test(`${razao} ${fantasia}`)) { resumo.teste++; return; }
+    const nome = razao || fantasia;
+    const chave = `${c}|${nome.toUpperCase()}|${fantasia.toUpperCase()}`;
+    if (vistos.has(chave)) { resumo.repetido++; return; }
+    vistos.add(chave);
+    const endereco = enderecoPlanilhaImport(r);
+    if (endereco) resumo.comEndereco++; else resumo.semEndereco++;
+    if (c.length === 11) resumo.cpf++;
+    registros.push({
+      digitos: c,
+      nome,
+      nome_fantasia: fantasia && fantasia.toUpperCase() !== nome.toUpperCase() ? fantasia : null,
+      cnpj: formatarDocumentoImport(c),
+      endereco: endereco || null,
+      contato_nome: textoCelulaImport(r[10]) || null,
+      contato_telefone: telefonePlanilhaImport(r) || null,
+      status: "Ativo",
+      origem: "gestor3s",
+    });
+  });
+  resumo.ok = registros.length;
+  return { registros, resumo };
+}
+
+let importacaoClientesPendente = null;
+let importacaoEnderecosParar = false;
+
+function painelImportacao(html) {
+  const el = $("crud-importacao-painel");
+  el.innerHTML = html;
+  el.classList.remove("hidden");
+  return el;
+}
+
+async function lerPlanilhaClientes(arquivo) {
+  painelImportacao(`<p class="text-slate-600">Lendo a planilha…</p>`);
+  try {
+    const buffer = await arquivo.arrayBuffer();
+    const wb = await XlsxPopulate.fromDataAsync(buffer);
+    const linhas = wb.sheet(0).usedRange().value();
+    const cab = textoCelulaImport(linhas[0]?.[2]).toUpperCase();
+    if (!cab.includes("CNPJ")) throw new Error("A 3ª coluna da planilha deveria ser o CNPJ. Confira se é o arquivo exportado de Clientes do gestor3s.");
+    const { registros, resumo } = prepararClientesPlanilha(linhas);
+
+    painelImportacao(`<p class="text-slate-600">Comparando com as empresas já cadastradas…</p>`);
+    const { data: existentes, error } = await buscarTodos(() => supabase.from("empresas").select("id, nome, cnpj, origem").order("id"));
+    if (error) throw new Error(error.message);
+    const digitos = (s) => (s || "").replace(/\D/g, "");
+    const docsAntigos = new Set((existentes || []).filter((e) => e.origem !== "gestor3s").map((e) => digitos(e.cnpj)).filter(Boolean));
+    const jaImportados = new Set((existentes || []).filter((e) => e.origem === "gestor3s").map((e) => `${digitos(e.cnpj)}|${(e.nome || "").toUpperCase()}`));
+    let jaExistem = 0;
+    let jaImportadosAntes = 0;
+    const novos = registros.filter((r) => {
+      if (docsAntigos.has(r.digitos)) { jaExistem++; return false; }
+      if (jaImportados.has(`${r.digitos}|${r.nome.toUpperCase()}`)) { jaImportadosAntes++; return false; }
+      return true;
+    });
+    importacaoClientesPendente = novos;
+    const semEnd = novos.filter((r) => !r.endereco && r.digitos.length === 14).length;
+    painelImportacao(`
+      <p class="font-medium text-slate-800 mb-2">Conferência da planilha (${resumo.total} linhas)</p>
+      <ul class="text-xs text-slate-600 space-y-0.5 mb-3">
+        <li>✅ Válidas (CNPJ/CPF ok): <strong>${resumo.ok}</strong> ${resumo.cpf ? `(${resumo.cpf} com CPF)` : ""}</li>
+        <li>⛔ Ignoradas — CNPJ zerado: ${resumo.zerado} · sem CNPJ: ${resumo.semCnpj} · documento inválido: ${resumo.invalido}</li>
+        <li>⛔ Ignoradas — teste/duplicado: ${resumo.teste} · linhas repetidas: ${resumo.repetido}</li>
+        <li>⏭️ Já existem no cadastro (documento já cadastrado antes): ${jaExistem}${jaImportadosAntes ? ` · já importadas antes: ${jaImportadosAntes}` : ""}</li>
+        <li>📍 Das que serão importadas, <strong>${semEnd}</strong> não têm endereço na planilha (depois você pode completar pela Receita Federal)</li>
+      </ul>
+      <p class="mb-3 text-slate-800"><strong>${novos.length}</strong> empresa(s) serão importadas como <strong>Ativo</strong>.</p>
+      <div class="flex gap-2">
+        <button id="btn-importar-confirmar" class="text-xs font-medium text-white bg-teal-600 hover:bg-teal-700 rounded-md px-4 py-2" ${novos.length ? "" : "disabled"}>Importar ${novos.length} empresa(s)</button>
+        <button id="btn-importar-cancelar" class="text-xs font-medium text-slate-600 border border-slate-300 rounded-md px-4 py-2">Cancelar</button>
+      </div>`);
+    $("btn-importar-confirmar").addEventListener("click", executarImportacaoClientes);
+    $("btn-importar-cancelar").addEventListener("click", () => { importacaoClientesPendente = null; $("crud-importacao-painel").classList.add("hidden"); });
+  } catch (e) {
+    painelImportacao(`<p class="text-rose-700">Não foi possível ler a planilha: ${e.message || e}</p>`);
+  }
+}
+
+async function executarImportacaoClientes() {
+  const lista = importacaoClientesPendente;
+  if (!lista || lista.length === 0) return;
+  importacaoClientesPendente = null;
+  const tam = 500;
+  let gravadas = 0;
+  for (let i = 0; i < lista.length; i += tam) {
+    const lote = lista.slice(i, i + tam).map(({ digitos, ...resto }) => resto);
+    painelImportacao(`<p class="text-slate-700">Importando… <strong>${gravadas}</strong> de ${lista.length}</p>`);
+    const { error } = await supabase.from("empresas").insert(lote);
+    if (error) {
+      painelImportacao(`<p class="text-rose-700">Erro após ${gravadas} empresa(s) gravadas: ${error.message}. Nada foi duplicado: ao enviar a planilha de novo, o que já entrou é reconhecido e pulado.</p>`);
+      return;
+    }
+    gravadas += lote.length;
+  }
+  await carregarModuloCrud("empresas");
+  painelImportacao(`
+    <p class="text-teal-700 font-medium mb-2">✅ ${gravadas} empresa(s) importadas.</p>
+    <p class="text-xs text-slate-600">Agora você pode completar os endereços que faltam pela Receita Federal.</p>`);
+}
+
+function montarEnderecoReceita(d) {
+  return [
+    [d.logradouro, d.numero].filter(Boolean).join(", "),
+    d.complemento,
+    d.bairro,
+    d.municipio && d.uf ? `${d.municipio}/${d.uf}` : d.municipio || d.uf,
+    d.cep ? `CEP ${d.cep}` : null,
+  ].filter(Boolean).join(" - ");
+}
+
+async function completarEnderecosReceita() {
+  if (!confirm("Buscar na Receita Federal o endereço das empresas que estão sem endereço? Pode levar alguns minutos; você pode interromper e continuar depois.")) return;
+  importacaoEnderecosParar = false;
+  painelImportacao(`<p class="text-slate-600">Procurando empresas sem endereço…</p>`);
+  const { data, error } = await buscarTodos(() => supabase.from("empresas").select("id, cnpj, endereco").or("endereco.is.null,endereco.eq.").order("id"));
+  if (error) return painelImportacao(`<p class="text-rose-700">Erro ao consultar: ${error.message}</p>`);
+  const porCnpj = new Map();
+  (data || []).forEach((e) => {
+    const d = (e.cnpj || "").replace(/\D/g, "");
+    if (d.length !== 14) return;
+    if (!porCnpj.has(d)) porCnpj.set(d, []);
+    porCnpj.get(d).push(e.id);
+  });
+  const fila = [...porCnpj.entries()];
+  if (fila.length === 0) return painelImportacao(`<p class="text-teal-700">Nenhuma empresa com CNPJ e sem endereço. Nada a fazer.</p>`);
+
+  let feitos = 0, achados = 0, naoAchados = 0, falhas = 0;
+  const atualizar = (fim) => painelImportacao(`
+    <p class="text-slate-700 mb-2">${fim ? "Concluído" : "Consultando a Receita Federal…"} <strong>${feitos}</strong> de ${fila.length} CNPJs · endereços preenchidos: ${achados} · não encontrados: ${naoAchados} · falhas: ${falhas}</p>
+    ${fim ? "" : `<button id="btn-enderecos-parar" class="text-xs font-medium text-slate-600 border border-slate-300 rounded-md px-3 py-1.5">Interromper</button>`}`);
+  atualizar(false);
+  const botaoParar = () => { const b = $("btn-enderecos-parar"); if (b) b.onclick = () => { importacaoEnderecosParar = true; }; };
+  botaoParar();
+
+  for (const [cnpjDigitos, ids] of fila) {
+    if (importacaoEnderecosParar) break;
+    let dados = null;
+    for (let tentativa = 0; tentativa < 3 && !dados; tentativa++) {
+      try {
+        const resp = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpjDigitos}`);
+        if (resp.status === 404) { naoAchados++; dados = false; break; }
+        if (resp.status === 429) { await new Promise((r) => setTimeout(r, 5000)); continue; }
+        if (!resp.ok) throw new Error(String(resp.status));
+        dados = await resp.json();
+      } catch (e) {
+        await new Promise((r) => setTimeout(r, 1500));
+      }
+    }
+    if (dados) {
+      const endereco = montarEnderecoReceita(dados);
+      if (endereco) {
+        const { error: eUp } = await supabase.from("empresas").update({ endereco }).in("id", ids);
+        if (eUp) falhas++; else achados++;
+      } else naoAchados++;
+    } else if (dados === null) falhas++;
+    feitos++;
+    if (feitos % 5 === 0) { atualizar(false); botaoParar(); }
+    await new Promise((r) => setTimeout(r, 450));
+  }
+  await carregarModuloCrud("empresas");
+  atualizar(true);
+  if (importacaoEnderecosParar) $("crud-importacao-painel").insertAdjacentHTML("beforeend", `<p class="text-xs text-slate-500">Interrompido por você. Clique em "Completar endereços" de novo para continuar de onde parou.</p>`);
+}
+
+$("btn-crud-importar-clientes").addEventListener("click", () => $("crud-importar-arquivo").click());
+$("crud-importar-arquivo").addEventListener("change", (ev) => {
+  const arquivo = ev.target.files && ev.target.files[0];
+  ev.target.value = "";
+  if (arquivo) lerPlanilhaClientes(arquivo);
+});
+$("btn-crud-completar-enderecos").addEventListener("click", completarEnderecosReceita);
+
 async function buscarCnpjReceitaFederal() {
   const status = $("btn-buscar-cnpj-status");
   const cnpjDigits = $("crud-campo-cnpj").value.replace(/\D/g, "");
@@ -2988,6 +3274,7 @@ async function buscarCnpjReceitaFederal() {
     const dados = await resp.json();
 
     if ($("crud-campo-nome")) $("crud-campo-nome").value = dados.razao_social || dados.nome_fantasia || "";
+    if ($("crud-campo-nome_fantasia") && dados.nome_fantasia) $("crud-campo-nome_fantasia").value = dados.nome_fantasia;
     if ($("crud-campo-endereco")) {
       const partes = [
         [dados.logradouro, dados.numero].filter(Boolean).join(", "),
@@ -3907,6 +4194,57 @@ function preencherSelect(id, itens, valueKey, labelFn, opcaoVazia) {
     itens.map((i) => `<option value="${i[valueKey]}">${labelFn(i)}</option>`).join("");
 }
 
+// Seletor de empresa com filtro por texto (nome, fantasia ou CNPJ): com
+// milhares de empresas, a caixa acima do select reduz as opções.
+function rotuloEmpresa(e) {
+  return e.nome_fantasia ? `${e.nome} — ${e.nome_fantasia}` : e.nome;
+}
+function preencherSelectEmpresa(selectId, lista, opcaoVazia) {
+  const sel = $(selectId);
+  sel._empresasLista = lista;
+  sel._empresasVazia = opcaoVazia;
+  let busca = $(`${selectId}-busca`);
+  if (!busca) {
+    busca = document.createElement("input");
+    busca.id = `${selectId}-busca`;
+    busca.type = "search";
+    busca.placeholder = "🔎 Digite nome, fantasia ou CNPJ para filtrar…";
+    busca.className = "mt-1 w-full rounded-md border border-slate-300 px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500";
+    sel.parentNode.insertBefore(busca, sel);
+    busca.addEventListener("input", () => filtrarSelectEmpresa(selectId));
+  }
+  busca.value = "";
+  preencherSelect(selectId, lista, "id", rotuloEmpresa, opcaoVazia);
+}
+function filtrarSelectEmpresa(selectId) {
+  const sel = $(selectId);
+  const termo = $(`${selectId}-busca`).value.trim().toLowerCase();
+  const termoDigitos = termo.replace(/\D/g, "");
+  const atual = sel.value;
+  const todas = sel._empresasLista || [];
+  let lista = todas;
+  if (termo) {
+    lista = todas.filter((e) =>
+      (e.nome || "").toLowerCase().includes(termo) ||
+      (e.nome_fantasia || "").toLowerCase().includes(termo) ||
+      (termoDigitos.length >= 3 && (e.cnpj || "").replace(/\D/g, "").includes(termoDigitos)));
+    lista = lista.slice(0, 200);
+    if (atual && !lista.some((e) => e.id === atual)) {
+      const sel0 = todas.find((e) => e.id === atual);
+      if (sel0) lista = [sel0, ...lista];
+    }
+  }
+  preencherSelect(selectId, lista, "id", rotuloEmpresa, sel._empresasVazia);
+  sel.value = atual && lista.some((e) => e.id === atual) ? atual : "";
+}
+// Define a empresa escolhida mesmo que o filtro esteja escondendo-a.
+function definirEmpresaSelect(selectId, id) {
+  const sel = $(selectId);
+  $(`${selectId}-busca`) && ($(`${selectId}-busca`).value = "");
+  preencherSelect(selectId, sel._empresasLista || [], "id", rotuloEmpresa, sel._empresasVazia);
+  sel.value = id || "";
+}
+
 // ===========================================================
 // OPERAÇÃO: AGENDAR TREINAMENTO
 // ===========================================================
@@ -3917,7 +4255,7 @@ async function carregarAgendamentos() {
     supabase.from("instrutores").select("*").eq("status", "Ativo").order("nome"),
     supabase.from("tipos_treinamento").select("*").eq("status", "Ativo").order("nome"),
     supabase.from("centros_treinamento").select("*").eq("status", "Ativo").order("nome"),
-    supabase.from("empresas").select("*").eq("status", "Ativo").order("nome"),
+    buscarTodos(() => supabase.from("empresas").select("*").eq("status", "Ativo").order("nome").order("id")),
   ]);
   listaAgendamentos = ags || [];
   listaInstrutoresAtivos = insts || [];
@@ -4256,10 +4594,10 @@ function abrirNovoAgendamento(prefill) {
   preencherSelect("ag-instrutor", listaInstrutoresAtivos, "id", (i) => i.nome, "— Selecione —");
   preencherSelect("ag-tipo", listaTiposAtivos, "id", (i) => i.nome, "— Selecione —");
   preencherSelect("ag-centro", listaCentrosAtivos, "id", (i) => i.nome, "— Selecione —");
-  preencherSelect("ag-empresa", listaEmpresasAtivas, "id", (i) => i.nome, "— Nenhuma —");
+  preencherSelectEmpresa("ag-empresa", listaEmpresasAtivas, "— Nenhuma —");
   $("ag-tipo").value = (prefill && prefill.tipoId) || "";
   $("ag-centro").value = (prefill && prefill.centroId) || "";
-  $("ag-empresa").value = (prefill && prefill.empresaId) || "";
+  definirEmpresaSelect("ag-empresa", prefill && prefill.empresaId);
   $("ag-horario").value = "";
   $("ag-status").value = "Aguardando";
   $("ag-observacoes").value = "";
@@ -4287,11 +4625,11 @@ function abrirEdicaoAgendamento(id) {
   preencherSelect("ag-instrutor", listaInstrutoresAtivos, "id", (i) => i.nome, "— Selecione —");
   preencherSelect("ag-tipo", listaTiposAtivos, "id", (i) => i.nome, "— Selecione —");
   preencherSelect("ag-centro", listaCentrosAtivos, "id", (i) => i.nome, "— Selecione —");
-  preencherSelect("ag-empresa", listaEmpresasAtivas, "id", (i) => i.nome, "— Nenhuma —");
+  preencherSelectEmpresa("ag-empresa", listaEmpresasAtivas, "— Nenhuma —");
   $("ag-instrutor").value = a.instrutor_id || "";
   $("ag-tipo").value = a.tipo_treinamento_id || "";
   $("ag-centro").value = a.centro_treinamento_id || "";
-  $("ag-empresa").value = a.empresa_id || "";
+  definirEmpresaSelect("ag-empresa", a.empresa_id);
   $("ag-horario").value = a.horario || "";
   $("ag-status").value = a.status === "Cancelado" ? "Aguardando" : a.status;
   $("ag-observacoes").value = a.observacoes || "";
@@ -4415,7 +4753,7 @@ async function carregarOrcamentos() {
   $("admin-descricao-pagina").textContent = "Registre orçamentos de treinamento por empresa. Ao criar um novo orçamento, as turmas já são geradas automaticamente.";
   const [{ data: orcs }, { data: empresas }, { data: tipos }, { data: centros }] = await Promise.all([
     supabase.from("orcamentos").select("*, empresas(nome), centros_treinamento(nome), tipos_treinamento(nome)").order("created_at", { ascending: false }),
-    supabase.from("empresas").select("*").eq("status", "Ativo").order("nome"),
+    buscarTodos(() => supabase.from("empresas").select("*").eq("status", "Ativo").order("nome").order("id")),
     supabase.from("tipos_treinamento").select("*").eq("status", "Ativo").order("nome"),
     supabase.from("centros_treinamento").select("*").eq("status", "Ativo").order("nome"),
   ]);
@@ -4506,7 +4844,7 @@ function abrirNovoOrcamento() {
   esconderErro("orc-form-erro");
   $("orc-numero").value = "";
   $("orc-numero").disabled = false;
-  preencherSelect("orc-empresa", listaEmpresasAtivas, "id", (i) => i.nome, "— Selecione —");
+  preencherSelectEmpresa("orc-empresa", listaEmpresasAtivas, "— Selecione —");
   preencherSelect("orc-centro", listaCentrosAtivos, "id", (i) => i.nome, "— Selecione —");
   preencherSelect("orc-tipo", listaTiposAtivos, "id", (i) => i.nome, "— Selecione —");
   preencherSelect("orc-formato-teoria", FORMATOS_TEORIA.map((f) => ({ id: f, nome: f })), "id", (i) => i.nome, "— Selecione —");
@@ -4539,8 +4877,8 @@ async function abrirEdicaoOrcamento(id) {
   esconderErro("orc-form-erro");
   $("orc-numero").value = o.numero || "";
   $("orc-numero").disabled = true; // número já definido não muda mais, evita conflito de unicidade
-  preencherSelect("orc-empresa", listaEmpresasAtivas, "id", (i) => i.nome, "— Selecione —");
-  $("orc-empresa").value = o.empresa_id || "";
+  preencherSelectEmpresa("orc-empresa", listaEmpresasAtivas, "— Selecione —");
+  definirEmpresaSelect("orc-empresa", o.empresa_id);
   preencherSelect("orc-centro", listaCentrosAtivos, "id", (i) => i.nome, "— Selecione —");
   $("orc-centro").value = o.centro_treinamento_id || "";
   preencherSelect("orc-tipo", listaTiposAtivos, "id", (i) => i.nome, "— Selecione —");
@@ -4872,7 +5210,7 @@ async function carregarTurmasInit() {
     supabase.from("centros_treinamento").select("*").eq("status", "Ativo").order("nome"),
     supabase.from("instrutores").select("*").eq("status", "Ativo").order("nome"),
     supabase.from("tipos_treinamento").select("*").eq("status", "Ativo").order("nome"),
-    supabase.from("empresas").select("id, nome, cnpj, cnpj_grupo_economico"),
+    buscarTodos(() => supabase.from("empresas").select("id, nome, cnpj, cnpj_grupo_economico").order("id")),
   ]);
   listaOrcamentosParaTurma = orcs || [];
   listaCentrosAtivos = centros || [];
@@ -7280,7 +7618,7 @@ let dtEmpresasLista = [];
 
 async function carregarDocumentosTurmasInit() {
   $("admin-descricao-pagina").textContent = "Consulte as fotos da turma e da lista de presença enviadas pelos instrutores.";
-  const { data: empresas } = await supabase.from("empresas").select("id, nome, cnpj, cnpj_grupo_economico").eq("status", "Ativo").order("nome");
+  const { data: empresas } = await buscarTodos(() => supabase.from("empresas").select("id, nome, cnpj, cnpj_grupo_economico").eq("status", "Ativo").order("nome").order("id"));
   dtEmpresasLista = empresas || [];
   const sel = $("dt-empresa-select");
   const anterior = sel.value || "";
