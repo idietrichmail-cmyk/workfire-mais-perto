@@ -13,7 +13,7 @@ const $ = (id) => document.getElementById(id);
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.03 · 03/10/2026";
+const APP_VERSAO = "Prod 1.04 · 03/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 const diasSemana = ["D", "S", "T", "Q", "Q", "S", "S"];
@@ -6803,7 +6803,7 @@ async function refreshAgendamentoTurmas() {
   await carregarDesmarcacoesPendentes(false);
   if (!agendTurmaOrcamentoId) return;
   const [{ data: turmas, error: e1 }, { data: insts, error: e2 }] = await Promise.all([
-    supabase.from("turmas").select("*, tipos_treinamento(nome, categoria_treinamento_id), centros_treinamento(nome)").eq("orcamento_id", agendTurmaOrcamentoId).order("identificacao", { ascending: true }),
+    supabase.from("turmas").select("*, tipos_treinamento(nome, categoria_treinamento_id, somente_locacao_espaco), centros_treinamento(nome)").eq("orcamento_id", agendTurmaOrcamentoId).order("identificacao", { ascending: true }),
     supabase.from("instrutores").select("*").eq("status", "Ativo").order("nome"),
   ]);
   if (e1 || e2) return;
