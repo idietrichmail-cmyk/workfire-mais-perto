@@ -13,7 +13,7 @@ const $ = (id) => document.getElementById(id);
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.04 · 03/10/2026";
+const APP_VERSAO = "Prod 1.05 · 03/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 const diasSemana = ["D", "S", "T", "Q", "Q", "S", "S"];
@@ -4801,7 +4801,8 @@ async function gerarTurmasParaOrcamento(orcamento, qtdTurmas) {
   // é sempre necessário; transporte depende do dia (calculado por linha).
   const ctAplicavel = orcamento.formato_teoria === "CT" || orcamento.formato_pratica === "CT";
   const movelAplicavel = orcamento.formato_teoria === "Móvel" || orcamento.formato_pratica === "Móvel";
-  const agendaCt = ctAplicavel ? "A agendar" : "Não aplicável";
+  // Locação de espaço sempre acontece no CT: o CT é o único que confirma.
+  const agendaCt = (ctAplicavel || !!tipo?.somente_locacao_espaco) ? "A agendar" : "Não aplicável";
   const agendaMovel = movelAplicavel ? "A agendar" : "Não aplicável";
   // Treinamento "somente locação de espaço": sem instrutor (só o CT confirma).
   const somenteLocacao = !!tipo?.somente_locacao_espaco;
@@ -5988,7 +5989,7 @@ async function solicitarConfirmacaoAgendTurma() {
       if (e1) { erros.push(`Turma ${t.identificacao}: não foi possível gravar os instrutores (${e1.message}).`); continue; }
     }
 
-    const solicitarCt = t.agenda_ct !== "Não aplicável" && t.agenda_ct !== "Agendado";
+    const solicitarCt = (locacao || t.agenda_ct !== "Não aplicável") && t.agenda_ct !== "Agendado";
     const { data: solicitados, error: e2 } = await supabase.rpc("solicitar_confirmacao_turma_completa", {
       p_turma_id: t.id, p_datas: [t.data_inicio], p_solicitar_ct: solicitarCt,
     });
