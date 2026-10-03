@@ -28,7 +28,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.07 · 03/10/2026";
+const APP_VERSAO = "Prod 1.08 · 03/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 const diasSemana = ["D", "S", "T", "Q", "Q", "S", "S"];
@@ -1711,6 +1711,8 @@ const CRUD_CONFIG = {
     descricao: "Empresas clientes que contratam treinamentos.",
     buscaPlaceholder: "Buscar por nome, nome fantasia ou CNPJ",
     ordenarPor: "nome",
+    // Lista paginada no servidor: só 30 empresas por vez (a busca também roda no servidor).
+    paginacao: { tamanho: 30, colunasTexto: ["nome", "nome_fantasia"], colunaDigitos: "cnpj_digitos" },
     campos: [
       { id: "nome", label: "Nome da empresa (razão social)", obrigatorio: true },
       { id: "nome_fantasia", label: "Nome fantasia" },
@@ -1719,13 +1721,13 @@ const CRUD_CONFIG = {
         id: "cnpj_grupo_economico",
         label: "CNPJ do Grupo Econômico (opcional)",
         mascara: "cnpj",
-        validar: (valor) => {
+        validar: async (valor) => {
           if (!valor) return null;
           const alvo = valor.replace(/\D/g, "");
           const cnpjProprio = ($("crud-campo-cnpj").value || "").replace(/\D/g, "");
           if (cnpjProprio && cnpjProprio === alvo) return null; // pode ser o próprio CNPJ da empresa
-          const existe = crudLista.some((e) => e.cnpj && e.cnpj.replace(/\D/g, "") === alvo);
-          return existe ? null : "Esse CNPJ do grupo econômico não corresponde a nenhuma empresa já cadastrada.";
+          const { count } = await supabase.from("empresas").select("id", { count: "exact", head: true }).eq("cnpj_digitos", alvo);
+          return count > 0 ? null : "Esse CNPJ do grupo econômico não corresponde a nenhuma empresa já cadastrada.";
         },
       },
       { id: "contato_nome", label: "Nome do contato" },
@@ -2746,16 +2748,90 @@ function renderCampoHtml(campo, valor, item) {
   </div>`;
 }
 
-async function carregarModuloCrud(id) {
+let crudPagina = 1;
+let crudTotal = 0;
+let crudBuscaTimer = null;
+
+// Carrega a página atual de uma lista paginada no servidor (busca + contagem).
+async function carregarPaginaCrud() {
+  const cfg = CRUD_CONFIG[crudModuloId];
+  const pg = cfg.paginacao;
+  const tam = pg.tamanho;
+  const termo = $("crud-busca").value.replace(/[,()%*\\]/g, " ").replace(/\s+/g, " ").trim();
+  const montar = () => {
+    let q = supabase.from(cfg.tabela).select("*", { count: "exact" });
+    if (termo) {
+      const filtros = pg.colunasTexto.map((c) => `${c}.ilike.%${termo}%`);
+      const digitos = termo.replace(/\D/g, "");
+      if (digitos.length >= 3 && /^[\d.\/\-\s]+$/.test(termo)) filtros.push(`${pg.colunaDigitos}.like.%${digitos}%`);
+      q = q.or(filtros.join(","));
+    }
+    return q.order(cfg.ordenarPor, { ascending: cfg.ordenarAsc !== false }).order("id");
+  };
+  let { data, error, count } = await montar().range((crudPagina - 1) * tam, crudPagina * tam - 1);
+  if (!error && (count || 0) > 0 && (data || []).length === 0 && crudPagina > 1) {
+    // a página deixou de existir (ex.: último registro da página foi excluído)
+    crudPagina = Math.max(1, Math.ceil(count / tam));
+    ({ data, error, count } = await montar().range((crudPagina - 1) * tam, crudPagina * tam - 1));
+  }
+  crudLista = error ? [] : data || [];
+  crudTotal = error ? 0 : count || 0;
+  renderizarListaCrud();
+}
+
+function irParaPaginaCrud(n) {
+  crudPagina = n;
+  carregarPaginaCrud();
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+function renderizarPaginacaoCrud() {
+  const el = $("crud-paginacao");
+  const cfg = CRUD_CONFIG[crudModuloId];
+  if (!cfg || !cfg.paginacao) { el.classList.add("hidden"); el.innerHTML = ""; return; }
+  const tam = cfg.paginacao.tamanho;
+  const totalPaginas = Math.max(1, Math.ceil(crudTotal / tam));
+  if (crudTotal === 0) { el.classList.add("hidden"); el.innerHTML = ""; return; }
+  const de = (crudPagina - 1) * tam + 1;
+  const ate = Math.min(crudPagina * tam, crudTotal);
+  const paginas = new Set([1, totalPaginas]);
+  for (let p = crudPagina - 2; p <= crudPagina + 2; p++) if (p >= 1 && p <= totalPaginas) paginas.add(p);
+  const ordenadas = [...paginas].sort((a, b) => a - b);
+  const botoes = [];
+  ordenadas.forEach((p, i) => {
+    if (i > 0 && p - ordenadas[i - 1] > 1) botoes.push(`<span class="px-1 text-slate-400">…</span>`);
+    botoes.push(`<button data-crud-pagina="${p}" class="min-w-[2rem] px-2 py-1 rounded-md text-xs font-medium ${p === crudPagina ? "bg-slate-900 text-white" : "border border-slate-300 text-slate-600 hover:bg-white"}">${p}</button>`);
+  });
+  el.classList.remove("hidden");
+  el.innerHTML = `<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+    <p class="text-xs text-slate-500">Mostrando ${de.toLocaleString("pt-BR")}–${ate.toLocaleString("pt-BR")} de ${crudTotal.toLocaleString("pt-BR")}</p>
+    <div class="flex flex-wrap items-center gap-1">
+      <button data-crud-pagina="${crudPagina - 1}" ${crudPagina <= 1 ? "disabled" : ""} class="px-2 py-1 rounded-md text-xs font-medium border border-slate-300 text-slate-600 hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed">‹ Anterior</button>
+      ${botoes.join("")}
+      <button data-crud-pagina="${crudPagina + 1}" ${crudPagina >= totalPaginas ? "disabled" : ""} class="px-2 py-1 rounded-md text-xs font-medium border border-slate-300 text-slate-600 hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed">Próxima ›</button>
+    </div></div>`;
+  el.querySelectorAll("[data-crud-pagina]").forEach((b) => b.addEventListener("click", () => {
+    if (!b.disabled) irParaPaginaCrud(Number(b.getAttribute("data-crud-pagina")));
+  }));
+}
+
+async function carregarModuloCrud(id, opcoes = {}) {
+  const mesmoModulo = crudModuloId === id;
   crudModuloId = id;
   const cfg = CRUD_CONFIG[id];
   $("admin-descricao-pagina").textContent = cfg.descricao;
   if (cfg.carregarRefs) await cfg.carregarRefs();
   if (id !== "empresas") $("crud-importacao-painel").classList.add("hidden");
-  const { data, error } = await buscarTodos(() => supabase.from(cfg.tabela).select("*").order(cfg.ordenarPor, { ascending: cfg.ordenarAsc !== false }).order("id"));
-  crudLista = error ? [] : data;
-  $("crud-busca").value = "";
+  const manterEstado = !!(opcoes.manter && mesmoModulo && cfg.paginacao);
+  if (!manterEstado) { $("crud-busca").value = ""; crudPagina = 1; }
   $("crud-busca").placeholder = cfg.buscaPlaceholder;
+  if (cfg.paginacao) {
+    // lista paginada: a primeira página é carregada ao final desta função
+  } else {
+    const { data, error } = await buscarTodos(() => supabase.from(cfg.tabela).select("*").order(cfg.ordenarPor, { ascending: cfg.ordenarAsc !== false }).order("id"));
+    crudLista = error ? [] : data;
+    crudTotal = crudLista.length;
+  }
   $("btn-crud-novo").classList.toggle("hidden", !podeFazer(id, "incluir"));
   const ehEmpresasComPermissao = id === "empresas" && podeFazer(id, "incluir");
   $("btn-crud-importar-clientes").classList.toggle("hidden", !ehEmpresasComPermissao);
@@ -2778,18 +2854,20 @@ async function carregarModuloCrud(id) {
     elFiltros.innerHTML = "";
   }
 
-  renderizarListaCrud();
+  if (cfg.paginacao) await carregarPaginaCrud();
+  else renderizarListaCrud();
 }
 
 function renderizarListaCrud() {
   const cfg = CRUD_CONFIG[crudModuloId];
   const busca = $("crud-busca").value.toLowerCase();
-  let lista = crudLista.filter((item) => cfg.campoBusca(item).toLowerCase().includes(busca));
+  let lista = cfg.paginacao ? crudLista : crudLista.filter((item) => cfg.campoBusca(item).toLowerCase().includes(busca));
   if (cfg.aplicarFiltros) lista = cfg.aplicarFiltros(lista);
   // Listas muito grandes (ex.: empresas importadas) mostram só as primeiras.
   const LIMITE_CRUD = 300;
   const totalFiltrado = lista.length;
   if (totalFiltrado > LIMITE_CRUD) lista = lista.slice(0, LIMITE_CRUD);
+  renderizarPaginacaoCrud();
   const avisoLimite = totalFiltrado > LIMITE_CRUD
     ? `<p class="col-span-full text-xs text-slate-500 text-center py-3">Mostrando ${LIMITE_CRUD} de ${totalFiltrado} registros — use a busca para refinar.</p>`
     : "";
@@ -2840,7 +2918,16 @@ function renderizarListaCrud() {
   );
 }
 
-$("crud-busca").addEventListener("input", renderizarListaCrud);
+$("crud-busca").addEventListener("input", () => {
+  const cfg = CRUD_CONFIG[crudModuloId];
+  if (cfg && cfg.paginacao) {
+    // busca no servidor, com pequena espera para não consultar a cada tecla
+    clearTimeout(crudBuscaTimer);
+    crudBuscaTimer = setTimeout(() => { crudPagina = 1; carregarPaginaCrud(); }, 350);
+  } else {
+    renderizarListaCrud();
+  }
+});
 
 function atualizarVisibilidadePermissoesPorRole(role) {
   $("crud-permissoes-admin-nota").classList.toggle("hidden", role !== "admin");
@@ -3928,7 +4015,7 @@ async function salvarCrud() {
       : (typeof el.value === "string" ? el.value.trim() : el.value);
     if (campo.obrigatorio && campo.tipo !== "checkbox" && !valor) return mostrarErro("crud-form-erro", `Informe: ${campo.label}.`);
     if (campo.validar) {
-      const erroValidacao = campo.validar(valor);
+      const erroValidacao = await campo.validar(valor);
       if (erroValidacao) return mostrarErro("crud-form-erro", erroValidacao);
     }
     if (campo.tipo === "number") valor = valor === "" ? null : Number(valor);
@@ -3981,7 +4068,7 @@ async function salvarCrud() {
   $("btn-salvar-crud").disabled = false;
   $("btn-salvar-crud").textContent = crudEditandoId ? "Salvar alterações" : "Cadastrar";
   $("painel-crud").classList.add("hidden");
-  await carregarModuloCrud(crudModuloId);
+  await carregarModuloCrud(crudModuloId, { manter: true });
 }
 
 $("btn-salvar-crud").addEventListener("click", salvarCrud);
@@ -4001,7 +4088,7 @@ async function excluirCrud(id) {
     );
     return;
   }
-  await carregarModuloCrud(crudModuloId);
+  await carregarModuloCrud(crudModuloId, { manter: true });
 }
 
 // ===========================================================
