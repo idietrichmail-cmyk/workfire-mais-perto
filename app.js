@@ -12,7 +12,7 @@ const $ = (id) => document.getElementById(id);
 
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no rodapé do menu lateral.
-const APP_VERSAO = "Prod 1.01 · 28/09/2026";
+const APP_VERSAO = "Prod 1.02 · 03/10/2026";
 
 const diasSemana = ["D", "S", "T", "Q", "Q", "S", "S"];
 const nomesMeses = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
@@ -1870,6 +1870,7 @@ const CRUD_CONFIG = {
       { id: "dias_pratica", label: "Dias de Prática", tipo: "number" },
       { id: "dias_teoria_pratica", label: "Dias de Teoria com Prática", tipo: "number" },
       { id: "alunos_por_instrutor", label: "Alunos por Instrutor", tipo: "number" },
+      { id: "somente_locacao_espaco", label: "Somente locação de espaço (sem instrutor — só o Centro de Treinamento confirma)", tipo: "checkbox", padrao: false },
       { id: "descricao", label: "Descrição", tipo: "textarea" },
       { id: "status", label: "Status", tipo: "select", opcoes: ["Ativo", "Inativo"], padrao: "Ativo" },
     ],
@@ -1877,6 +1878,7 @@ const CRUD_CONFIG = {
     cardTitulo: (i) => i.nome,
     cardLinhas: (i) => [
       rotuloCategoriaTreinamento(i.categoria_treinamento_id),
+      i.somente_locacao_espaco && "🏢 Somente locação de espaço",
       i.categoria,
       i.carga_horaria && `Carga horária: ${i.carga_horaria}`,
       i.dias_teoria && `📘 ${i.dias_teoria} dia(s) de teoria`,
@@ -4799,7 +4801,10 @@ async function gerarTurmasParaOrcamento(orcamento, qtdTurmas) {
   const movelAplicavel = orcamento.formato_teoria === "Móvel" || orcamento.formato_pratica === "Móvel";
   const agendaCt = ctAplicavel ? "A agendar" : "Não aplicável";
   const agendaMovel = movelAplicavel ? "A agendar" : "Não aplicável";
-  const agendaInstrutor2 = orcamento.necessita_dois_instrutores ? "A agendar" : "Não aplicável";
+  // Treinamento "somente locação de espaço": sem instrutor (só o CT confirma).
+  const somenteLocacao = !!tipo?.somente_locacao_espaco;
+  const agendaInstrutor1 = somenteLocacao ? "Não aplicável" : "A agendar";
+  const agendaInstrutor2 = (!somenteLocacao && orcamento.necessita_dois_instrutores) ? "A agendar" : "Não aplicável";
 
   // Horário de início já definido no orçamento (padrão 7:30 no CT / 7:00 in-company,
   // ajustável pelo usuário) — vira o horário inicial de cada linha de turma gerada;
@@ -4826,7 +4831,7 @@ async function gerarTurmasParaOrcamento(orcamento, qtdTurmas) {
         status: "Planejada",
         agenda_ct: agendaCt,
         agenda_movel: agendaMovel,
-        agenda_instrutor1: "A agendar",
+        agenda_instrutor1: agendaInstrutor1,
         agenda_instrutor2: agendaInstrutor2,
       };
       linha.agenda_transporte = transporteAplicavel(linha) ? "A agendar" : "Não aplicável";
@@ -5445,7 +5450,7 @@ async function recarregarTurmasAgendTurma() {
   await carregarAptidoesRefs();
   const { data } = await supabase
     .from("turmas")
-    .select("*, tipos_treinamento(nome, categoria_treinamento_id), centros_treinamento(nome)")
+    .select("*, tipos_treinamento(nome, categoria_treinamento_id, somente_locacao_espaco), centros_treinamento(nome)")
     .eq("orcamento_id", agendTurmaOrcamentoId)
     .order("identificacao", { ascending: true });
   agendTurmasLista = (data || []).sort(compararIdentificacaoTurma);
@@ -5574,6 +5579,17 @@ function celulaCentroAgendTurma(t) {
     : `<span class="text-rose-600 font-medium">Indisponível</span>`) + agenda;
 }
 
+// Treinamento "somente locação de espaço": a turma não tem instrutor e só o
+// Centro de Treinamento confirma (o banco já força agenda_instrutor1/2 =
+// "Não aplicável" e ignora o pedido de confirmação a instrutores).
+function turmaSomenteLocacao(t) {
+  return !!t?.tipos_treinamento?.somente_locacao_espaco;
+}
+function celulaLocacaoEspaco(campo) {
+  if (campo === "instrutor2") return `<span class="text-slate-300 text-xs">—</span>`;
+  return `<span class="text-[11px] text-slate-500" title="Treinamento somente de locação de espaço: não há instrutor nem confirmação de instrutor, só do Centro de Treinamento.">🏢 Locação de espaço — sem instrutor</span>`;
+}
+
 // Janela de 30 dias usada para mostrar, ao lado do nome de cada instrutor no
 // seletor, quantos dias ele tem disponíveis/agendados perto da data da turma:
 // 15 dias antes da data (exclusive) + 15 dias a partir da data (inclusive).
@@ -5598,6 +5614,7 @@ function contarDisponibilidadeJanela(instrutor, dias) {
 }
 
 function celulaInstrutorAgendTurma(t, campo) {
+  if (turmaSomenteLocacao(t)) return celulaLocacaoEspaco(campo);
   if (!agendTurmaSelecionadas.has(t.id)) return celulaInstrutorSomenteLeitura(t, campo);
   const escolha = agendTurmaInstrutores.get(t.id) || { instrutor1: "", instrutor2: "" };
   const outroCampo = campo === "instrutor1" ? "instrutor2" : "instrutor1";
@@ -5644,6 +5661,7 @@ function celulaInstrutorAgendTurma(t, campo) {
 // Quando a turma ainda não foi verificada nesta sessão, mostra o instrutor
 // já gravado e a situação da confirmação em vez do "—".
 function celulaInstrutorSomenteLeitura(t, campo) {
+  if (turmaSomenteLocacao(t)) return celulaLocacaoEspaco(campo);
   const id = t[campo + "_id"];
   if (!id) return `<span class="text-slate-300 text-xs">—</span>`;
   const inst = listaInstrutoresAtivos.find((i) => i.id === id);
@@ -5692,12 +5710,12 @@ function renderizarListaAgendTurmas() {
             Horário aula
             <input type="time" data-agend-turma-horario="${t.id}" value="${t.horario || ""}" title="Horário de início da aula — alterar aqui não afeta as demais turmas. Se algum instrutor já confirmou, ele recebe um aviso do novo horário." class="text-xs rounded-md border border-slate-300 px-2 py-1 w-[6.5rem]" />
           </label>
-          <label class="flex items-center gap-1.5 text-[11px] text-slate-500">
+          ${turmaSomenteLocacao(t) ? "" : `<label class="flex items-center gap-1.5 text-[11px] text-slate-500">
             Horário deslocamento
             ${algumInstrutorConfirmouAgendTurma(t)
               ? `<input type="time" data-agend-turma-deslocamento="${t.id}" value="${t.horario_deslocamento || ""}" title="Horário em que o instrutor deve iniciar o deslocamento até esta turma" class="text-xs rounded-md border border-slate-300 px-2 py-1 w-[6.5rem]" />`
               : `<span class="text-[11px] text-slate-300" title="Só é possível definir depois que algum instrutor confirmar a data">— (aguardando confirmação)</span>`}
-          </label>
+          </label>`}
         </div>
       </td>
     </tr>
@@ -5923,6 +5941,12 @@ async function solicitarConfirmacaoAgendTurma() {
   const problemas = [];
   const prontas = [];
   selecionadas.forEach((t) => {
+    // Somente locação de espaço: não precisa de instrutor; só o CT confirma.
+    if (turmaSomenteLocacao(t)) {
+      if (!t.data_inicio) problemas.push(`Turma ${t.identificacao}: sem data definida.`);
+      else prontas.push({ t, inst1: null, inst2: null, locacao: true });
+      return;
+    }
     const escolha = agendTurmaInstrutores.get(t.id) || { instrutor1: t.instrutor1_id || "", instrutor2: t.instrutor2_id || "" };
     const inst1 = escolha.instrutor1 || t.instrutor1_id || null;
     const inst2 = escolha.instrutor2 || t.instrutor2_id || null;
@@ -5939,8 +5963,8 @@ async function solicitarConfirmacaoAgendTurma() {
     const r = respostaInstrutorAgendTurma(t, id);
     return `${nomes(id)}${r?.status === "confirmado" ? " (já confirmado — não será notificado)" : ""}`;
   };
-  const resumo = prontas.map(({ t, inst1, inst2 }) =>
-    `• Turma ${t.identificacao} (${formatarDataBr(t.data_inicio)}): ${[rotulo(t, inst1), rotulo(t, inst2)].filter(Boolean).join(" e ")}`).join("\n");
+  const resumo = prontas.map(({ t, inst1, inst2, locacao }) =>
+    `• Turma ${t.identificacao} (${formatarDataBr(t.data_inicio)}): ${locacao ? "locação de espaço — só confirmação do Centro de Treinamento" : [rotulo(t, inst1), rotulo(t, inst2)].filter(Boolean).join(" e ")}`).join("\n");
   if (!confirm(`Enviar solicitação de confirmação para ${prontas.length} turma(s)?\n\n${resumo}\n\nO Centro de Treinamento também ficará "Aguardando confirmação".`)) return;
 
   const btn = $("btn-agend-solicitar-confirmacao");
@@ -5948,16 +5972,19 @@ async function solicitarConfirmacaoAgendTurma() {
   btn.textContent = "Enviando…";
 
   let enviados = 0;
+  let enviadosSoCt = 0; // turmas de locação de espaço: só o Centro de Treinamento confirma
   const erros = [...problemas];
   const avisos = [];
-  for (const { t, inst1, inst2 } of prontas) {
-    const payload = {
-      instrutor1_id: inst1,
-      instrutor2_id: inst2,
-      agenda_instrutor2: inst2 ? (t.agenda_instrutor2 === "Não aplicável" ? "A agendar" : t.agenda_instrutor2) : "Não aplicável",
-    };
-    const { error: e1 } = await supabase.from("turmas").update(payload).eq("id", t.id);
-    if (e1) { erros.push(`Turma ${t.identificacao}: não foi possível gravar os instrutores (${e1.message}).`); continue; }
+  for (const { t, inst1, inst2, locacao } of prontas) {
+    if (!locacao) {
+      const payload = {
+        instrutor1_id: inst1,
+        instrutor2_id: inst2,
+        agenda_instrutor2: inst2 ? (t.agenda_instrutor2 === "Não aplicável" ? "A agendar" : t.agenda_instrutor2) : "Não aplicável",
+      };
+      const { error: e1 } = await supabase.from("turmas").update(payload).eq("id", t.id);
+      if (e1) { erros.push(`Turma ${t.identificacao}: não foi possível gravar os instrutores (${e1.message}).`); continue; }
+    }
 
     const solicitarCt = t.agenda_ct !== "Não aplicável" && t.agenda_ct !== "Agendado";
     const { data: solicitados, error: e2 } = await supabase.rpc("solicitar_confirmacao_turma_completa", {
@@ -5971,6 +5998,7 @@ async function solicitarConfirmacaoAgendTurma() {
     const atribuidos = [inst1, inst2].filter(Boolean);
     const preservados = atribuidos.filter((id) => !notificados.includes(id));
     if (notificados.length > 0) enviados++;
+    if (locacao && solicitarCt) enviadosSoCt++;
     if (preservados.length > 0) {
       avisos.push(`Turma ${t.identificacao}: ${preservados.map(nomes).join(" e ")} já havia(m) confirmado — confirmação mantida, sem nova mensagem.`);
     }
@@ -5988,6 +6016,7 @@ async function solicitarConfirmacaoAgendTurma() {
 
   mostrarResultadoSolicitacao(
     `<strong>${enviados}</strong> turma(s) com solicitação enviada aos instrutores pelo app Agenda de Instrutores.` +
+    (enviadosSoCt ? `<br><strong>${enviadosSoCt}</strong> turma(s) de locação de espaço enviada(s) apenas para confirmação do Centro de Treinamento (sem instrutor).` : "") +
     (avisos.length ? `<br><span class="text-slate-600">${avisos.join("<br>")}</span>` : "") +
     (erros.length ? `<br><span class="text-rose-700">${erros.join("<br>")}</span>` : ""),
     erros.length === 0
