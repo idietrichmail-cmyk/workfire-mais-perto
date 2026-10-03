@@ -28,7 +28,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.08 · 03/10/2026";
+const APP_VERSAO = "Prod 1.10 · 03/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 const diasSemana = ["D", "S", "T", "Q", "Q", "S", "S"];
@@ -1079,6 +1079,11 @@ async function entrarNoPainelAdmin() {
     (permsData || []).forEach((p) => { permissoesAtual[p.modulo] = p; });
   }
   mostrarTela("tela-admin");
+  try {
+    const areaGuardada = sessionStorage.getItem("wf_area_ativa");
+    sessionStorage.removeItem("wf_area_ativa");
+    if (areaGuardada && AREAS.includes(areaGuardada)) areaAtiva = areaGuardada;
+  } catch (e) { /* sem storage */ }
   renderizarNavAdmin();
   mostrarMenuInicio();
   carregarSituacaoAprovacaoReembolso();
@@ -1128,6 +1133,18 @@ function renderizarAbasAreas() {
       areaAtiva = btn.getAttribute("data-area");
       mostrarMenuInicio();
     }));
+}
+
+// Voltar ao início: ao sair do cadastro de Empresas (lista grande) a página é
+// recarregada, para liberar a memória e voltar com tudo atualizado. A área
+// escolhida no menu é mantida.
+function voltarParaInicio() {
+  if (moduloAtivo === "empresas") {
+    try { sessionStorage.setItem("wf_area_ativa", areaAtiva); } catch (e) { /* sem storage: volta para Geral */ }
+    window.location.reload();
+    return;
+  }
+  mostrarMenuInicio();
 }
 
 function mostrarMenuInicio() {
@@ -1200,10 +1217,10 @@ function renderizarNavAdmin() {
     areaAtiva = e.target.value;
     const atual = MODULOS.find((m) => m.id === moduloAtivo);
     // Se o módulo aberto não pertence mais à área escolhida, volta ao menu.
-    if (!atual || (areaAtiva !== "Geral" && atual.grupo !== areaAtiva)) mostrarMenuInicio();
+    if (!atual || (areaAtiva !== "Geral" && atual.grupo !== areaAtiva)) voltarParaInicio();
     else renderizarNavAdmin();
   });
-  nav.querySelector("[data-nav-inicio]").addEventListener("click", mostrarMenuInicio);
+  nav.querySelector("[data-nav-inicio]").addEventListener("click", voltarParaInicio);
   nav.querySelectorAll("[data-nav-modulo]").forEach((btn) =>
     btn.addEventListener("click", () => irParaModulo(btn.getAttribute("data-nav-modulo")))
   );
@@ -1219,7 +1236,7 @@ function renderizarNavAdmin() {
 
 $("admin-nav-mobile").addEventListener("change", (e) => {
   if (e.target.value) irParaModulo(e.target.value);
-  else mostrarMenuInicio();
+  else voltarParaInicio();
 });
 
 function irParaModulo(id) {
@@ -6466,16 +6483,24 @@ function formatarDataBr(iso) {
 let cctLista = [];
 let cctAgendamentos = new Map();
 
+// Calendário mensal (mesma navegação da Agenda por Centro de Treinamento):
+// o usuário escolhe o dia e confirma/recusa as turmas daquele dia.
+let cctMes = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+let cctDiaSelecionado = null;
+let cctAutoSelecionarDia = true; // na 1ª carga, abre o dia de hoje (ou o 1º dia com pendência)
+let cctPendentesTotal = 0;
+
 async function carregarConfirmacaoCtInit() {
   $("admin-descricao-pagina").textContent = "Confirme, pelo Centro de Treinamento, as turmas cujo agendamento foi solicitado. A turma só fica \"Agendada\" quando o CT e os instrutores confirmam.";
   const { data: centros } = await supabase.from("centros_treinamento").select("*").eq("status", "Ativo").order("nome");
   listaCentrosAtivos = centros || [];
   preencherSelect("cct-centro-select", listaCentrosAtivos, "id", (c) => c.nome, "— Selecione —");
   $("cct-centro-select").value = listaCentrosAtivos.length === 1 ? listaCentrosAtivos[0].id : "";
-  $("cct-filtro-status").value = "Aguardando confirmação";
-  $("cct-data-inicio").value = "";
-  $("cct-data-fim").value = "";
+  $("cct-filtro-status").value = "";
   $("cct-resultado").classList.add("hidden");
+  cctMes = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+  cctDiaSelecionado = null;
+  cctAutoSelecionarDia = true;
   await carregarTurmasPreAgendamentoDefinitivo();
   await carregarListaConfirmacaoCt();
 }
@@ -6536,51 +6561,58 @@ $("btn-cct-definitivos-limpar").addEventListener("click", () =>
 
 async function carregarListaConfirmacaoCt(forcar = true) {
   const centroId = $("cct-centro-select").value;
-  const filtro = $("cct-filtro-status").value;
-  const dataIni = $("cct-data-inicio").value;
-  const dataFim = $("cct-data-fim").value;
-  const cont = $("cct-lista");
-  if (dataIni && dataFim && dataFim < dataIni) {
-    cont.innerHTML = `<tr><td colspan="9" class="text-center text-rose-600 text-sm py-16">A data de término não pode ser anterior à data de início.</td></tr>`;
-    $("cct-resumo").textContent = "";
-    return;
-  }
   if (!centroId) {
     cctLista = [];
+    cctPendentesTotal = 0;
     $("cct-resumo").textContent = "";
-    cont.innerHTML = `<tr><td colspan="9" class="text-center text-slate-500 text-sm py-16">Selecione um Centro de Treinamento.</td></tr>`;
+    renderizarCalendarioCt();
     return;
   }
-  let q = supabase
+  const [ini, fim] = limitesDoMes(cctMes);
+  const { data, error } = await supabase
     .from("turmas")
     .select("*, tipos_treinamento(nome), orcamentos(numero, observacoes, observacao_ct, empresas(nome)), inst1:instrutores!turmas_instrutor1_id_fkey(nome), inst2:instrutores!turmas_instrutor2_id_fkey(nome)")
     .eq("centro_treinamento_id", centroId)
     .neq("status", "Cancelada")
-    .order("data_inicio", { ascending: true, nullsFirst: false });
-  if (filtro) q = q.eq("agenda_ct", filtro);
-  else q = q.neq("agenda_ct", "Não aplicável");
-  if (dataIni) q = q.gte("data_inicio", dataIni);
-  if (dataFim) q = q.lte("data_inicio", dataFim);
-  const { data, error } = await q;
+    .neq("agenda_ct", "Não aplicável")
+    .gte("data_inicio", ini)
+    .lte("data_inicio", fim)
+    .order("data_inicio", { ascending: true });
   if (error) {
-    cont.innerHTML = `<tr><td colspan="9" class="text-center text-rose-600 text-sm py-16">Não foi possível carregar as turmas: ${error.message}</td></tr>`;
+    $("cct-resumo").textContent = `Não foi possível carregar as turmas: ${error.message}`;
     return;
   }
+  const ids = (data || []).map((t) => t.id);
   let ags = [];
-  if ((data || []).length) {
-    const r = await supabase.from("agendamentos").select("turma_id, instrutor_id, datas, datas_status").in("turma_id", data.map((t) => t.id)).order("turma_id");
-    ags = r.data || [];
+  for (let n = 0; n < ids.length; n += 100) {
+    const r = await supabase.from("agendamentos").select("turma_id, instrutor_id, datas, datas_status").in("turma_id", ids.slice(n, n + 100)).order("turma_id");
+    ags = ags.concat(r.data || []);
   }
+  const { count: pendentesTotal } = await supabase
+    .from("turmas").select("id", { count: "exact", head: true })
+    .eq("centro_treinamento_id", centroId).neq("status", "Cancelada").eq("agenda_ct", "Aguardando confirmação");
+
   // na atualização automática, só re-renderiza se algo mudou
-  if (!forcar && !dadosMudaram(`cct:${centroId}:${filtro}:${dataIni}:${dataFim}`, { data, ags })) return;
-  if (forcar) dadosMudaram(`cct:${centroId}:${filtro}:${dataIni}:${dataFim}`, { data, ags });
-  cctLista = data || [];
+  const chave = `cct:${centroId}:${ini}`;
+  if (!forcar && !dadosMudaram(chave, { data, ags, pendentesTotal })) return;
+  if (forcar) dadosMudaram(chave, { data, ags, pendentesTotal });
+
+  cctLista = (data || []).sort(compararIdentificacaoTurma);
+  cctPendentesTotal = pendentesTotal || 0;
   cctAgendamentos.clear();
   ags.forEach((a) => cctAgendamentos.set(`${a.turma_id}|${a.instrutor_id}`, a));
-  const pendentes = cctLista.filter((t) => t.agenda_ct === "Aguardando confirmação").length;
-  const periodo = dataIni || dataFim ? ` · período ${dataIni ? formatarDataBr(dataIni) : "…"} a ${dataFim ? formatarDataBr(dataFim) : "…"}` : "";
-  $("cct-resumo").textContent = (filtro ? `${cctLista.length} turma(s)` : `${cctLista.length} turma(s) · ${pendentes} aguardando confirmação`) + periodo;
-  renderizarListaConfirmacaoCt();
+
+  if (cctAutoSelecionarDia && !cctDiaSelecionado) {
+    const hoje = formatarData(new Date());
+    const diasComTurma = new Set(cctLista.map((t) => t.data_inicio));
+    if (diasComTurma.has(hoje)) cctDiaSelecionado = hoje;
+    else {
+      const primeiraPend = cctLista.find((t) => t.agenda_ct === "Aguardando confirmação");
+      if (primeiraPend) cctDiaSelecionado = primeiraPend.data_inicio;
+    }
+    cctAutoSelecionarDia = false;
+  }
+  renderizarCalendarioCt();
 }
 
 function respostaInstrutorCct(t, instrutorId) {
@@ -6591,39 +6623,120 @@ function respostaInstrutorCct(t, instrutorId) {
   return r ? montarRespostaInstrutor(r) : { status: "pendente" };
 }
 
-function renderizarListaConfirmacaoCt() {
-  const cont = $("cct-lista");
-  if (cctLista.length === 0) {
-    cont.innerHTML = `<tr><td colspan="9" class="text-center text-slate-500 text-sm py-16">Nenhuma turma encontrada para este filtro.</td></tr>`;
+function agruparTurmasCtPorDia() {
+  const mapa = new Map();
+  cctLista.forEach((t) => {
+    if (!t.data_inicio) return;
+    if (!mapa.has(t.data_inicio)) mapa.set(t.data_inicio, []);
+    mapa.get(t.data_inicio).push(t);
+  });
+  return mapa;
+}
+
+function renderizarCalendarioCt() {
+  const porDia = agruparTurmasCtPorDia();
+  $("cct-mes-label").textContent = `${nomesMeses[cctMes.getMonth()]} ${cctMes.getFullYear()}`;
+  $("cct-dias-semana").innerHTML = diasSemana
+    .map((d) => `<div class="text-center text-[11px] font-medium text-slate-400 py-1">${d}</div>`).join("");
+
+  const elGrade = $("cct-grade-dias");
+  elGrade.innerHTML = "";
+  const hoje = formatarData(new Date());
+  gerarGradeMes(cctMes.getFullYear(), cctMes.getMonth()).forEach((dia) => {
+    if (!dia) { elGrade.appendChild(document.createElement("div")); return; }
+    const dataStr = formatarData(dia);
+    const turmas = porDia.get(dataStr) || [];
+    const total = turmas.length;
+    const aguardando = turmas.filter((t) => t.agenda_ct === "Aguardando confirmação").length;
+    const confirmadas = turmas.filter((t) => t.agenda_ct === "Agendado").length;
+
+    let cor = "bg-white border-slate-200 text-slate-400";
+    if (total > 0) {
+      if (aguardando > 0) cor = "bg-amber-50 border-amber-300 text-amber-900";
+      else if (confirmadas === total) cor = "bg-teal-50 border-teal-300 text-teal-900";
+      else cor = "bg-slate-50 border-slate-300 text-slate-700";
+    }
+    const selecionado = cctDiaSelecionado === dataStr ? "ring-2 ring-amber-500" : "";
+    const marcaHoje = dataStr === hoje ? "font-bold underline" : "";
+    const comObservacao = turmas.some((t) => t.orcamentos?.observacao_ct);
+
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = `min-h-[74px] w-full rounded-lg border p-1.5 text-left transition-colors hover:border-amber-400 ${cor} ${selecionado}`;
+    btn.title = total === 0 ? "Sem turmas"
+      : `${total} turma(s) · ${confirmadas} confirmada(s) pelo CT · ${aguardando} aguardando confirmação${comObservacao ? " · há observação para o CT" : ""}`;
+    btn.innerHTML = `
+      <div class="text-[11px] ${marcaHoje} flex items-center justify-between"><span>${dia.getDate()}</span>${comObservacao ? `<span title="Há observação para o Centro de Treinamento">📌</span>` : ""}</div>
+      ${total > 0 ? `<div class="mt-1 text-lg leading-none font-semibold">${total}</div>
+        <div class="text-[10px] leading-tight mt-0.5">turma${total > 1 ? "s" : ""}</div>
+        ${aguardando > 0 ? `<div class="text-[10px] leading-tight font-medium">${aguardando} aguard.</div>` : ""}` : ""}
+    `;
+    btn.addEventListener("click", () => {
+      cctDiaSelecionado = cctDiaSelecionado === dataStr ? null : dataStr;
+      renderizarCalendarioCt();
+    });
+    elGrade.appendChild(btn);
+  });
+
+  const centroSel = $("cct-centro-select");
+  if (!centroSel.value) {
+    $("cct-resumo").textContent = "";
+  } else {
+    const aguardMes = cctLista.filter((t) => t.agenda_ct === "Aguardando confirmação").length;
+    $("cct-resumo").textContent = `${cctLista.length} turma(s) no mês · ${aguardMes} aguardando confirmação no mês · ${cctPendentesTotal} no total`;
+  }
+  renderizarDetalheDiaCt(porDia);
+}
+
+function renderizarDetalheDiaCt(porDia) {
+  const titulo = $("cct-detalhe-titulo");
+  const lista = $("cct-detalhe-lista");
+  if (!$("cct-centro-select").value) {
+    titulo.textContent = "Selecione um Centro de Treinamento";
+    lista.innerHTML = `<p class="text-xs text-slate-400">Escolha o centro acima para ver o calendário de confirmações.</p>`;
+    return;
+  }
+  if (!cctDiaSelecionado) {
+    titulo.textContent = "Selecione um dia no calendário";
+    lista.innerHTML = `<p class="text-xs text-slate-400">Clique em um dia para ver as turmas e confirmar ou recusar.</p>`;
+    return;
+  }
+  const filtro = $("cct-filtro-status").value;
+  const todas = porDia.get(cctDiaSelecionado) || [];
+  const turmas = filtro ? todas.filter((t) => t.agenda_ct === filtro) : todas;
+  titulo.textContent = `${formatarDataBr(cctDiaSelecionado)} — ${turmas.length} turma(s)${filtro && todas.length !== turmas.length ? ` (de ${todas.length} no dia)` : ""}`;
+  if (turmas.length === 0) {
+    lista.innerHTML = `<p class="text-xs text-slate-400">${todas.length ? "Nenhuma turma neste dia com o filtro escolhido." : "Nenhuma turma neste dia."}</p>`;
     return;
   }
   const podeConfirmar = podeFazer("confirmacao_ct", "alterar");
   const linhaInst = (nome, resp, agenda) => nome
     ? `<div class="text-xs text-slate-700">${nome} ${iconeRespostaInstrutor(resp) || textoAgendaItem(agenda)}</div>`
     : "";
-  cont.innerHTML = cctLista.map((t) => `
-    <tr class="hover:bg-slate-50">
-      <td class="px-3 py-2 text-slate-700 whitespace-nowrap">${formatarDataBr(t.data_inicio)}</td>
-      <td class="px-3 py-2"><div class="font-mono text-xs text-slate-500">${t.orcamentos?.numero || "—"}</div><div class="text-slate-700">${t.orcamentos?.empresas?.nome || "—"}</div></td>
-      <td class="px-3 py-2 text-slate-600">${t.tipos_treinamento?.nome || "—"}</td>
-      <td class="px-3 py-2 font-mono text-slate-700">${t.identificacao || "—"}</td>
-      <td class="px-3 py-2 text-slate-500">${t.tipo_dia || "—"}</td>
-      <td class="px-3 py-2">${linhaInst(t.inst1?.nome, respostaInstrutorCct(t, t.instrutor1_id), t.agenda_instrutor1)}${linhaInst(t.inst2?.nome, respostaInstrutorCct(t, t.instrutor2_id), t.agenda_instrutor2)}${!t.inst1 && !t.inst2 ? `<span class="text-slate-300 text-xs">—</span>` : ""}</td>
-      <td class="px-3 py-2">${textoAgendaItem(t.agenda_ct)}</td>
-      <td class="px-3 py-2">${badgeStatusAgendamento(t.status_agendamento, t.eh_pre_agendamento)}</td>
-      <td class="px-3 py-2 text-right whitespace-nowrap">
-        ${podeConfirmar && t.agenda_ct !== "Agendado" ? `<button data-cct-confirmar="${t.id}" class="text-xs font-medium text-white bg-teal-600 hover:bg-teal-700 px-2.5 py-1 rounded-md">Confirmar</button>` : ""}
-        ${podeConfirmar && t.agenda_ct === "Aguardando confirmação" ? `<button data-cct-recusar="${t.id}" class="ml-1 text-xs font-medium text-rose-600 hover:bg-rose-50 border border-rose-200 px-2.5 py-1 rounded-md">Recusar</button>` : ""}
-        ${podeConfirmar && t.agenda_ct === "Agendado" ? `<button data-cct-recusar="${t.id}" class="text-xs font-medium text-slate-500 hover:text-slate-800 px-2 py-1">Desfazer</button>` : ""}
-      </td>
-    </tr>
-    ${blocoObservacoesOrcamento(t.orcamentos, true)
-      ? `<tr class="bg-slate-50/60"><td colspan="9" class="px-3 pb-3 pt-0">${blocoObservacoesOrcamento(t.orcamentos, true)}</td></tr>`
-      : ""}
-  `).join("");
-  cont.querySelectorAll("[data-cct-confirmar]").forEach((el) =>
+  lista.innerHTML = turmas.map((t) => {
+    const obs = blocoObservacoesOrcamento(t.orcamentos, true);
+    const locacao = t.agenda_instrutor1 === "Não aplicável" && !t.inst1 && !t.inst2;
+    return `
+    <div class="border border-slate-200 rounded-lg p-2.5">
+      <div class="flex items-start justify-between gap-2">
+        <span class="font-mono text-xs text-slate-700">${t.identificacao || "—"}</span>
+        <span class="flex items-center gap-1.5">${textoAgendaItem(t.agenda_ct)} ${badgeStatusAgendamento(t.status_agendamento, t.eh_pre_agendamento)}</span>
+      </div>
+      <div class="text-sm text-slate-800 mt-1">${t.tipos_treinamento?.nome || "—"}</div>
+      <div class="text-xs text-slate-500">${t.orcamentos?.empresas?.nome || "—"} · orç. ${t.orcamentos?.numero || "—"}</div>
+      <div class="text-[11px] text-slate-500 mt-1">${t.horario ? `🕒 ${t.horario}` : ""}${t.tipo_dia ? `${t.horario ? " · " : ""}${t.tipo_dia}` : ""}</div>
+      <div class="mt-1">${linhaInst(t.inst1?.nome, respostaInstrutorCct(t, t.instrutor1_id), t.agenda_instrutor1)}${linhaInst(t.inst2?.nome, respostaInstrutorCct(t, t.instrutor2_id), t.agenda_instrutor2)}${!t.inst1 && !t.inst2 ? `<span class="text-[11px] text-slate-400">${locacao ? "🏢 locação de espaço — sem instrutor" : "sem instrutor"}</span>` : ""}</div>
+      ${obs ? `<div class="mt-2">${obs}</div>` : ""}
+      ${podeConfirmar ? `<div class="flex items-center gap-1.5 mt-2 pt-2 border-t border-slate-100">
+        ${t.agenda_ct !== "Agendado" ? `<button data-cct-confirmar="${t.id}" class="text-xs font-medium text-white bg-teal-600 hover:bg-teal-700 px-3 py-1.5 rounded-md">Confirmar</button>` : ""}
+        ${t.agenda_ct === "Aguardando confirmação" ? `<button data-cct-recusar="${t.id}" class="text-xs font-medium text-rose-600 hover:bg-rose-50 border border-rose-200 px-3 py-1.5 rounded-md">Recusar</button>` : ""}
+        ${t.agenda_ct === "Agendado" ? `<button data-cct-recusar="${t.id}" class="text-xs font-medium text-slate-500 hover:text-slate-800 border border-slate-200 px-3 py-1.5 rounded-md">Desfazer confirmação</button>` : ""}
+      </div>` : ""}
+    </div>`;
+  }).join("");
+  lista.querySelectorAll("[data-cct-confirmar]").forEach((el) =>
     el.addEventListener("click", () => responderConfirmacaoCt(el.getAttribute("data-cct-confirmar"), true)));
-  cont.querySelectorAll("[data-cct-recusar]").forEach((el) =>
+  lista.querySelectorAll("[data-cct-recusar]").forEach((el) =>
     el.addEventListener("click", () => responderConfirmacaoCt(el.getAttribute("data-cct-recusar"), false)));
 }
 
@@ -6645,14 +6758,40 @@ async function responderConfirmacaoCt(turmaId, confirmar) {
     : `Confirmação do CT removida para a turma ${t.identificacao} (${formatarDataBr(t.data_inicio)}).`;
   await carregarListaConfirmacaoCt();
 }
-$("cct-centro-select").addEventListener("change", carregarListaConfirmacaoCt);
-$("cct-filtro-status").addEventListener("change", carregarListaConfirmacaoCt);
-$("cct-data-inicio").addEventListener("change", carregarListaConfirmacaoCt);
-$("cct-data-fim").addEventListener("change", carregarListaConfirmacaoCt);
-$("btn-cct-limpar-datas").addEventListener("click", () => {
-  $("cct-data-inicio").value = "";
-  $("cct-data-fim").value = "";
+$("cct-centro-select").addEventListener("change", () => {
+  cctDiaSelecionado = null;
+  cctAutoSelecionarDia = true;
   carregarListaConfirmacaoCt();
+});
+$("cct-filtro-status").addEventListener("change", () => renderizarCalendarioCt());
+$("cct-mes-anterior").addEventListener("click", () => {
+  cctMes = new Date(cctMes.getFullYear(), cctMes.getMonth() - 1, 1);
+  cctDiaSelecionado = null;
+  cctAutoSelecionarDia = false;
+  carregarListaConfirmacaoCt();
+});
+$("cct-mes-proximo").addEventListener("click", () => {
+  cctMes = new Date(cctMes.getFullYear(), cctMes.getMonth() + 1, 1);
+  cctDiaSelecionado = null;
+  cctAutoSelecionarDia = false;
+  carregarListaConfirmacaoCt();
+});
+// Vai direto ao dia da próxima turma aguardando confirmação do CT (a partir de
+// hoje; se não houver, a mais antiga pendente).
+$("btn-cct-proxima-pendencia").addEventListener("click", async () => {
+  const centroId = $("cct-centro-select").value;
+  if (!centroId) return alert("Selecione um Centro de Treinamento.");
+  const base = () => supabase.from("turmas").select("data_inicio")
+    .eq("centro_treinamento_id", centroId).eq("agenda_ct", "Aguardando confirmação").neq("status", "Cancelada")
+    .not("data_inicio", "is", null).order("data_inicio", { ascending: true }).limit(1);
+  let { data } = await base().gte("data_inicio", formatarData(new Date()));
+  if (!data || data.length === 0) ({ data } = await base());
+  if (!data || data.length === 0) return alert("Nenhuma turma aguardando confirmação deste Centro de Treinamento.");
+  const [a, m] = data[0].data_inicio.split("-").map(Number);
+  cctMes = new Date(a, m - 1, 1);
+  cctDiaSelecionado = data[0].data_inicio;
+  cctAutoSelecionarDia = false;
+  await carregarListaConfirmacaoCt();
 });
 
 // ===========================================================
@@ -7153,7 +7292,7 @@ function algumPainelAberto() {
 // Campos fixos de busca, filtro e seleção de CT/orçamento não são recriados,
 // então manter o foco neles não impede a atualização automática.
 const CONTAINERS_DINAMICOS = [
-  "#agend-turma-lista", "#agend-desmarcacoes-lista", "#cct-lista", "#crud-lista",
+  "#agend-turma-lista", "#agend-desmarcacoes-lista", "#cct-detalhe-lista", "#crud-lista",
   "#ag-lista", "#ag-negativas-lista", "#ag-desmarcacoes-lista", "#orc-lista",
   "#turma-lista", "#admin-lista", "#req-itens-lista",
 ].join(", ");

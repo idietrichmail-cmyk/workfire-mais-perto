@@ -906,43 +906,39 @@
             </select>
           </div>
           <div>
-            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Data início</label>
-            <input type="date" id="cct-data-inicio" class="mt-1 block rounded-md border border-slate-300 px-3 py-2 text-sm" />
-          </div>
-          <div>
-            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Data término</label>
-            <input type="date" id="cct-data-fim" class="mt-1 block rounded-md border border-slate-300 px-3 py-2 text-sm" />
-          </div>
-          <div>
-            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Mostrar</label>
+            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Turmas do dia</label>
             <select id="cct-filtro-status" class="mt-1 rounded-md border border-slate-300 px-3 py-2 text-sm">
+              <option value="">Todas</option>
               <option value="Aguardando confirmação">Aguardando confirmação</option>
               <option value="Agendado">Confirmadas (Agendado)</option>
               <option value="A agendar">A agendar</option>
-              <option value="">Todas</option>
             </select>
           </div>
-          <button id="btn-cct-limpar-datas" type="button" class="text-xs text-amber-700 hover:underline pb-2">limpar datas</button>
-          <div id="cct-resumo" class="text-xs text-slate-500"></div>
+          <button id="btn-cct-proxima-pendencia" type="button" class="text-xs font-medium text-amber-800 bg-amber-50 border border-amber-300 hover:bg-amber-100 rounded-md px-3 py-2">⏭ Ir para a próxima pendência</button>
+          <div id="cct-resumo" class="text-xs text-slate-500 pb-2"></div>
         </div>
         <div id="cct-resultado" class="hidden mb-3 text-sm rounded-md px-3 py-2"></div>
-        <div class="bg-white border border-slate-200 rounded-lg overflow-x-auto">
-          <table class="w-full text-sm">
-            <thead>
-              <tr class="bg-slate-50 text-slate-500 text-left text-xs">
-                <th class="px-3 py-2 font-medium">Data</th>
-                <th class="px-3 py-2 font-medium">Orçamento / Empresa</th>
-                <th class="px-3 py-2 font-medium">Treinamento</th>
-                <th class="px-3 py-2 font-medium">Turma</th>
-                <th class="px-3 py-2 font-medium">Tipo do dia</th>
-                <th class="px-3 py-2 font-medium">Instrutores</th>
-                <th class="px-3 py-2 font-medium">Agenda CT</th>
-                <th class="px-3 py-2 font-medium">Agendamento</th>
-                <th class="px-3 py-2 font-medium text-right">Ações</th>
-              </tr>
-            </thead>
-            <tbody id="cct-lista" class="divide-y divide-slate-100"></tbody>
-          </table>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+          <div class="lg:col-span-2 bg-white border border-slate-200 rounded-xl p-4">
+            <div class="flex items-center justify-between mb-3">
+              <button id="cct-mes-anterior" class="p-1.5 rounded-md hover:bg-slate-100 text-slate-500">‹</button>
+              <p id="cct-mes-label" class="font-serif text-base text-slate-800"></p>
+              <button id="cct-mes-proximo" class="p-1.5 rounded-md hover:bg-slate-100 text-slate-500">›</button>
+            </div>
+            <div id="cct-dias-semana" class="grid grid-cols-7 gap-1.5 mb-1.5"></div>
+            <div id="cct-grade-dias" class="grid grid-cols-7 gap-1.5"></div>
+            <div class="flex flex-wrap gap-x-4 gap-y-1 mt-4 text-[11px] text-slate-500">
+              <span class="inline-flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm bg-amber-500 inline-block"></span>Aguardando confirmação do CT</span>
+              <span class="inline-flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm bg-teal-600 inline-block"></span>Todas confirmadas pelo CT</span>
+              <span class="inline-flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm bg-slate-300 inline-block"></span>A agendar</span>
+            </div>
+          </div>
+
+          <div class="bg-white border border-slate-200 rounded-xl p-4">
+            <h3 id="cct-detalhe-titulo" class="text-sm font-semibold text-slate-800 mb-3">Selecione um dia no calendário</h3>
+            <div id="cct-detalhe-lista" class="space-y-2 max-h-[640px] overflow-y-auto"></div>
+          </div>
         </div>
       </section>
 
@@ -1977,6 +1973,6 @@
 </div>
 
 <script src="config.js"></script>
-<script src="app.js?v=20261003f"></script>
+<script src="app.js?v=20261003h"></script>
 </body>
 </html>
