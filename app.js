@@ -28,7 +28,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.19 · 04/10/2026";
+const APP_VERSAO = "Prod 1.20 · 04/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -1187,26 +1187,20 @@ async function carregarSituacaoAprovacaoReembolso() {
   if (moduloAtivo === null) mostrarMenuInicio();
 }
 
-// Abas de área no menu inicial: Geral, Cadastros Básicos, Comercial, Logística, Operações.
-// A área escolhida também filtra o menu lateral.
+// Áreas da empresa (Cadastros Básicos, Comercial, Compras, Logística, Operações, Financeiro)
+// como botões no topo da página, abaixo do usuário logado. "Início" mostra todas as áreas.
+// A área escolhida também filtra o menu lateral e a grade do menu inicial.
 function renderizarAbasAreas() {
-  // O container pode não existir se o index.html estiver desatualizado no
-  // navegador — nesse caso ele é criado aqui, para o seletor nunca sumir.
-  let cont = $("inicio-areas");
-  if (!cont) {
-    const grade = $("inicio-grade");
-    if (!grade) return;
-    cont = document.createElement("div");
-    cont.id = "inicio-areas";
-    cont.className = "flex flex-wrap gap-2 mb-5";
-    grade.parentNode.insertBefore(cont, grade);
-  }
-  cont.innerHTML = AREAS.map((a) => {
-    const qtd = a === "Geral"
-      ? MODULOS.filter((m) => podeFazer(m.id, "consultar")).length
-      : MODULOS.filter((m) => m.grupo === a && podeFazer(m.id, "consultar")).length;
+  const cont = $("admin-areas-topo");
+  if (!cont) return;
+  const inicioAtivo = moduloAtivo === null && areaAtiva === "Geral";
+  cont.innerHTML = `
+    <button data-area-topo="Geral" class="text-sm px-3 py-1.5 rounded-md border transition ${
+      inicioAtivo ? "bg-slate-900 text-white border-slate-900" : "bg-white text-slate-600 border-slate-300 hover:border-amber-400"
+    }">🏠 Início</button>` + AREAS.filter((a) => a !== "Geral").map((a) => {
+    const qtd = MODULOS.filter((m) => m.grupo === a && podeFazer(m.id, "consultar")).length;
     return `
-    <button data-area="${a}" class="text-sm px-3 py-1.5 rounded-md border transition ${
+    <button data-area-topo="${a}" class="text-sm px-3 py-1.5 rounded-md border transition ${
       a === areaAtiva
         ? "bg-slate-900 text-white border-slate-900"
         : qtd === 0
@@ -1214,10 +1208,10 @@ function renderizarAbasAreas() {
           : "bg-white text-slate-600 border-slate-300 hover:border-amber-400"
     }">${a}${qtd > 0 ? ` <span class="text-[10px] opacity-70">${qtd}</span>` : ""}</button>`;
   }).join("");
-  cont.querySelectorAll("[data-area]").forEach((btn) =>
+  cont.querySelectorAll("[data-area-topo]").forEach((btn) =>
     btn.addEventListener("click", () => {
-      areaAtiva = btn.getAttribute("data-area");
-      mostrarMenuInicio();
+      areaAtiva = btn.getAttribute("data-area-topo");
+      voltarParaInicio();
     }));
 }
 
@@ -1238,7 +1232,6 @@ function mostrarMenuInicio() {
   moduloAtivo = null;
   document.querySelectorAll("#tela-admin main > section").forEach((s) => s.classList.add("hidden"));
   renderizarNavAdmin();
-  $("admin-nav-mobile").value = "";
 
   const acessiveis = modulosDaArea();
   $("admin-eyebrow").textContent = "Work Fire mais perto de você";
@@ -1248,7 +1241,6 @@ function mostrarMenuInicio() {
     : "Seu usuário ainda não tem acesso a nenhum cadastro ou operação. Fale com o administrador.";
 
   $("secao-inicio").classList.remove("hidden");
-  renderizarAbasAreas();
   const grade = $("inicio-grade");
   if (acessiveis.length === 0) {
     grade.innerHTML = `<div class="col-span-full bg-white border border-dashed border-slate-300 rounded-lg py-16 text-center text-slate-500 text-sm">Nenhum item disponível nesta área.</div>`;
@@ -1278,24 +1270,13 @@ function renderizarNavAdmin() {
     (grupos[m.grupo] = grupos[m.grupo] || []).push(m);
   });
 
-  // Áreas da empresa como botões (clicar de novo na área ativa volta a mostrar todas).
-  const seletorArea = `
-    <div class="grid grid-cols-2 gap-1.5 mb-3">
-      ${AREAS.filter((a) => a !== "Geral").map((a) => `
-        <button data-area-btn="${a}" class="text-[11px] leading-tight rounded-md px-2 py-2 text-center border transition ${
-          a === areaAtiva
-            ? "bg-amber-500 text-slate-900 border-amber-500 font-semibold"
-            : "border-slate-700 text-slate-300 hover:bg-slate-800 hover:text-white"
-        }">${a}</button>`).join("")}
-    </div>`;
-
   const botaoInicio = `
     <button data-nav-inicio class="flex items-center gap-2 rounded-md px-3 py-2 text-left w-full mb-3 ${
       moduloAtivo === null ? "bg-slate-800 text-white border-l-2 border-amber-500" : "hover:bg-slate-800 hover:text-white"
     }">🏠 Geral</button>
   `;
 
-  nav.innerHTML = seletorArea + botaoInicio + (Object.keys(grupos).length === 0
+  nav.innerHTML = botaoInicio + (Object.keys(grupos).length === 0
     ? `<p class="text-[11px] text-slate-500 px-3 py-2">Nenhum item disponível nesta área.</p>` : "")
     + Object.entries(grupos).map(([grupo, itens]) => `
     <p class="text-[10px] uppercase tracking-wider text-slate-500 px-3 mt-4 mb-1 first:mt-0">${grupo}</p>
@@ -1306,33 +1287,12 @@ function renderizarNavAdmin() {
     `).join("")}
   `).join("");
 
-  nav.querySelectorAll("[data-area-btn]").forEach((btn) => btn.addEventListener("click", () => {
-    const a = btn.getAttribute("data-area-btn");
-    areaAtiva = areaAtiva === a ? "Geral" : a;
-    const atual = MODULOS.find((m) => m.id === moduloAtivo);
-    // Se o módulo aberto não pertence mais à área escolhida, volta ao menu.
-    if (moduloAtivo === null) mostrarMenuInicio();
-    else if (!atual || (areaAtiva !== "Geral" && atual.grupo !== areaAtiva)) voltarParaInicio();
-    else renderizarNavAdmin();
-  }));
   nav.querySelector("[data-nav-inicio]").addEventListener("click", voltarParaInicio);
   nav.querySelectorAll("[data-nav-modulo]").forEach((btn) =>
     btn.addEventListener("click", () => irParaModulo(btn.getAttribute("data-nav-modulo")))
   );
-
-  const navMobile = $("admin-nav-mobile");
-  navMobile.innerHTML = `<option value="" ${moduloAtivo === null ? "selected" : ""}>🏠 Geral</option>` +
-    Object.entries(grupos).map(([grupo, itens]) => `
-      <optgroup label="${grupo}">
-        ${itens.map((m) => `<option value="${m.id}" ${m.id === moduloAtivo ? "selected" : ""}>${m.icone} ${m.label}</option>`).join("")}
-      </optgroup>
-    `).join("");
+  renderizarAbasAreas();
 }
-
-$("admin-nav-mobile").addEventListener("change", (e) => {
-  if (e.target.value) irParaModulo(e.target.value);
-  else voltarParaInicio();
-});
 
 function irParaModulo(id) {
   verificarNovaVersao();
@@ -1498,7 +1458,7 @@ async function sairAdmin() {
 
 ["btn-ver-instrutor", "btn-ver-instrutor-desktop"].forEach((id) => $(id).addEventListener("click", verTelaInstrutor));
 ["btn-admin-trocar-senha", "btn-admin-trocar-senha-desktop"].forEach((id) => $(id).addEventListener("click", trocarSenhaAdmin));
-["btn-admin-sair", "btn-admin-sair-desktop", "btn-admin-sair-mobile"].forEach((id) => $(id).addEventListener("click", sairAdmin));
+["btn-admin-sair-mobile"].forEach((id) => $(id).addEventListener("click", sairAdmin));
 
 // --- Formulário de cadastro/edição ---
 function limparFormulario() {
@@ -9081,9 +9041,7 @@ async function abrirPainelTreinamentos() {
   );
 }
 
-$("btn-treinamentos-desktop").addEventListener("click", abrirPainelTreinamentos);
 $("btn-treinamentos-mobile").addEventListener("click", abrirPainelTreinamentos);
-$("btn-treinamentos-sidebar").addEventListener("click", abrirPainelTreinamentos);
 $("btn-fechar-painel-treinamentos").addEventListener("click", () => $("painel-treinamentos").classList.add("hidden"));
 $("painel-treinamentos-overlay").addEventListener("click", () => $("painel-treinamentos").classList.add("hidden"));
 
@@ -9356,9 +9314,7 @@ $("btn-rb-cancelar-form").addEventListener("click", fecharFormReembolso);
 $("btn-rb-gravar").addEventListener("click", () => salvarReembolso(false));
 $("btn-rb-gravar-solicitar").addEventListener("click", () => salvarReembolso(true));
 
-$("btn-reembolso-desktop").addEventListener("click", abrirPainelReembolsos);
 $("btn-reembolso-mobile").addEventListener("click", abrirPainelReembolsos);
-$("btn-reembolso-sidebar").addEventListener("click", abrirPainelReembolsos);
 $("btn-reembolso-instrutor").addEventListener("click", abrirPainelReembolsos);
 $("btn-fechar-painel-reembolsos").addEventListener("click", () => $("painel-reembolsos").classList.add("hidden"));
 $("painel-reembolsos-overlay").addEventListener("click", () => $("painel-reembolsos").classList.add("hidden"));
