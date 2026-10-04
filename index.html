@@ -1352,6 +1352,24 @@
           <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Empresa</label>
           <select id="orc-empresa" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"></select>
         </div>
+        <div class="border border-slate-200 rounded-lg p-3 space-y-3 bg-slate-50/60">
+          <p class="text-xs font-medium text-slate-500 uppercase tracking-wide">Contato do orçamento</p>
+          <p class="text-[11px] text-slate-400 -mt-2">Vem preenchido com o contato da empresa. Pode ser alterado aqui sem mudar o cadastro da empresa.</p>
+          <div>
+            <label class="text-xs font-medium text-slate-500">Contato</label>
+            <input id="orc-contato-nome" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="text-xs font-medium text-slate-500">Telefone contato</label>
+              <input id="orc-contato-telefone" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
+            </div>
+            <div>
+              <label class="text-xs font-medium text-slate-500">E-mail contato</label>
+              <input id="orc-contato-email" type="email" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
+            </div>
+          </div>
+        </div>
         <div>
           <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Centro de Treinamento</label>
           <select id="orc-centro" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"></select>
@@ -1973,6 +1991,6 @@
 </div>
 
 <script src="config.js"></script>
-<script src="app.js?v=20261003h"></script>
+<script src="app.js?v=20261004a"></script>
 </body>
 </html>

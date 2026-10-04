@@ -28,7 +28,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.10 · 03/10/2026";
+const APP_VERSAO = "Prod 1.11 · 04/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 const diasSemana = ["D", "S", "T", "Q", "Q", "S", "S"];
@@ -3714,7 +3714,18 @@ $("orc-formato-pratica").addEventListener("change", () => {
   atualizarHorarioPadraoPraticaOrc();
   atualizarBlocoHorarioPraticaOrc();
 });
-$("orc-empresa").addEventListener("change", atualizarPreviewEnderecoEmpresaOrc);
+// Contato do orçamento: copia o contato cadastrado na empresa (só ao trocar a empresa);
+// depois disso os campos são do orçamento e podem ser editados sem afetar a empresa.
+function preencherContatoOrcDaEmpresa() {
+  const emp = empresaSelecionadaOrc();
+  $("orc-contato-nome").value = emp?.contato_nome || "";
+  $("orc-contato-telefone").value = emp?.contato_telefone || "";
+  $("orc-contato-email").value = emp?.contato_email || "";
+}
+$("orc-empresa").addEventListener("change", () => {
+  atualizarPreviewEnderecoEmpresaOrc();
+  preencherContatoOrcDaEmpresa();
+});
 $("orc-pra-mesmo-teoria").addEventListener("change", () => {
   atualizarBlocosEnderecoInCompanyOrc();
   atualizarBlocoHorarioPraticaOrc();
@@ -4949,6 +4960,9 @@ function abrirNovoOrcamento() {
   $("orc-numero").value = "";
   $("orc-numero").disabled = false;
   preencherSelectEmpresa("orc-empresa", listaEmpresasAtivas, "— Selecione —");
+  $("orc-contato-nome").value = "";
+  $("orc-contato-telefone").value = "";
+  $("orc-contato-email").value = "";
   preencherSelect("orc-centro", listaCentrosAtivos, "id", (i) => i.nome, "— Selecione —");
   preencherSelect("orc-tipo", listaTiposAtivos, "id", (i) => i.nome, "— Selecione —");
   preencherSelect("orc-formato-teoria", FORMATOS_TEORIA.map((f) => ({ id: f, nome: f })), "id", (i) => i.nome, "— Selecione —");
@@ -4983,6 +4997,9 @@ async function abrirEdicaoOrcamento(id) {
   $("orc-numero").disabled = true; // número já definido não muda mais, evita conflito de unicidade
   preencherSelectEmpresa("orc-empresa", listaEmpresasAtivas, "— Selecione —");
   definirEmpresaSelect("orc-empresa", o.empresa_id);
+  $("orc-contato-nome").value = o.contato_nome || "";
+  $("orc-contato-telefone").value = o.contato_telefone || "";
+  $("orc-contato-email").value = o.contato_email || "";
   preencherSelect("orc-centro", listaCentrosAtivos, "id", (i) => i.nome, "— Selecione —");
   $("orc-centro").value = o.centro_treinamento_id || "";
   preencherSelect("orc-tipo", listaTiposAtivos, "id", (i) => i.nome, "— Selecione —");
@@ -5139,8 +5156,13 @@ async function salvarOrcamento() {
   const horarioInicioPratica = praticaSincronizada ? horarioInicioTeoria : ($("orc-horario-pratica").value || null);
 
   const qtdAlunosPorTurma = $("orc-qtd-alunos-turma").value ? Number($("orc-qtd-alunos-turma").value) : 0;
+  const contatoEmail = $("orc-contato-email").value.trim();
+  if (contatoEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contatoEmail)) return mostrarErro("orc-form-erro", "O e-mail do contato parece inválido.");
   const payload = {
     empresa_id: empresaId,
+    contato_nome: $("orc-contato-nome").value.trim() || null,
+    contato_telefone: $("orc-contato-telefone").value.trim() || null,
+    contato_email: contatoEmail || null,
     centro_treinamento_id: centroId,
     tipo_treinamento_id: tipoId,
     formato_teoria: $("orc-formato-teoria").value || null,
