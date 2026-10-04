@@ -28,7 +28,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.15 · 04/10/2026";
+const APP_VERSAO = "Prod 1.16 · 04/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 const diasSemana = ["D", "S", "T", "Q", "Q", "S", "S"];
@@ -4898,6 +4898,7 @@ async function carregarOrcamentos() {
   listaCentrosAtivos = centros || [];
   $("btn-orc-novo").classList.toggle("hidden", !podeFazer("orcamentos", "incluir"));
   $("btn-orc-importar").classList.toggle("hidden", !podeFazer("orcamentos", "incluir"));
+  $("btn-orc-historico").classList.toggle("hidden", !podeFazer("orcamentos", "incluir"));
   $("orc-importacao-painel").classList.add("hidden");
   renderizarFiltroStatusOrcamento();
   await carregarPaginaOrcamentos();
@@ -5599,6 +5600,21 @@ async function lerPlanilhaOrcamentos(arquivo) {
     importacaoOrcPendente = validos;
     importacaoOrcAtualizacoes = atualizacoes;
     importacaoOrcRelatorio = problemas;
+    importacaoOrcArquivo = arquivo.name || "";
+    importacaoOrcResumo = resumo;
+    importacaoOrcCnpjPorEmpresa = new Map((empresas || []).map((e) => [e.id, e.cnpj]));
+    importacaoOrcNumeros = new Set(linhas.slice(1).map((l) => textoCelulaImport(l[0]).replace(/\.0+$/, "")).filter(Boolean));
+    // orçamentos da planilha que já estão no sistema mas ficaram sem turmas (ex.: importação anterior interrompida)
+    importacaoOrcTurmasPendentes = [];
+    try {
+      const { data: semTurmas } = await buscarTodos(() => supabase.rpc("orcamentos_sem_turmas").order("id"));
+      const ids = (semTurmas || []).filter((o) => importacaoOrcNumeros.has(String(o.numero))).map((o) => o.id);
+      for (let i = 0; i < ids.length; i += 100) {
+        const { data: rows, error: eP } = await supabase.from("orcamentos").select("*").in("id", ids.slice(i, i + 100));
+        if (eP) throw eP;
+        importacaoOrcTurmasPendentes.push(...(rows || []).filter((o) => o.empresa_id && o.tipo_treinamento_id && Number(o.qtd_turmas) > 0));
+      }
+    } catch (eP) { importacaoOrcTurmasPendentes = []; }
     listaTiposAtivos = tipos || listaTiposAtivos;
 
     const erros = problemas.filter((p) => p.tipo === "erro");
@@ -5610,6 +5626,7 @@ async function lerPlanilhaOrcamentos(arquivo) {
       <ul class="text-xs text-slate-600 space-y-0.5 mb-3">
         <li>✅ Prontos para importar: <strong>${resumo.validos}</strong> (${totalTurmas.toLocaleString("pt-BR")} turmas no total, em ${linhasDiaEstimadas.toLocaleString("pt-BR")} linhas de turma/dia)</li>
         <li>⏭️ Já existem no sistema: <strong>${resumo.existentes}</strong> (não são recriados; veja a opção abaixo)</li>
+        ${importacaoOrcTurmasPendentes.length ? `<li>🧩 Já existem, mas estão <strong>sem turmas</strong>: <strong>${importacaoOrcTurmasPendentes.length}</strong> (as turmas serão geradas, se a opção abaixo estiver marcada)</li>` : ""}
         <li>⛔ Com erro (não serão importados): <strong>${resumo.erros}</strong>${resumo.repetidos ? ` · repetidos na planilha: ${resumo.repetidos}` : ""}</li>
       </ul>
       ${erros.length ? `<div class="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-md px-3 py-2 mb-3 max-h-40 overflow-y-auto">${erros.slice(0, 50).map((p) => `Linha ${p.linha}${p.numero ? ` (orç. ${p.numero})` : ""}: ${p.motivo}`).join("<br>")}${erros.length > 50 ? `<br>… e mais ${erros.length - 50} (veja o relatório)` : ""}</div>` : ""}
@@ -5624,7 +5641,7 @@ async function lerPlanilhaOrcamentos(arquivo) {
       </label>
 
       <div class="flex flex-wrap gap-2">
-        <button id="btn-orc-imp-confirmar" class="text-xs font-medium text-white bg-teal-600 hover:bg-teal-700 rounded-md px-4 py-2" ${validos.length || atualizacoes.length ? "" : "disabled"}>${validos.length ? `Importar ${resumo.validos} orçamento(s)` : "Aplicar atualizações"}</button>
+        <button id="btn-orc-imp-confirmar" class="text-xs font-medium text-white bg-teal-600 hover:bg-teal-700 rounded-md px-4 py-2" ${validos.length || atualizacoes.length || importacaoOrcTurmasPendentes.length ? "" : "disabled"}>${validos.length ? `Importar ${resumo.validos} orçamento(s)` : importacaoOrcTurmasPendentes.length ? "Gerar turmas pendentes" : "Aplicar atualizações"}</button>
         <button id="btn-orc-imp-relatorio" class="text-xs font-medium text-slate-600 border border-slate-300 rounded-md px-4 py-2" ${problemas.length ? "" : "disabled"}>Baixar relatório de pendências (.xlsx)</button>
         <button id="btn-orc-imp-cancelar" class="text-xs font-medium text-slate-600 border border-slate-300 rounded-md px-4 py-2">Cancelar</button>
       </div>`);
@@ -5653,108 +5670,370 @@ async function baixarRelatorioImportacaoOrc() {
   setTimeout(() => URL.revokeObjectURL(a.href), 4000);
 }
 
-// Gera as turmas (e a localidade "Principal") de vários orçamentos de uma vez, em blocos.
-// Se um bloco falhar, tenta orçamento por orçamento para isolar o problema.
-async function gerarTurmasEmLoteImportOrc(orcamentos) {
-  const falhas = [];
-  let turmas = 0;
-  const cnpjPorEmpresa = new Map((listaEmpresasAtivas || []).map((e) => [e.id, e.cnpj]));
-  const gravar = async (payload, empresaPorOrc) => {
-    const { data, error } = await supabase.from("turmas").insert(payload).select("id, orcamento_id");
+// ---------------------------------------------------------------------------
+// Execução da importação: progresso ao vivo + log gravado no banco + retomada.
+// Fases: (1) gravar orçamentos novos · (2) atualizar os já existentes · (3) gerar turmas dos
+// orçamentos da planilha que estejam sem turmas (inclui os que ficaram sem turmas numa execução
+// anterior interrompida). Cada chamada ao servidor tem limite de tempo; nada fica "preso" em silêncio.
+// ---------------------------------------------------------------------------
+let impOrc = null; // estado da execução em andamento
+let importacaoOrcNumeros = new Set(); // números presentes na planilha lida
+let importacaoOrcTurmasPendentes = [];
+let importacaoOrcCnpjPorEmpresa = new Map();
+let importacaoOrcArquivo = "";
+let importacaoOrcResumo = null; // orçamentos da planilha já no sistema, sem nenhuma turma
+
+function comTimeout(promessa, ms, rotulo) {
+  let t;
+  const limite = new Promise((_, rej) => { t = setTimeout(() => rej(new Error(`sem resposta do servidor em ${Math.round(ms / 1000)}s (${rotulo})`)), ms); });
+  return Promise.race([Promise.resolve(promessa), limite]).finally(() => clearTimeout(t));
+}
+function duracaoImpOrc(ms) {
+  const s = Math.max(0, Math.round(ms / 1000));
+  const m = Math.floor(s / 60);
+  return m >= 60 ? `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}min` : m ? `${m}min ${String(s % 60).padStart(2, "0")}s` : `${s}s`;
+}
+function barraImpOrc(feito, total) {
+  const pct = total > 0 ? Math.min(100, Math.round((feito / total) * 100)) : 100;
+  return `<div class="h-2 bg-slate-100 rounded-full overflow-hidden mt-1"><div class="h-2 bg-teal-500" style="width:${pct}%"></div></div><span class="text-[11px] text-slate-400">${pct}%</span>`;
+}
+
+// Redesenha o painel de progresso (chamado a cada passo e a cada segundo).
+function renderizarProgressoImpOrc() {
+  const s = impOrc;
+  if (!s || !s.rodando) return;
+  const parado = Date.now() - s.ultimaAtividade;
+  const alerta = parado > 90000;
+  const n = (v) => Number(v || 0).toLocaleString("pt-BR");
+  painelImportacaoOrc(`
+    <p class="font-medium text-slate-800 mb-1"><span class="inline-block animate-pulse text-teal-600">●</span> Importação em andamento — ${s.cancelar ? "interrompendo ao fim do passo atual…" : "mantenha esta página aberta"}</p>
+    <p class="text-xs text-slate-500 mb-3">Etapa: <strong>${s.etapa}</strong> · tempo decorrido: ${duracaoImpOrc(Date.now() - s.inicio)} · última atividade há ${duracaoImpOrc(parado)}</p>
+    ${alerta ? `<div class="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-2 mb-3">Sem novidades há mais de ${duracaoImpOrc(parado)}. O servidor pode estar lento. Se continuar assim, recarregue a página e importe a mesma planilha de novo: o que já foi gravado é reconhecido e a importação continua de onde parou.</div>` : ""}
+    <div class="grid sm:grid-cols-2 gap-x-6 gap-y-3 text-xs text-slate-700 mb-3">
+      <div>Orçamentos criados: <strong>${n(s.criados)}</strong> de ${n(s.totalNovos)}${barraImpOrc(s.criados, s.totalNovos)}</div>
+      <div>Turmas criadas: <strong>${n(s.turmas)}</strong>${s.gerarTurmas ? ` de ~${n(s.totalTurmasEstimadas)}` : " (desativado)"}${s.gerarTurmas ? barraImpOrc(s.turmas, s.totalTurmasEstimadas) : ""}</div>
+      ${s.totalAtualizar ? `<div>Orçamentos existentes atualizados: <strong>${n(s.atualizados)}</strong> de ${n(s.totalAtualizar)}${barraImpOrc(s.atualizados, s.totalAtualizar)}</div>` : ""}
+      <div>Falhas: <strong class="${s.falhas ? "text-rose-600" : ""}">${n(s.falhas)}</strong>${s.falhas ? ` — veja o relatório ao final` : ""}</div>
+    </div>
+    ${s.avisoLog ? `<p class="text-[11px] text-amber-700 mb-2">Atenção: não foi possível gravar parte do log no banco (a importação segue normalmente).</p>` : ""}
+    <button id="btn-orc-imp-parar" class="text-xs font-medium text-slate-600 border border-slate-300 rounded-md px-4 py-2" ${s.cancelar ? "disabled" : ""}>Interromper importação</button>`);
+}
+
+async function logRunImpOrc(campos) {
+  if (!impOrc?.runId) return;
+  try {
+    const { error } = await comTimeout(supabase.from("importacoes_orcamentos").update({ ...campos, ultima_atividade: new Date().toISOString() }).eq("id", impOrc.runId), 30000, "log");
     if (error) throw error;
-    const locs = (data || []).map((t) => cnpjPorEmpresa.get(empresaPorOrc.get(t.orcamento_id))
-      ? { turma_id: t.id, nome: "Principal", cnpj_atestado: cnpjPorEmpresa.get(empresaPorOrc.get(t.orcamento_id)), cnpj_faturamento: cnpjPorEmpresa.get(empresaPorOrc.get(t.orcamento_id)) }
-      : null).filter(Boolean);
-    for (let i = 0; i < locs.length; i += 500) {
-      const { error: eLoc } = await supabase.from("turma_localidades").insert(locs.slice(i, i + 500));
-      if (eLoc) throw eLoc;
+  } catch (e) { impOrc.avisoLog = true; }
+}
+async function logItensImpOrc(itens) {
+  if (!impOrc?.runId || !itens.length) return;
+  for (let i = 0; i < itens.length; i += 200) {
+    try {
+      const { error } = await comTimeout(supabase.from("importacoes_orcamentos_itens").insert(itens.slice(i, i + 200).map((x) => ({ importacao_id: impOrc.runId, ...x }))), 30000, "log");
+      if (error) throw error;
+    } catch (e) { impOrc.avisoLog = true; }
+  }
+}
+function passoImpOrc(etapa) {
+  impOrc.etapa = etapa;
+  impOrc.ultimaAtividade = Date.now();
+  renderizarProgressoImpOrc();
+}
+async function salvarProgressoImpOrc() {
+  await logRunImpOrc({
+    etapa: impOrc.etapa, orcamentos_criados: impOrc.criados, orcamentos_atualizados: impOrc.atualizados,
+    turmas_criadas: impOrc.turmas, falhas: impOrc.falhas,
+  });
+}
+function registrarFalhaImpOrc(itens, linha, numero, mensagem) {
+  impOrc.falhas++;
+  impOrc.relatorio.push({ linha, numero, motivo: mensagem, tipo: "erro" });
+  itens.push({ linha: linha || null, numero, resultado: "erro", mensagem });
+}
+
+// Gera as turmas (e a localidade "Principal") de uma lista de orçamentos, em blocos de ~300 linhas.
+async function gerarTurmasEmLoteImportOrc(orcamentos) {
+  const cnpjPorEmpresa = importacaoOrcCnpjPorEmpresa.size ? importacaoOrcCnpjPorEmpresa : new Map((listaEmpresasAtivas || []).map((e) => [e.id, e.cnpj]));
+  let bloco = []; // [{ o, linhas }]
+  const gravarOrcamento = async (entradas) => {
+    const payload = entradas.flatMap((x) => x.linhas);
+    const dono = new Map(entradas.map((x) => [x.o.id, x.o]));
+    const criadasPorOrc = new Map();
+    for (let i = 0; i < payload.length; i += 500) {
+      const { data, error } = await comTimeout(supabase.from("turmas").insert(payload.slice(i, i + 500)).select("id, orcamento_id"), 120000, "gravar turmas");
+      if (error) throw error;
+      const locs = [];
+      (data || []).forEach((t) => {
+        criadasPorOrc.set(t.orcamento_id, (criadasPorOrc.get(t.orcamento_id) || 0) + 1);
+        const cnpj = cnpjPorEmpresa.get(dono.get(t.orcamento_id)?.empresa_id);
+        if (cnpj) locs.push({ turma_id: t.id, nome: "Principal", cnpj_atestado: cnpj, cnpj_faturamento: cnpj });
+      });
+      for (let j = 0; j < locs.length; j += 500) {
+        const { error: eLoc } = await comTimeout(supabase.from("turma_localidades").insert(locs.slice(j, j + 500)), 60000, "gravar localidades");
+        if (eLoc) throw eLoc;
+      }
     }
-    return (data || []).length;
+    return criadasPorOrc;
   };
-  let bloco = [];
-  let empresaPorOrc = new Map();
-  let numerosBloco = [];
   const descarregar = async () => {
     if (!bloco.length) return;
+    const entradas = bloco;
+    bloco = [];
+    const itens = [];
+    const confirmar = (criadas) => {
+      entradas.forEach((x) => {
+        const n = criadas.get(x.o.id) || 0;
+        impOrc.turmas += n;
+        itens.push({ numero: x.o.numero, resultado: "turmas", turmas_criadas: n });
+      });
+    };
     try {
-      turmas += await gravar(bloco, empresaPorOrc);
+      confirmar(await gravarOrcamento(entradas));
     } catch (e) {
-      falhas.push({ linha: "", numero: numerosBloco.join(", "), motivo: `orçamentos gravados, mas as turmas deste bloco falharam: ${e.message || e}`, tipo: "erro" });
+      // isola o orçamento com problema
+      for (const x of entradas) {
+        try { confirmar(await gravarOrcamento([x])); }
+        catch (e2) { registrarFalhaImpOrc(itens, null, x.o.numero, `turmas não criadas: ${e2.message || e2}`); }
+      }
     }
-    bloco = []; empresaPorOrc = new Map(); numerosBloco = [];
+    await logItensImpOrc(itens);
+    await salvarProgressoImpOrc();
+    passoImpOrc(impOrc.etapa);
   };
   for (const o of orcamentos) {
-    const linhas = montarTurmasOrcamento(o, o.qtd_turmas);
-    empresaPorOrc.set(o.id, o.empresa_id);
-    numerosBloco.push(o.numero);
-    bloco.push(...linhas);
-    if (bloco.length >= 500) await descarregar();
+    if (impOrc.cancelar) break;
+    bloco.push({ o, linhas: montarTurmasOrcamento(o, o.qtd_turmas) });
+    if (bloco.reduce((s, x) => s + x.linhas.length, 0) >= 300) {
+      passoImpOrc("Gerando turmas…");
+      await descarregar();
+    }
   }
-  await descarregar();
-  return { turmas, falhas };
+  if (!impOrc.cancelar) await descarregar();
+  else bloco = [];
 }
 
 async function executarImportacaoOrcamentos() {
-  const lista = importacaoOrcPendente || [];
+  if (impOrc?.rodando) return;
+  const novos = importacaoOrcPendente || [];
   const atualizar = !!$("orc-imp-atualizar-existentes")?.checked;
   const atualizacoes = atualizar ? (importacaoOrcAtualizacoes || []) : [];
-  if (lista.length === 0 && atualizacoes.length === 0) return;
   const gerarTurmas = !!$("orc-imp-gerar-turmas")?.checked;
+  const pendentesTurmas = gerarTurmas ? importacaoOrcTurmasPendentes : [];
+  if (!novos.length && !atualizacoes.length && !pendentesTurmas.length) return;
   importacaoOrcPendente = null;
-  const falhas = [];
-  let atualizados = 0;
-  let gravados = 0;
-  let turmasGeradas = 0;
-  const tam = 100;
-  for (let i = 0; i < lista.length; i += tam) {
-    const lote = lista.slice(i, i + tam);
-    painelImportacaoOrc(`<p class="text-slate-700">Importando orçamentos… <strong>${gravados}</strong> de ${lista.length}</p>`);
-    let criados = [];
-    const { data, error } = await supabase.from("orcamentos").insert(lote.map((v) => v.payload)).select("*");
-    if (!error) {
-      criados = data || [];
-    } else {
-      // isola a linha com problema: grava uma a uma
-      for (const v of lote) {
-        const r = await supabase.from("orcamentos").insert(v.payload).select("*").single();
-        if (r.error) falhas.push({ linha: v.linha, numero: v.payload.numero, motivo: r.error.message, tipo: "erro" });
-        else criados.push(r.data);
+
+  impOrc = {
+    rodando: true, cancelar: false, inicio: Date.now(), ultimaAtividade: Date.now(), etapa: "Preparando…",
+    criados: 0, turmas: 0, atualizados: 0, falhas: 0, totalNovos: novos.length, totalAtualizar: atualizacoes.length,
+    totalTurmasEstimadas: 0, gerarTurmas, avisoLog: false, runId: null, relatorio: (importacaoOrcRelatorio || []).slice(),
+  };
+  const estimar = (lista) => lista.reduce((s, v) => s + montarTurmasOrcamento({ ...v.payload, id: "x" }, v.payload.qtd_turmas).length, 0);
+  if (gerarTurmas) impOrc.totalTurmasEstimadas = estimar(novos) + pendentesTurmas.reduce((s, o) => s + montarTurmasOrcamento(o, o.qtd_turmas).length, 0);
+
+  // proteções: avisa ao fechar a aba e tenta impedir que o computador durma durante a importação
+  const avisoSaida = (ev) => { ev.preventDefault(); ev.returnValue = ""; };
+  window.addEventListener("beforeunload", avisoSaida);
+  let wakeLock = null;
+  try { if (navigator.wakeLock) wakeLock = await navigator.wakeLock.request("screen"); } catch (e) { /* opcional */ }
+  const relogio = setInterval(renderizarProgressoImpOrc, 1000);
+
+  try {
+    let email = null;
+    try { email = (await supabase.auth.getUser()).data?.user?.email || null; } catch (e) { /* opcional */ }
+    try {
+      const { data: run } = await comTimeout(supabase.from("importacoes_orcamentos").insert({
+        arquivo: importacaoOrcArquivo, usuario_email: email, total_planilha: importacaoOrcResumo?.total || 0,
+        total_para_importar: novos.length, total_atualizar: atualizacoes.length, total_turmas_pendentes: pendentesTurmas.length,
+        gerar_turmas: gerarTurmas, etapa: "Iniciada",
+      }).select("id").single(), 30000, "log");
+      impOrc.runId = run?.id || null;
+    } catch (e) { impOrc.avisoLog = true; }
+    // problemas já conhecidos da leitura (erros, repetidos, existentes) entram no log
+    await logItensImpOrc((importacaoOrcRelatorio || []).map((p) => ({ linha: p.linha || null, numero: p.numero, resultado: p.tipo === "erro" ? "erro" : p.tipo, mensagem: p.motivo })));
+    impOrc.falhas = (importacaoOrcRelatorio || []).filter((p) => p.tipo === "erro").length;
+
+    // ---- Fase 1: orçamentos novos (lotes de 25) ----
+    const tam = 25;
+    const orcamentosCriados = [];
+    for (let i = 0; i < novos.length && !impOrc.cancelar; i += tam) {
+      const lote = novos.slice(i, i + tam);
+      passoImpOrc(`Gravando orçamentos ${i + 1}–${i + lote.length} de ${novos.length}`);
+      const itens = [];
+      let criados = [];
+      try {
+        const { data, error } = await comTimeout(supabase.from("orcamentos").insert(lote.map((v) => v.payload)).select("*"), 90000, "gravar orçamentos");
+        if (error) throw error;
+        criados = data || [];
+      } catch (e) {
+        // isola a linha com problema: grava uma a uma
+        for (const v of lote) {
+          try {
+            const { data, error } = await comTimeout(supabase.from("orcamentos").insert(v.payload).select("*").single(), 60000, "gravar orçamento");
+            if (error) {
+              if (error.code === "23505") itens.push({ linha: v.linha, numero: v.payload.numero, resultado: "existente", mensagem: "já havia sido gravado antes" });
+              else throw error;
+            } else criados.push(data);
+          } catch (e2) { registrarFalhaImpOrc(itens, v.linha, v.payload.numero, e2.message || String(e2)); }
+          impOrc.ultimaAtividade = Date.now();
+        }
       }
+      const linhaPorNumero = new Map(lote.map((v) => [v.payload.numero, v.linha]));
+      criados.forEach((o) => itens.push({ linha: linhaPorNumero.get(o.numero) || null, numero: o.numero, resultado: "criado" }));
+      impOrc.criados += criados.length;
+      orcamentosCriados.push(...criados);
+      await logItensImpOrc(itens);
+      await salvarProgressoImpOrc();
+      passoImpOrc(impOrc.etapa);
     }
-    gravados += criados.length;
-    if (gerarTurmas && criados.length) {
-      painelImportacaoOrc(`<p class="text-slate-700">Orçamentos gravados: <strong>${gravados}</strong> de ${lista.length} · gerando as turmas deste lote… (${turmasGeradas.toLocaleString("pt-BR")} turmas já criadas)</p>`);
-      const r = await gerarTurmasEmLoteImportOrc(criados);
-      turmasGeradas += r.turmas;
-      r.falhas.forEach((f) => falhas.push(f));
+
+    // ---- Fase 2: atualizar os já existentes ----
+    for (let i = 0; i < atualizacoes.length && !impOrc.cancelar; i++) {
+      const u = atualizacoes[i];
+      passoImpOrc(`Atualizando orçamentos já existentes (${i + 1} de ${atualizacoes.length})`);
+      const itens = [];
+      try {
+        const { error } = await comTimeout(supabase.from("orcamentos").update({ data: u.data, validade: u.validade, status: u.status }).eq("id", u.id), 60000, "atualizar orçamento");
+        if (error) throw error;
+        impOrc.atualizados++;
+        itens.push({ numero: u.numero, resultado: "atualizado", mensagem: `data ${u.data}, validade ${u.validade || "—"}, status ${u.status}` });
+        const p = impOrc.relatorio.find((x) => x.tipo === "existente" && x.numero === u.numero);
+        if (p) p.motivo = "já existia — data, validade e status atualizados";
+      } catch (e) { registrarFalhaImpOrc(itens, null, u.numero, `não foi possível atualizar: ${e.message || e}`); }
+      await logItensImpOrc(itens);
+      if ((i + 1) % 10 === 0 || i === atualizacoes.length - 1) await salvarProgressoImpOrc();
     }
+
+    // ---- Fase 3: turmas ----
+    if (gerarTurmas && !impOrc.cancelar) {
+      passoImpOrc("Gerando turmas…");
+      await gerarTurmasEmLoteImportOrc([...orcamentosCriados, ...pendentesTurmas]);
+    }
+  } catch (e) {
+    impOrc.relatorio.push({ linha: "", numero: "", motivo: `importação interrompida por erro: ${e.message || e}`, tipo: "erro" });
+    impOrc.falhas++;
+    impOrc.erroFatal = e.message || String(e);
+  } finally {
+    clearInterval(relogio);
+    window.removeEventListener("beforeunload", avisoSaida);
+    try { if (wakeLock) await wakeLock.release(); } catch (e) { /* ignora */ }
   }
-  // orçamentos que já existiam: aplica data, validade e status da planilha
-  for (const u of atualizacoes) {
-    painelImportacaoOrc(`<p class="text-slate-700">Orçamentos gravados: <strong>${gravados}</strong> · atualizando orçamentos já existentes… ${atualizados} de ${atualizacoes.length}</p>`);
-    const { error } = await supabase.from("orcamentos").update({ data: u.data, validade: u.validade, status: u.status }).eq("id", u.id);
-    if (error) falhas.push({ linha: "", numero: u.numero, motivo: `não foi possível atualizar: ${error.message}`, tipo: "erro" });
-    else {
-      atualizados++;
-      const p = (importacaoOrcRelatorio || []).find((x) => x.tipo === "existente" && x.numero === u.numero);
-      if (p) p.motivo = "já existia — data, validade e status atualizados";
-    }
-  }
-  importacaoOrcRelatorio = (importacaoOrcRelatorio || []).concat(falhas);
+
+  const s = impOrc;
+  s.rodando = false;
+  const statusFinal = s.cancelar || s.erroFatal ? "Interrompida" : s.falhas ? "Concluída com falhas" : "Concluída";
+  await logRunImpOrc({ status: statusFinal, finalizada_em: new Date().toISOString(), etapa: "Finalizada", orcamentos_criados: s.criados, orcamentos_atualizados: s.atualizados, turmas_criadas: s.turmas, falhas: s.falhas });
+  importacaoOrcRelatorio = s.relatorio;
   orcPagina = 1;
   await carregarPaginaOrcamentos();
+  const n = (v) => Number(v || 0).toLocaleString("pt-BR");
   painelImportacaoOrc(`
-    <p class="text-teal-700 font-medium mb-2">✅ ${gravados} orçamento(s) importados${gerarTurmas ? `, com ${turmasGeradas.toLocaleString("pt-BR")} turmas geradas` : ""}${atualizados ? ` · ${atualizados} já existente(s) atualizados` : ""}.</p>
-    ${falhas.length ? `<p class="text-xs text-rose-700 mb-2">${falhas.length} item(ns) com falha: ${falhas.slice(0, 5).map((f) => `${f.numero} (${f.motivo})`).join("; ")}${falhas.length > 5 ? "…" : ""}</p>` : ""}
-    <div class="flex gap-2">
+    <p class="${statusFinal === "Concluída" ? "text-teal-700" : "text-amber-700"} font-medium mb-2">${statusFinal === "Concluída" ? "✅" : "⚠️"} Importação ${statusFinal.toLowerCase()} em ${duracaoImpOrc(Date.now() - s.inicio)}</p>
+    <ul class="text-xs text-slate-700 space-y-0.5 mb-3">
+      <li>Orçamentos criados: <strong>${n(s.criados)}</strong> de ${n(s.totalNovos)}</li>
+      <li>Turmas criadas: <strong>${n(s.turmas)}</strong>${gerarTurmas ? "" : " (geração desativada)"}</li>
+      ${s.totalAtualizar ? `<li>Orçamentos existentes atualizados: <strong>${n(s.atualizados)}</strong> de ${n(s.totalAtualizar)}</li>` : ""}
+      <li>Falhas: <strong class="${s.falhas ? "text-rose-600" : ""}">${n(s.falhas)}</strong></li>
+    </ul>
+    ${s.erroFatal ? `<p class="text-xs text-rose-700 mb-2">Erro: ${s.erroFatal}</p>` : ""}
+    ${statusFinal !== "Concluída" ? `<p class="text-xs text-slate-600 mb-2">Para continuar de onde parou, importe a mesma planilha de novo: o que já foi gravado é reconhecido e só o que falta é feito.</p>` : ""}
+    ${s.avisoLog ? `<p class="text-[11px] text-amber-700 mb-2">Parte do log não pôde ser gravada no banco.</p>` : ""}
+    <div class="flex flex-wrap gap-2">
       <button id="btn-orc-imp-relatorio2" class="text-xs font-medium text-slate-600 border border-slate-300 rounded-md px-4 py-2">Baixar relatório de pendências (.xlsx)</button>
+      <button id="btn-orc-imp-historico2" class="text-xs font-medium text-slate-600 border border-slate-300 rounded-md px-4 py-2">Ver histórico / log das importações</button>
       <button id="btn-orc-imp-fechar" class="text-xs font-medium text-slate-600 border border-slate-300 rounded-md px-4 py-2">Fechar</button>
     </div>`);
   $("btn-orc-imp-relatorio2").addEventListener("click", baixarRelatorioImportacaoOrc);
+  $("btn-orc-imp-historico2").addEventListener("click", abrirHistoricoImportacoesOrc);
   $("btn-orc-imp-fechar").addEventListener("click", () => $("orc-importacao-painel").classList.add("hidden"));
 }
+$("orc-importacao-painel").addEventListener("click", (ev) => {
+  if (ev.target.closest("#btn-orc-imp-parar") && impOrc?.rodando) { impOrc.cancelar = true; renderizarProgressoImpOrc(); }
+});
+
+// ---------------------------------------------------------------------------
+// Histórico / log das importações (gravado no banco, consultável depois)
+// ---------------------------------------------------------------------------
+const ROTULO_RESULTADO_IMP = { criado: "Criado", atualizado: "Atualizado", existente: "Já existia", repetido: "Repetido", erro: "Erro", turmas: "Turmas geradas" };
+
+async function abrirHistoricoImportacoesOrc() {
+  painelImportacaoOrc(`<p class="text-slate-600">Carregando histórico…</p>`);
+  const { data, error } = await supabase.from("importacoes_orcamentos").select("*").order("iniciada_em", { ascending: false }).limit(50);
+  if (error) return painelImportacaoOrc(`<p class="text-rose-700">Não foi possível carregar o histórico: ${error.message}</p>`);
+  const dt = (iso) => (iso ? new Date(iso).toLocaleString("pt-BR") : "—");
+  const n = (v) => Number(v || 0).toLocaleString("pt-BR");
+  const statusExibido = (r) => (r.status === "Em andamento" && Date.now() - new Date(r.ultima_atividade).getTime() > 180000 ? "Interrompida (sem atividade)" : r.status);
+  painelImportacaoOrc(`
+    <div class="flex items-center justify-between mb-2">
+      <p class="font-medium text-slate-800">Histórico de importações de orçamentos</p>
+      <button id="btn-orc-hist-fechar" class="text-xs text-slate-500 hover:text-slate-800">Fechar ✕</button>
+    </div>
+    ${(data || []).length === 0 ? `<p class="text-xs text-slate-500">Nenhuma importação registrada ainda.</p>` : `
+    <div class="overflow-x-auto"><table class="w-full text-xs">
+      <thead><tr class="text-left text-slate-500"><th class="py-1 pr-3">Início</th><th class="pr-3">Usuário</th><th class="pr-3">Arquivo</th><th class="pr-3">Situação</th><th class="pr-3">Orç. criados</th><th class="pr-3">Turmas</th><th class="pr-3">Atualizados</th><th class="pr-3">Falhas</th><th></th></tr></thead>
+      <tbody class="divide-y divide-slate-100">${data.map((r) => `
+        <tr><td class="py-1 pr-3 whitespace-nowrap">${dt(r.iniciada_em)}</td><td class="pr-3">${r.usuario_email || "—"}</td><td class="pr-3">${r.arquivo || "—"}</td>
+        <td class="pr-3">${statusExibido(r)}</td><td class="pr-3">${n(r.orcamentos_criados)} / ${n(r.total_para_importar)}</td><td class="pr-3">${n(r.turmas_criadas)}</td>
+        <td class="pr-3">${n(r.orcamentos_atualizados)}</td><td class="pr-3 ${r.falhas ? "text-rose-600 font-medium" : ""}">${n(r.falhas)}</td>
+        <td><button data-imp-itens="${r.id}" class="text-teal-700 hover:underline">ver itens</button></td></tr>`).join("")}
+      </tbody></table></div>`}
+    <div id="orc-hist-itens" class="mt-3"></div>`);
+  $("btn-orc-hist-fechar").addEventListener("click", () => $("orc-importacao-painel").classList.add("hidden"));
+  $("orc-importacao-painel").querySelectorAll("[data-imp-itens]").forEach((b) => b.addEventListener("click", () => abrirItensImportacaoOrc(b.getAttribute("data-imp-itens"))));
+}
+
+async function abrirItensImportacaoOrc(runId) {
+  const cont = $("orc-hist-itens");
+  cont.innerHTML = `
+    <div class="flex flex-wrap items-center gap-2 mb-2">
+      <input id="orc-hist-busca" placeholder="Buscar por número do orçamento" class="text-xs rounded-md border border-slate-300 px-2 py-1.5 w-56" />
+      <select id="orc-hist-resultado" class="text-xs rounded-md border border-slate-300 px-2 py-1.5">
+        <option value="">Todos os resultados</option>
+        ${Object.entries(ROTULO_RESULTADO_IMP).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}
+      </select>
+      <button id="btn-orc-hist-baixar" class="text-xs font-medium text-slate-600 border border-slate-300 rounded-md px-3 py-1.5">Baixar log (.xlsx)</button>
+      <span id="orc-hist-contagem" class="text-[11px] text-slate-400"></span>
+    </div>
+    <div id="orc-hist-lista" class="max-h-80 overflow-y-auto border border-slate-200 rounded-md"></div>`;
+  const montar = () => {
+    let q = supabase.from("importacoes_orcamentos_itens").select("*", { count: "exact" }).eq("importacao_id", runId);
+    const termo = $("orc-hist-busca").value.trim().replace(/[,()%*\\]/g, " ");
+    if (termo) q = q.ilike("numero", `%${termo}%`);
+    const res = $("orc-hist-resultado").value;
+    if (res) q = q.eq("resultado", res);
+    return q.order("id");
+  };
+  const carregar = async () => {
+    const { data, error, count } = await montar().limit(300);
+    $("orc-hist-contagem").textContent = error ? "" : `${Number(count || 0).toLocaleString("pt-BR")} item(ns)${(count || 0) > 300 ? " — mostrando os 300 primeiros; refine a busca ou baixe o log" : ""}`;
+    $("orc-hist-lista").innerHTML = error ? `<p class="text-rose-700 text-xs p-2">${error.message}</p>` : (data || []).length === 0 ? `<p class="text-xs text-slate-500 p-2">Nenhum item.</p>` : `
+      <table class="w-full text-xs"><thead class="bg-slate-50 text-slate-500 text-left"><tr><th class="px-2 py-1">Hora</th><th class="px-2">Linha</th><th class="px-2">Orçamento</th><th class="px-2">Resultado</th><th class="px-2">Turmas</th><th class="px-2">Detalhe</th></tr></thead>
+      <tbody class="divide-y divide-slate-100">${data.map((i) => `<tr><td class="px-2 py-1 whitespace-nowrap">${new Date(i.criado_em).toLocaleTimeString("pt-BR")}</td><td class="px-2">${i.linha ?? ""}</td><td class="px-2 font-mono">${i.numero || ""}</td><td class="px-2 ${i.resultado === "erro" ? "text-rose-600 font-medium" : ""}">${ROTULO_RESULTADO_IMP[i.resultado] || i.resultado}</td><td class="px-2">${i.turmas_criadas ?? ""}</td><td class="px-2 text-slate-600">${i.mensagem || ""}</td></tr>`).join("")}</tbody></table>`;
+  };
+  let timer = null;
+  $("orc-hist-busca").addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(carregar, 300); });
+  $("orc-hist-resultado").addEventListener("change", carregar);
+  $("btn-orc-hist-baixar").addEventListener("click", async () => {
+    if (typeof XlsxPopulate === "undefined") return;
+    const { data } = await buscarTodos(() => supabase.from("importacoes_orcamentos_itens").select("*").eq("importacao_id", runId).order("id"));
+    const wb = await XlsxPopulate.fromBlankAsync();
+    const sh = wb.sheet(0).name("Log da importação");
+    sh.cell("A1").value([["Hora", "Linha", "Orçamento", "Resultado", "Turmas criadas", "Detalhe"]]);
+    if ((data || []).length) sh.cell("A2").value(data.map((i) => [new Date(i.criado_em).toLocaleString("pt-BR"), i.linha ?? "", i.numero || "", ROTULO_RESULTADO_IMP[i.resultado] || i.resultado, i.turmas_criadas ?? "", i.mensagem || ""]));
+    sh.column("A").width(20); sh.column("F").width(70);
+    const blob = await wb.outputAsync("blob");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "log-importacao-orcamentos.xlsx";
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  });
+  carregar();
+}
+
 
 $("btn-orc-importar").addEventListener("click", () => $("orc-importar-arquivo").click());
+$("btn-orc-historico").addEventListener("click", abrirHistoricoImportacoesOrc);
 $("orc-importar-arquivo").addEventListener("change", (ev) => {
   const arquivo = ev.target.files && ev.target.files[0];
   ev.target.value = "";
