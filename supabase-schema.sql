@@ -1096,3 +1096,5 @@ alter table instrutores
 --   novas colunas imprime boolean not null default false e ordem_impressao integer (nullable, check >= 0).
 -- migração itens_custo_valor_adicional_in_company (aplicada em 04/10/2026):
 --   itens_custo.valor_adicional_in_company numeric(14,2) not null default 0 (check >= 0) — valor adicional cobrado quando o treinamento é In Company.
+-- migração tipos_treinamento_percentuais (aplicada em 04/10/2026):
+--   tipos_treinamento.perc_apoio, perc_margem, perc_imposto numeric(5,2) not null default 0, cada um com check entre 0 e 100.

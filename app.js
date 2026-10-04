@@ -28,7 +28,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.27 · 04/10/2026";
+const APP_VERSAO = "Prod 1.28 · 04/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -337,6 +337,7 @@ function podeAprovarRequisicao() {
   if (usuarioSistemaAtual && usuarioSistemaAtual.role === "admin") return true;
   return !!(permissoesAtual.requisicoes_compra && permissoesAtual.requisicoes_compra.pode_aprovar_requisicao);
 }
+const fmtPerc = (v) => `${Number(v || 0).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}%`;
 const fmtBRL = (v) => (v == null || v === "" ? "R$ 0,00" : Number(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }));
 const fmtDataHoraBR = (s) => (s ? new Date(s).toLocaleString("pt-BR") : "—");
 
@@ -1972,7 +1973,14 @@ const CRUD_CONFIG = {
     },
     camposExtraHtml: () => htmlSecaoItensCustoTreinamento(),
     aoMontarForm: (item) => iniciarSecaoItensCustoTreinamento(item),
-    validarForm: () => validarItensCustoTreinamento(),
+    validarForm: () => {
+      for (const [id, rot] of [["perc_apoio", "% de apoio"], ["perc_margem", "% de margem"], ["perc_imposto", "% de imposto"]]) {
+        const v = ($("crud-campo-" + id)?.value || "").trim();
+        if (v !== "" && !(Number(v) >= 0 && Number(v) <= 100)) return `${rot}: informe um valor entre 0 e 100.`;
+      }
+      return validarItensCustoTreinamento();
+    },
+    ajustarPayload: (p) => { ["perc_apoio", "perc_margem", "perc_imposto"].forEach((k) => { if (p[k] == null) p[k] = 0; }); },
     aoSalvar: async (linha) => { await salvarItensCustoTreinamento(linha.id); },
     campos: [
       { id: "nome", label: "Nome do treinamento", obrigatorio: true },
@@ -1989,6 +1997,9 @@ const CRUD_CONFIG = {
       { id: "dias_teoria_pratica", label: "Dias de Teoria com Prática", tipo: "number" },
       { id: "alunos_por_instrutor", label: "Alunos por Instrutor", tipo: "number" },
       { id: "somente_locacao_espaco", label: "Somente locação de espaço (sem instrutor — só o Centro de Treinamento confirma)", tipo: "checkbox", padrao: false },
+      { id: "perc_apoio", label: "% de apoio", tipo: "number", min: 0, max: 100, step: "0.01", padrao: 0 },
+      { id: "perc_margem", label: "% de margem", tipo: "number", min: 0, max: 100, step: "0.01", padrao: 0 },
+      { id: "perc_imposto", label: "% de imposto", tipo: "number", min: 0, max: 100, step: "0.01", padrao: 0 },
       { id: "descricao", label: "Descrição", tipo: "textarea" },
       { id: "status", label: "Status", tipo: "select", opcoes: ["Ativo", "Inativo"], padrao: "Ativo" },
     ],
@@ -2004,6 +2015,7 @@ const CRUD_CONFIG = {
       i.dias_teoria_pratica && `📘🛠️ ${i.dias_teoria_pratica} dia(s) de teoria com prática`,
       i.alunos_por_instrutor && `👥 até ${i.alunos_por_instrutor} aluno(s) por instrutor`,
       treinoContagemItensCusto[i.id] && `🧾 ${treinoContagemItensCusto[i.id]} item(ns) de custo`,
+      (Number(i.perc_apoio) || Number(i.perc_margem) || Number(i.perc_imposto)) && `📊 Apoio ${fmtPerc(i.perc_apoio)} · Margem ${fmtPerc(i.perc_margem)} · Imposto ${fmtPerc(i.perc_imposto)}`,
     ].filter(Boolean),
   },
   empresas_transporte: {
