@@ -28,7 +28,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.20 · 04/10/2026";
+const APP_VERSAO = "Prod 1.21 · 04/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -405,6 +405,7 @@ const MODULOS = [
   { id: "tipos_atividade", label: "Tipos de Atividade", icone: "🗂️", grupo: "Cadastros Básicos" },
   { id: "tipos_material", label: "Tipos de Material", icone: "🧰", grupo: "Cadastros Básicos" },
   { id: "tipos_despesas", label: "Tipos de Despesas", icone: "💸", grupo: "Cadastros Básicos" },
+  { id: "unidades_medida", label: "Unidades de Medida", icone: "📏", grupo: "Cadastros Básicos" },
   { id: "treinamentos_capacitacao", label: "Treinamentos de Capacitação", icone: "📚", grupo: "Cadastros Básicos" },
   // Comercial
   { id: "empresas", label: "Empresas", icone: "🏢", grupo: "Comercial" },
@@ -2033,6 +2034,48 @@ const CRUD_CONFIG = {
           <tr class="hover:bg-slate-50">
             <td class="px-3 py-2 text-slate-800">${i.descricao || "—"}</td>
             <td class="px-3 py-2 text-slate-600">${materialContagemPorTipo[i.id] || 0}</td>
+            <td class="px-3 py-2 whitespace-nowrap">${badge(i.status)}</td>
+            <td class="px-3 py-2 text-right whitespace-nowrap">
+              ${podeAlterar ? `<button data-crud-editar="${i.id}" class="text-slate-500 hover:text-slate-800 mr-2">✏️</button>` : ""}
+              ${podeExcluir ? `<button data-crud-excluir="${i.id}" class="text-rose-500 hover:text-rose-700">🗑️</button>` : ""}
+            </td>
+          </tr>`).join("")}
+        </tbody>
+      </table>`;
+    },
+  },
+  unidades_medida: {
+    tabela: "unidades_medida",
+    titulo: "Unidade de Medida",
+    descricao: "Unidades usadas para medir quantidades (ex.: UN, CX, KG, L, M).",
+    buscaPlaceholder: "Buscar por sigla ou descrição",
+    ordenarPor: "sigla",
+    mensagemDuplicado: "Já existe uma unidade de medida com essa sigla.",
+    campos: [
+      { id: "sigla", label: "Sigla", obrigatorio: true },
+      { id: "descricao", label: "Descrição", obrigatorio: true },
+      { id: "status", label: "Status", tipo: "select", opcoes: ["Ativo", "Inativo"], padrao: "Ativo" },
+    ],
+    campoBusca: (i) => `${i.sigla || ""} ${i.descricao || ""}`,
+    cardTitulo: (i) => i.sigla,
+    cardLinhas: (i) => [i.descricao].filter(Boolean),
+    renderTabela: (lista, { podeAlterar, podeExcluir }) => {
+      const badge = (s) => `<span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${s === "Inativo" ? "bg-rose-50 text-rose-600" : "bg-teal-50 text-teal-700"}">${s || "—"}</span>`;
+      return `
+      <table class="w-full text-xs bg-white border border-slate-200 rounded-lg">
+        <thead>
+          <tr class="bg-slate-50 text-left text-slate-500 uppercase tracking-wide text-[10px]">
+            <th class="px-3 py-2 font-medium">Sigla</th>
+            <th class="px-3 py-2 font-medium">Descrição</th>
+            <th class="px-3 py-2 font-medium">Status</th>
+            <th class="px-3 py-2"></th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          ${lista.map((i) => `
+          <tr class="hover:bg-slate-50">
+            <td class="px-3 py-2 text-slate-800 font-medium whitespace-nowrap">${i.sigla || "—"}</td>
+            <td class="px-3 py-2 text-slate-600">${i.descricao || "—"}</td>
             <td class="px-3 py-2 whitespace-nowrap">${badge(i.status)}</td>
             <td class="px-3 py-2 text-right whitespace-nowrap">
               ${podeAlterar ? `<button data-crud-editar="${i.id}" class="text-slate-500 hover:text-slate-800 mr-2">✏️</button>` : ""}
@@ -4141,7 +4184,7 @@ async function salvarCrud() {
     $("btn-salvar-crud").disabled = false;
     $("btn-salvar-crud").textContent = crudEditandoId ? "Salvar alterações" : "Cadastrar";
     if (erro.message && erro.message.includes("duplicate")) {
-      return mostrarErro("crud-form-erro", "Já existe um registro com esse valor único (ex: e-mail).");
+      return mostrarErro("crud-form-erro", cfg.mensagemDuplicado || "Já existe um registro com esse valor único (ex: e-mail).");
     }
     return mostrarErro("crud-form-erro", "Não foi possível salvar. Tente novamente.");
   }
