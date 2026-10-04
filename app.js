@@ -28,7 +28,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.21 · 04/10/2026";
+const APP_VERSAO = "Prod 1.22 · 04/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -318,6 +318,7 @@ async function carregarUsuariosSistemaRefGestores(forcar) {
 // Listas de referência para o cadastro de Materiais
 let materialRefTipos = [];
 let materialRefFornecedores = [];
+let itemCustoRefUnidades = [];
 let materialContagemPorTipo = {};
 
 // Requisições de Compra
@@ -406,6 +407,7 @@ const MODULOS = [
   { id: "tipos_material", label: "Tipos de Material", icone: "🧰", grupo: "Cadastros Básicos" },
   { id: "tipos_despesas", label: "Tipos de Despesas", icone: "💸", grupo: "Cadastros Básicos" },
   { id: "unidades_medida", label: "Unidades de Medida", icone: "📏", grupo: "Cadastros Básicos" },
+  { id: "itens_custo", label: "Itens de Custo", icone: "🧾", grupo: "Cadastros Básicos" },
   { id: "treinamentos_capacitacao", label: "Treinamentos de Capacitação", icone: "📚", grupo: "Cadastros Básicos" },
   // Comercial
   { id: "empresas", label: "Empresas", icone: "🏢", grupo: "Comercial" },
@@ -2044,6 +2046,64 @@ const CRUD_CONFIG = {
       </table>`;
     },
   },
+  itens_custo: {
+    tabela: "itens_custo",
+    titulo: "Item de Custo",
+    descricao: "Itens de custo com a unidade de medida e o valor de cada um.",
+    buscaPlaceholder: "Buscar por item ou unidade",
+    ordenarPor: "item",
+    mensagemDuplicado: "Já existe um item de custo com esse nome e essa unidade de medida.",
+    carregarRefs: async () => {
+      const { data } = await supabase.from("unidades_medida").select("id, sigla, descricao, status").order("sigla");
+      itemCustoRefUnidades = data || [];
+    },
+    campos: [
+      { id: "item", label: "Item", obrigatorio: true },
+      {
+        id: "unidade_medida_id", label: "Unidade de medida", tipo: "select", obrigatorio: true,
+        opcoesFn: () => [{ value: "", label: "— Selecione —" }].concat(
+          itemCustoRefUnidades.filter((u) => u.status === "Ativo").map((u) => ({ value: u.id, label: `${u.sigla} — ${u.descricao}` }))
+        ),
+      },
+      { id: "valor", label: "Valor (R$)", tipo: "number", min: 0, step: "0.01", obrigatorio: true },
+      { id: "status", label: "Status", tipo: "select", opcoes: ["Ativo", "Inativo"], padrao: "Ativo" },
+    ],
+    campoBusca: (i) => `${i.item || ""} ${(itemCustoRefUnidades.find((u) => u.id === i.unidade_medida_id) || {}).sigla || ""}`,
+    cardTitulo: (i) => i.item,
+    cardLinhas: (i) => {
+      const un = itemCustoRefUnidades.find((u) => u.id === i.unidade_medida_id);
+      return [un && `📏 ${un.sigla} — ${un.descricao}`, `💰 ${fmtBRL(i.valor)}`].filter(Boolean);
+    },
+    renderTabela: (lista, { podeAlterar, podeExcluir }) => {
+      const un = (id) => { const u = itemCustoRefUnidades.find((x) => x.id === id); return u ? `${u.sigla} — ${u.descricao}` : "—"; };
+      const badge = (s) => `<span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${s === "Inativo" ? "bg-rose-50 text-rose-600" : "bg-teal-50 text-teal-700"}">${s || "—"}</span>`;
+      return `
+      <table class="w-full text-xs bg-white border border-slate-200 rounded-lg">
+        <thead>
+          <tr class="bg-slate-50 text-left text-slate-500 uppercase tracking-wide text-[10px]">
+            <th class="px-3 py-2 font-medium">Item</th>
+            <th class="px-3 py-2 font-medium">Unidade</th>
+            <th class="px-3 py-2 font-medium text-right">Valor</th>
+            <th class="px-3 py-2 font-medium">Status</th>
+            <th class="px-3 py-2"></th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          ${lista.map((i) => `
+          <tr class="hover:bg-slate-50">
+            <td class="px-3 py-2 text-slate-800 font-medium">${i.item || "—"}</td>
+            <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${un(i.unidade_medida_id)}</td>
+            <td class="px-3 py-2 text-slate-700 text-right whitespace-nowrap">${fmtBRL(i.valor)}</td>
+            <td class="px-3 py-2 whitespace-nowrap">${badge(i.status)}</td>
+            <td class="px-3 py-2 text-right whitespace-nowrap">
+              ${podeAlterar ? `<button data-crud-editar="${i.id}" class="text-slate-500 hover:text-slate-800 mr-2">✏️</button>` : ""}
+              ${podeExcluir ? `<button data-crud-excluir="${i.id}" class="text-rose-500 hover:text-rose-700">🗑️</button>` : ""}
+            </td>
+          </tr>`).join("")}
+        </tbody>
+      </table>`;
+    },
+  },
   unidades_medida: {
     tabela: "unidades_medida",
     titulo: "Unidade de Medida",
@@ -2856,7 +2916,7 @@ function renderCampoHtml(campo, valor, item) {
     </div>`;
   }
   const atributosNum = campo.tipo === "number"
-    ? `${campo.min != null ? ` min="${campo.min}"` : ""}${campo.max != null ? ` max="${campo.max}"` : ""}`
+    ? `${campo.min != null ? ` min="${campo.min}"` : ""}${campo.max != null ? ` max="${campo.max}"` : ""}${campo.step ? ` step="${campo.step}"` : ""}`
     : "";
   return `<div>
     <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">${campo.label}</label>
