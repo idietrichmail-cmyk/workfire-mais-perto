@@ -28,7 +28,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.12 · 04/10/2026";
+const APP_VERSAO = "Prod 1.13 · 04/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 const diasSemana = ["D", "S", "T", "Q", "Q", "S", "S"];
@@ -4986,12 +4986,14 @@ function renderizarListaOrcamentos() {
       <td class="px-3 py-2 text-slate-500">${o.qtd_alunos || 0}</td>
       <td class="px-3 py-2 text-slate-500">${o.data || "—"}</td>
       <td class="px-3 py-2 text-right whitespace-nowrap">
-        ${podeExcluir ? `<button data-orc-excluir="${o.id}" class="text-xs font-medium text-rose-500 hover:text-rose-700 px-2 py-1">🗑️</button>` : ""}
+        ${podeAlterar ? `<button data-orc-editar="${o.id}" title="Editar orçamento" class="text-slate-500 hover:text-slate-800 px-2 py-1">✏️</button>` : ""}
+        ${podeExcluir ? `<button data-orc-excluir="${o.id}" title="Excluir orçamento" class="text-rose-500 hover:text-rose-700 px-2 py-1">🗑️</button>` : ""}
       </td>
     </tr>
   `).join("");
   if (podeAlterar) {
     cont.querySelectorAll("[data-orc-numero]").forEach((el) => el.addEventListener("dblclick", () => abrirEdicaoOrcamento(el.getAttribute("data-orc-numero"))));
+    cont.querySelectorAll("[data-orc-editar]").forEach((btn) => btn.addEventListener("click", () => abrirEdicaoOrcamento(btn.getAttribute("data-orc-editar"))));
   }
   cont.querySelectorAll("[data-orc-excluir]").forEach((btn) => btn.addEventListener("click", () => excluirOrcamento(btn.getAttribute("data-orc-excluir"))));
 }
