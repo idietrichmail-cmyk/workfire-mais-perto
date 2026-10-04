@@ -1094,3 +1094,5 @@ alter table instrutores
 -- migração treinamento_itens_custo_divisor_nulo_imprime_ordem (aplicada em 04/10/2026):
 --   treinamento_itens_custo.divisor e unidade_divisor_id agora aceitam NULL (divisor em branco → unidade em branco);
 --   novas colunas imprime boolean not null default false e ordem_impressao integer (nullable, check >= 0).
+-- migração itens_custo_valor_adicional_in_company (aplicada em 04/10/2026):
+--   itens_custo.valor_adicional_in_company numeric(14,2) not null default 0 (check >= 0) — valor adicional cobrado quando o treinamento é In Company.

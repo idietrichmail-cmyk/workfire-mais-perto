@@ -28,7 +28,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.26 · 04/10/2026";
+const APP_VERSAO = "Prod 1.27 · 04/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -2088,14 +2088,16 @@ const CRUD_CONFIG = {
         ),
       },
       { id: "valor", label: "Valor (R$)", tipo: "number", min: 0, step: "0.01", obrigatorio: true },
+      { id: "valor_adicional_in_company", label: "Valor adicional In Company (R$)", tipo: "number", min: 0, step: "0.01", padrao: 0 },
       { id: "opcional", label: "Item opcional", tipo: "checkbox", padrao: false },
       { id: "status", label: "Status", tipo: "select", opcoes: ["Ativo", "Inativo"], padrao: "Ativo" },
     ],
+    ajustarPayload: (p) => { if (p.valor_adicional_in_company == null) p.valor_adicional_in_company = 0; },
     campoBusca: (i) => `${i.item || ""} ${i.descricao_impressao || ""} ${(itemCustoRefUnidades.find((u) => u.id === i.unidade_medida_id) || {}).sigla || ""}`,
     cardTitulo: (i) => i.item,
     cardLinhas: (i) => {
       const un = itemCustoRefUnidades.find((u) => u.id === i.unidade_medida_id);
-      return [un && `📏 ${un.sigla} — ${un.descricao}`, `💰 ${fmtBRL(i.valor)}`, i.opcional ? "☑️ Item opcional" : "Item obrigatório", i.descricao_impressao && `🖨️ ${i.descricao_impressao}`].filter(Boolean);
+      return [un && `📏 ${un.sigla} — ${un.descricao}`, `💰 ${fmtBRL(i.valor)}`, Number(i.valor_adicional_in_company) > 0 && `🏢 Adicional In Company: ${fmtBRL(i.valor_adicional_in_company)}`, i.opcional ? "☑️ Item opcional" : "Item obrigatório", i.descricao_impressao && `🖨️ ${i.descricao_impressao}`].filter(Boolean);
     },
     renderTabela: (lista, { podeAlterar, podeExcluir }) => {
       const un = (id) => { const u = itemCustoRefUnidades.find((x) => x.id === id); return u ? `${u.sigla} — ${u.descricao}` : "—"; };
@@ -2108,6 +2110,7 @@ const CRUD_CONFIG = {
             <th class="px-3 py-2 font-medium">Descrição para impressão</th>
             <th class="px-3 py-2 font-medium">Unidade</th>
             <th class="px-3 py-2 font-medium text-right">Valor</th>
+            <th class="px-3 py-2 font-medium text-right">Adic. In Company</th>
             <th class="px-3 py-2 font-medium">Opcional</th>
             <th class="px-3 py-2 font-medium">Status</th>
             <th class="px-3 py-2"></th>
@@ -2120,6 +2123,7 @@ const CRUD_CONFIG = {
             <td class="px-3 py-2 text-slate-600"><div class="max-w-[320px] whitespace-normal">${i.descricao_impressao || "—"}</div></td>
             <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${un(i.unidade_medida_id)}</td>
             <td class="px-3 py-2 text-slate-700 text-right whitespace-nowrap">${fmtBRL(i.valor)}</td>
+            <td class="px-3 py-2 text-slate-700 text-right whitespace-nowrap">${fmtBRL(i.valor_adicional_in_company || 0)}</td>
             <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${i.opcional ? "Sim" : "Não"}</td>
             <td class="px-3 py-2 whitespace-nowrap">${badge(i.status)}</td>
             <td class="px-3 py-2 text-right whitespace-nowrap">
