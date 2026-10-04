@@ -28,7 +28,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.17 · 04/10/2026";
+const APP_VERSAO = "Prod 1.18 · 04/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 const diasSemana = ["D", "S", "T", "Q", "Q", "S", "S"];
@@ -5645,7 +5645,12 @@ async function lerPlanilhaOrcamentos(arquivo) {
         <button id="btn-orc-imp-relatorio" class="text-xs font-medium text-slate-600 border border-slate-300 rounded-md px-4 py-2" ${problemas.length ? "" : "disabled"}>Baixar relatório de pendências (.xlsx)</button>
         <button id="btn-orc-imp-cancelar" class="text-xs font-medium text-slate-600 border border-slate-300 rounded-md px-4 py-2">Cancelar</button>
       </div>`);
-    $("btn-orc-imp-confirmar").addEventListener("click", executarImportacaoOrcamentos);
+    $("btn-orc-imp-confirmar").addEventListener("click", () => {
+      executarImportacaoOrcamentos().catch((e) => {
+        console.error("Falha na importação de orçamentos:", e);
+        painelImportacaoOrc(`<p class="text-rose-700 font-medium mb-1">A importação foi interrompida por um erro inesperado.</p><p class="text-xs text-slate-600">${e?.message || e}</p><p class="text-xs text-slate-500 mt-2">Recarregue a página e importe a mesma planilha de novo: o que já foi gravado é reconhecido.</p>`);
+      });
+    });
     $("btn-orc-imp-relatorio").addEventListener("click", baixarRelatorioImportacaoOrc);
     $("btn-orc-imp-cancelar").addEventListener("click", () => { importacaoOrcPendente = null; $("orc-importacao-painel").classList.add("hidden"); });
   } catch (e) {
@@ -5825,6 +5830,9 @@ async function executarImportacaoOrcamentos() {
   const pendentesTurmas = gerarTurmas ? importacaoOrcTurmasPendentes : [];
   if (!novos.length && !atualizacoes.length && !pendentesTurmas.length) return;
   importacaoOrcPendente = null;
+  // Mostra algo na tela imediatamente (antes de qualquer cálculo ou chamada ao servidor).
+  painelImportacaoOrc(`<p class="font-medium text-slate-800"><span class="inline-block animate-pulse text-teal-600">●</span> Iniciando a importação… preparando ${novos.length.toLocaleString("pt-BR")} orçamento(s)</p><p class="text-xs text-slate-500 mt-1">Mantenha esta página aberta.</p>`);
+  await new Promise((r) => setTimeout(r, 30)); // deixa o navegador desenhar o aviso
 
   impOrc = {
     rodando: true, cancelar: false, inicio: Date.now(), ultimaAtividade: Date.now(), etapa: "Preparando…",
@@ -5837,13 +5845,15 @@ async function executarImportacaoOrcamentos() {
   // proteções: avisa ao fechar a aba e tenta impedir que o computador durma durante a importação
   const avisoSaida = (ev) => { ev.preventDefault(); ev.returnValue = ""; };
   window.addEventListener("beforeunload", avisoSaida);
-  let wakeLock = null;
-  try { if (navigator.wakeLock) wakeLock = await navigator.wakeLock.request("screen"); } catch (e) { /* opcional */ }
   const relogio = setInterval(renderizarProgressoImpOrc, 1000);
+  renderizarProgressoImpOrc();
+  let wakeLock = null;
+  // não espera a resposta do navegador (pode demorar ou nunca vir); é só uma proteção opcional
+  try { if (navigator.wakeLock) navigator.wakeLock.request("screen").then((l) => { wakeLock = l; }).catch(() => {}); } catch (e) { /* opcional */ }
 
   try {
     let email = null;
-    try { email = (await supabase.auth.getUser()).data?.user?.email || null; } catch (e) { /* opcional */ }
+    try { email = (await comTimeout(supabase.auth.getUser(), 8000, "usuário")).data?.user?.email || null; } catch (e) { /* opcional */ }
     try {
       const { data: run } = await comTimeout(supabase.from("importacoes_orcamentos").insert({
         arquivo: importacaoOrcArquivo, usuario_email: email, total_planilha: importacaoOrcResumo?.total || 0,
