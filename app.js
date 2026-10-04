@@ -28,7 +28,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.13 · 04/10/2026";
+const APP_VERSAO = "Prod 1.14 · 04/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 const diasSemana = ["D", "S", "T", "Q", "Q", "S", "S"];
@@ -4897,6 +4897,8 @@ async function carregarOrcamentos() {
   listaTiposAtivos = tipos || [];
   listaCentrosAtivos = centros || [];
   $("btn-orc-novo").classList.toggle("hidden", !podeFazer("orcamentos", "incluir"));
+  $("btn-orc-importar").classList.toggle("hidden", !podeFazer("orcamentos", "incluir"));
+  $("orc-importacao-painel").classList.add("hidden");
   renderizarFiltroStatusOrcamento();
   await carregarPaginaOrcamentos();
 }
@@ -5225,7 +5227,8 @@ async function salvarOrcamento() {
 
   const qtdAlunosPorTurma = $("orc-qtd-alunos-turma").value ? Number($("orc-qtd-alunos-turma").value) : 0;
   const contatoEmail = $("orc-contato-email").value.trim();
-  if (contatoEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contatoEmail)) return mostrarErro("orc-form-erro", "O e-mail do contato parece inválido.");
+  // aceita mais de um e-mail no mesmo campo (separados por vírgula ou ponto e vírgula)
+  if (contatoEmail && !contatoEmail.split(/[;,]/).map((x) => x.trim()).filter(Boolean).every((x) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(x))) return mostrarErro("orc-form-erro", "O e-mail do contato parece inválido. Se houver mais de um, separe por vírgula.");
   const payload = {
     empresa_id: empresaId,
     contato_nome: $("orc-contato-nome").value.trim() || null,
@@ -5314,7 +5317,7 @@ $("btn-salvar-orcamento").addEventListener("click", salvarOrcamento);
 // ou Teoria com Prática) conforme os dias do treinamento selecionado.
 // Ex.: 3 dias de teoria + 2 de prática + 1 de teoria com prática, 2 turmas →
 // A1,A2,A3 teoria / A4,A5 prática / A6 teoria com prática, e o mesmo para B.
-async function gerarTurmasParaOrcamento(orcamento, qtdTurmas) {
+function montarTurmasOrcamento(orcamento, qtdTurmas) {
   const tipo = listaTiposAtivos.find((t) => t.id === orcamento.tipo_treinamento_id);
   const diasTeoria = tipo ? Number(tipo.dias_teoria) || 0 : 0;
   const diasPratica = tipo ? Number(tipo.dias_pratica) || 0 : 0;
@@ -5374,6 +5377,11 @@ async function gerarTurmasParaOrcamento(orcamento, qtdTurmas) {
     });
   }
 
+  return turmasPayload;
+}
+
+async function gerarTurmasParaOrcamento(orcamento, qtdTurmas) {
+  const turmasPayload = montarTurmasOrcamento(orcamento, qtdTurmas);
   const { data: turmasCriadas } = await supabase.from("turmas").insert(turmasPayload).select("id");
   const empresaOrc = listaEmpresasAtivas.find((e) => e.id === orcamento.empresa_id);
   if (turmasCriadas && empresaOrc?.cnpj) {
@@ -5386,6 +5394,317 @@ async function gerarTurmasParaOrcamento(orcamento, qtdTurmas) {
     await supabase.from("turma_localidades").insert(localidadesPayload);
   }
 }
+
+// ===========================================================
+// IMPORTAÇÃO DE ORÇAMENTOS (planilha .xlsx)
+// ===========================================================
+// Colunas esperadas (por posição): A número · B empresa (CNPJ/CPF) · C centro · D treinamento ·
+// E formato teoria · F formato prática · G horário teoria · H horário prática · I qtde turmas ·
+// J alunos por turma (fórmula, recalculada aqui) · K qtde alunos · L contato · M telefone · N e-mail.
+let importacaoOrcPendente = null;
+let importacaoOrcRelatorio = null;
+
+function painelImportacaoOrc(html) {
+  const el = $("orc-importacao-painel");
+  el.innerHTML = html;
+  el.classList.remove("hidden");
+  return el;
+}
+
+// Normaliza nomes para comparar (sem acento, minúsculas, "hras" = "horas").
+function normalizarNomeImportOrc(s) {
+  return textoCelulaImport(s).normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/\bhras\b/g, "horas").replace(/\s+/g, " ").trim();
+}
+function horaCelulaImportOrc(v) {
+  if (v == null || v === "") return null;
+  const dois = (n) => String(n).padStart(2, "0");
+  if (v instanceof Date) return `${dois(v.getUTCHours())}:${dois(v.getUTCMinutes())}`;
+  if (typeof v === "number") {
+    const min = Math.round((v % 1) * 1440);
+    return `${dois(Math.floor(min / 60) % 24)}:${dois(min % 60)}`;
+  }
+  const m = String(v).match(/(\d{1,2})\s*[:h]\s*(\d{2})/);
+  return m ? `${dois(Number(m[1]))}:${m[2]}` : null;
+}
+function formatoImportOrc(v, permitidos) {
+  const t = normalizarNomeImportOrc(v).replace(/\s+/g, "");
+  if (!t) return { valor: null };
+  const achado = permitidos.find((f) => normalizarNomeImportOrc(f).replace(/\s+/g, "") === t);
+  return achado ? { valor: achado } : { erro: `formato "${textoCelulaImport(v)}" desconhecido` };
+}
+function numeroCelulaImportOrc(v) {
+  if (typeof v === "number") return v;
+  const n = Number(String(v == null ? "" : v).replace(/\./g, "").replace(",", "."));
+  return Number.isFinite(n) ? n : NaN;
+}
+
+// Aplica as regras linha a linha. ctx = { empresasPorDoc, centros, tipos, numerosExistentes }.
+// Devolve { validos, problemas, resumo }; problemas = [{ linha, numero, motivo, tipo: "erro"|"existente"|"repetido" }].
+function prepararOrcamentosPlanilha(linhas, ctx) {
+  const resumo = { total: 0, vazias: 0, validos: 0, existentes: 0, repetidos: 0, erros: 0 };
+  const validos = [];
+  const problemas = [];
+  const vistos = new Set();
+  const centrosPorNome = new Map(ctx.centros.map((c) => [normalizarNomeImportOrc(c.nome), c]));
+  const tiposPorNome = new Map(ctx.tipos.map((t) => [normalizarNomeImportOrc(t.nome), t]));
+  linhas.slice(1).forEach((r, idx) => {
+    const linha = idx + 2;
+    const numero = textoCelulaImport(r[0]).replace(/\.0+$/, "");
+    const algo = r.slice(0, 14).some((c) => textoCelulaImport(c) !== "");
+    if (!algo) { resumo.vazias++; return; }
+    resumo.total++;
+    const erro = (motivo) => { resumo.erros++; problemas.push({ linha, numero, motivo, tipo: "erro" }); };
+    if (!numero) return erro("sem número do orçamento");
+    if (vistos.has(numero)) { resumo.repetidos++; problemas.push({ linha, numero, motivo: "número repetido na planilha", tipo: "repetido" }); return; }
+    vistos.add(numero);
+    if (ctx.numerosExistentes.has(numero)) { resumo.existentes++; problemas.push({ linha, numero, motivo: "já existe no sistema (não alterado)", tipo: "existente" }); return; }
+
+    let doc = textoCelulaImport(r[1]).replace(/\D/g, "");
+    if (!doc) return erro("sem empresa (CNPJ)");
+    if (doc.length === 13 || doc.length === 12) doc = doc.padStart(14, "0");
+    else if (doc.length === 10 || doc.length === 9) doc = doc.padStart(11, "0");
+    const empresa = ctx.empresasPorDoc.get(doc);
+    if (!empresa) return erro(`empresa com documento ${textoCelulaImport(r[1])} não cadastrada`);
+    const centro = centrosPorNome.get(normalizarNomeImportOrc(r[2]));
+    if (!centro) return erro(`centro "${textoCelulaImport(r[2])}" não encontrado`);
+    const tipo = tiposPorNome.get(normalizarNomeImportOrc(r[3]));
+    if (!tipo) return erro(`treinamento "${textoCelulaImport(r[3])}" não encontrado`);
+    const ft = formatoImportOrc(r[4], FORMATOS_TEORIA);
+    if (ft.erro) return erro(`teoria: ${ft.erro}`);
+    const fp = formatoImportOrc(r[5], FORMATOS_PRATICA);
+    if (fp.erro) return erro(`prática: ${fp.erro}`);
+    const qtdTurmas = Math.round(numeroCelulaImportOrc(r[8]));
+    if (!(qtdTurmas >= 1)) return erro("quantidade de turmas inválida");
+    const qtdAlunos = Math.round(numeroCelulaImportOrc(r[10]));
+    if (!(qtdAlunos >= 0)) return erro("quantidade de alunos inválida");
+    const porTurma = qtdAlunos > 0 ? Math.ceil(qtdAlunos / qtdTurmas) : null;
+    const capacidade = Number(tipo.alunos_por_instrutor) || 0;
+
+    let horaTeo = horaCelulaImportOrc(r[6]);
+    let horaPra = horaCelulaImportOrc(r[7]);
+    const padrao = (f) => (f === "InCompany" ? "07:00" : "07:30");
+    if (!horaTeo && ft.valor) horaTeo = padrao(ft.valor);
+    if (!horaPra && fp.valor) horaPra = padrao(fp.valor);
+
+    // Endereço in-company = endereço cadastrado da empresa (sem coordenadas; geocodifica ao editar/salvar).
+    const vazio = { mesmo_empresa: false, cep: null, logradouro: null, numero: null, complemento: null, bairro: null, cidade: null, uf: null, latitude: null, longitude: null };
+    const daEmpresa = { ...vazio, mesmo_empresa: true, logradouro: empresa.endereco || null };
+    const endTeoria = ft.valor === "InCompany" ? daEmpresa : vazio;
+    const ambos = ft.valor === "InCompany" && fp.valor === "InCompany";
+    const endPratica = fp.valor === "InCompany" ? daEmpresa : vazio;
+    const pref = (p, e) => ({
+      [`endereco_${p}_mesmo_empresa`]: e.mesmo_empresa, [`endereco_${p}_cep`]: e.cep, [`endereco_${p}_logradouro`]: e.logradouro,
+      [`endereco_${p}_numero`]: e.numero, [`endereco_${p}_complemento`]: e.complemento, [`endereco_${p}_bairro`]: e.bairro,
+      [`endereco_${p}_cidade`]: e.cidade, [`endereco_${p}_uf`]: e.uf, [`endereco_${p}_latitude`]: e.latitude, [`endereco_${p}_longitude`]: e.longitude,
+    });
+    validos.push({
+      linha,
+      empresaNome: empresa.nome,
+      tipoNome: tipo.nome,
+      payload: {
+        numero,
+        empresa_id: empresa.id,
+        centro_treinamento_id: centro.id,
+        tipo_treinamento_id: tipo.id,
+        formato_teoria: ft.valor,
+        formato_pratica: fp.valor,
+        qtd_turmas: qtdTurmas,
+        qtd_alunos_por_turma: porTurma,
+        qtd_alunos: qtdAlunos,
+        necessita_dois_instrutores: capacidade > 0 && (porTurma || 0) > capacidade,
+        data: null, // preenchida na hora de importar (coluna obrigatória; a planilha não traz data)
+        validade: null,
+        status: "Aberto",
+        observacoes: "",
+        contato_nome: textoCelulaImport(r[11]) || null,
+        contato_telefone: textoCelulaImport(r[12]) || null,
+        contato_email: textoCelulaImport(r[13]) || null,
+        horario_inicio_teoria: horaTeo,
+        horario_inicio_pratica: horaPra,
+        ...pref("teoria", endTeoria),
+        endereco_pratica_mesmo_teoria: ambos,
+        ...pref("pratica", endPratica),
+      },
+    });
+  });
+  resumo.validos = validos.length;
+  return { validos, problemas, resumo };
+}
+
+async function lerPlanilhaOrcamentos(arquivo) {
+  painelImportacaoOrc(`<p class="text-slate-600">Lendo a planilha…</p>`);
+  try {
+    if (typeof XlsxPopulate === "undefined") throw new Error("não foi possível carregar o leitor de planilhas (verifique a conexão).");
+    const buffer = await arquivo.arrayBuffer();
+    const wb = await XlsxPopulate.fromDataAsync(buffer);
+    const linhas = wb.sheet(0).usedRange().value();
+    const cab1 = normalizarNomeImportOrc(linhas[0]?.[0]);
+    const cab2 = normalizarNomeImportOrc(linhas[0]?.[1]);
+    if (!cab1.includes("numero") || !cab2.includes("empresa")) {
+      throw new Error("a 1ª coluna deveria ser o NÚMERO DO ORÇAMENTO e a 2ª a EMPRESA. Confira se é a planilha de carga de orçamentos.");
+    }
+    painelImportacaoOrc(`<p class="text-slate-600">Comparando com empresas, centros, treinamentos e orçamentos já cadastrados…</p>`);
+    const [{ data: empresas, error: e1 }, { data: orcsExistentes, error: e2 }, { data: centros }, { data: tipos }] = await Promise.all([
+      buscarTodos(() => supabase.from("empresas").select("id, nome, cnpj, endereco").order("id")),
+      buscarTodos(() => supabase.from("orcamentos").select("id, numero").order("id")),
+      supabase.from("centros_treinamento").select("*").eq("status", "Ativo"),
+      supabase.from("tipos_treinamento").select("*").eq("status", "Ativo"),
+    ]);
+    if (e1 || e2) throw new Error((e1 || e2).message);
+    const empresasPorDoc = new Map();
+    (empresas || []).forEach((e) => { const d = (e.cnpj || "").replace(/\D/g, ""); if (d) empresasPorDoc.set(d, e); });
+    const numerosExistentes = new Set((orcsExistentes || []).map((o) => String(o.numero)));
+    const { validos, problemas, resumo } = prepararOrcamentosPlanilha(linhas, { empresasPorDoc, centros: centros || [], tipos: tipos || [], numerosExistentes });
+    importacaoOrcPendente = validos;
+    importacaoOrcRelatorio = problemas;
+    listaTiposAtivos = tipos || listaTiposAtivos;
+
+    const erros = problemas.filter((p) => p.tipo === "erro");
+    const totalTurmas = validos.reduce((s, v) => s + v.payload.qtd_turmas, 0);
+    const diasDoTipo = (id) => { const t = (tipos || []).find((x) => x.id === id); const d = t ? (Number(t.dias_teoria) || 0) + (Number(t.dias_pratica) || 0) + (Number(t.dias_teoria_pratica) || 0) : 0; return d > 0 ? d : 1; };
+    const linhasDiaEstimadas = validos.reduce((s, v) => s + v.payload.qtd_turmas * diasDoTipo(v.payload.tipo_treinamento_id), 0);
+    painelImportacaoOrc(`
+      <p class="font-medium text-slate-800 mb-2">Conferência da planilha (${resumo.total} orçamentos${resumo.vazias ? `; ${resumo.vazias} linhas em branco ignoradas` : ""})</p>
+      <ul class="text-xs text-slate-600 space-y-0.5 mb-3">
+        <li>✅ Prontos para importar: <strong>${resumo.validos}</strong> (${totalTurmas.toLocaleString("pt-BR")} turmas no total, em ${linhasDiaEstimadas.toLocaleString("pt-BR")} linhas de turma/dia)</li>
+        <li>⏭️ Já existem no sistema (serão mantidos como estão, sem alteração): <strong>${resumo.existentes}</strong></li>
+        <li>⛔ Com erro (não serão importados): <strong>${resumo.erros}</strong>${resumo.repetidos ? ` · repetidos na planilha: ${resumo.repetidos}` : ""}</li>
+      </ul>
+      ${erros.length ? `<div class="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-md px-3 py-2 mb-3 max-h-40 overflow-y-auto">${erros.slice(0, 50).map((p) => `Linha ${p.linha}${p.numero ? ` (orç. ${p.numero})` : ""}: ${p.motivo}`).join("<br>")}${erros.length > 50 ? `<br>… e mais ${erros.length - 50} (veja o relatório)` : ""}</div>` : ""}
+      <p class="text-xs text-slate-500 mb-3">Os orçamentos entram com status <strong>Aberto</strong>, com o contato da planilha e o endereço in-company igual ao da empresa.</p>
+      <label class="flex items-start gap-2 text-xs text-slate-700 mb-3">
+        <input id="orc-imp-gerar-turmas" type="checkbox" checked class="mt-0.5 rounded border-slate-300" />
+        <span>Gerar também as turmas de cada orçamento (como no cadastro manual). Desmarque para importar só os orçamentos. Com as turmas, a importação leva alguns minutos — mantenha esta página aberta até terminar.</span>
+      </label>
+      <label class="flex items-center gap-2 text-xs text-slate-700 mb-3">
+        Data do orçamento (a planilha não traz data):
+        <input id="orc-imp-data" type="date" value="${formatarData(new Date())}" class="rounded-md border border-slate-300 px-2 py-1 text-xs" />
+      </label>
+      <div class="flex flex-wrap gap-2">
+        <button id="btn-orc-imp-confirmar" class="text-xs font-medium text-white bg-teal-600 hover:bg-teal-700 rounded-md px-4 py-2" ${validos.length ? "" : "disabled"}>Importar ${resumo.validos} orçamento(s)</button>
+        <button id="btn-orc-imp-relatorio" class="text-xs font-medium text-slate-600 border border-slate-300 rounded-md px-4 py-2" ${problemas.length ? "" : "disabled"}>Baixar relatório de pendências (.xlsx)</button>
+        <button id="btn-orc-imp-cancelar" class="text-xs font-medium text-slate-600 border border-slate-300 rounded-md px-4 py-2">Cancelar</button>
+      </div>`);
+    $("btn-orc-imp-confirmar").addEventListener("click", executarImportacaoOrcamentos);
+    $("btn-orc-imp-relatorio").addEventListener("click", baixarRelatorioImportacaoOrc);
+    $("btn-orc-imp-cancelar").addEventListener("click", () => { importacaoOrcPendente = null; $("orc-importacao-painel").classList.add("hidden"); });
+  } catch (e) {
+    painelImportacaoOrc(`<p class="text-rose-700">Não foi possível ler a planilha: ${e.message || e}</p>`);
+  }
+}
+
+async function baixarRelatorioImportacaoOrc() {
+  const itens = importacaoOrcRelatorio || [];
+  if (!itens.length || typeof XlsxPopulate === "undefined") return;
+  const wb = await XlsxPopulate.fromBlankAsync();
+  const sh = wb.sheet(0).name("Pendências");
+  sh.cell("A1").value([["Linha", "Orçamento", "Situação", "Motivo"]]);
+  const rot = { erro: "Erro", existente: "Já existe", repetido: "Repetido" };
+  sh.cell("A2").value(itens.map((p) => [p.linha, p.numero, rot[p.tipo] || p.tipo, p.motivo]));
+  sh.column("C").width(14); sh.column("D").width(70);
+  const blob = await wb.outputAsync("blob");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "pendencias-importacao-orcamentos.xlsx";
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+
+// Gera as turmas (e a localidade "Principal") de vários orçamentos de uma vez, em blocos.
+// Se um bloco falhar, tenta orçamento por orçamento para isolar o problema.
+async function gerarTurmasEmLoteImportOrc(orcamentos) {
+  const falhas = [];
+  let turmas = 0;
+  const cnpjPorEmpresa = new Map((listaEmpresasAtivas || []).map((e) => [e.id, e.cnpj]));
+  const gravar = async (payload, empresaPorOrc) => {
+    const { data, error } = await supabase.from("turmas").insert(payload).select("id, orcamento_id");
+    if (error) throw error;
+    const locs = (data || []).map((t) => cnpjPorEmpresa.get(empresaPorOrc.get(t.orcamento_id))
+      ? { turma_id: t.id, nome: "Principal", cnpj_atestado: cnpjPorEmpresa.get(empresaPorOrc.get(t.orcamento_id)), cnpj_faturamento: cnpjPorEmpresa.get(empresaPorOrc.get(t.orcamento_id)) }
+      : null).filter(Boolean);
+    for (let i = 0; i < locs.length; i += 500) {
+      const { error: eLoc } = await supabase.from("turma_localidades").insert(locs.slice(i, i + 500));
+      if (eLoc) throw eLoc;
+    }
+    return (data || []).length;
+  };
+  let bloco = [];
+  let empresaPorOrc = new Map();
+  let numerosBloco = [];
+  const descarregar = async () => {
+    if (!bloco.length) return;
+    try {
+      turmas += await gravar(bloco, empresaPorOrc);
+    } catch (e) {
+      falhas.push({ linha: "", numero: numerosBloco.join(", "), motivo: `orçamentos gravados, mas as turmas deste bloco falharam: ${e.message || e}`, tipo: "erro" });
+    }
+    bloco = []; empresaPorOrc = new Map(); numerosBloco = [];
+  };
+  for (const o of orcamentos) {
+    const linhas = montarTurmasOrcamento(o, o.qtd_turmas);
+    empresaPorOrc.set(o.id, o.empresa_id);
+    numerosBloco.push(o.numero);
+    bloco.push(...linhas);
+    if (bloco.length >= 500) await descarregar();
+  }
+  await descarregar();
+  return { turmas, falhas };
+}
+
+async function executarImportacaoOrcamentos() {
+  const lista = importacaoOrcPendente;
+  if (!lista || lista.length === 0) return;
+  const gerarTurmas = !!$("orc-imp-gerar-turmas")?.checked;
+  const dataOrc = $("orc-imp-data")?.value || formatarData(new Date());
+  lista.forEach((v) => { v.payload.data = dataOrc; });
+  importacaoOrcPendente = null;
+  const falhas = [];
+  let gravados = 0;
+  let turmasGeradas = 0;
+  const tam = 100;
+  for (let i = 0; i < lista.length; i += tam) {
+    const lote = lista.slice(i, i + tam);
+    painelImportacaoOrc(`<p class="text-slate-700">Importando orçamentos… <strong>${gravados}</strong> de ${lista.length}</p>`);
+    let criados = [];
+    const { data, error } = await supabase.from("orcamentos").insert(lote.map((v) => v.payload)).select("*");
+    if (!error) {
+      criados = data || [];
+    } else {
+      // isola a linha com problema: grava uma a uma
+      for (const v of lote) {
+        const r = await supabase.from("orcamentos").insert(v.payload).select("*").single();
+        if (r.error) falhas.push({ linha: v.linha, numero: v.payload.numero, motivo: r.error.message, tipo: "erro" });
+        else criados.push(r.data);
+      }
+    }
+    gravados += criados.length;
+    if (gerarTurmas && criados.length) {
+      painelImportacaoOrc(`<p class="text-slate-700">Orçamentos gravados: <strong>${gravados}</strong> de ${lista.length} · gerando as turmas deste lote… (${turmasGeradas.toLocaleString("pt-BR")} turmas já criadas)</p>`);
+      const r = await gerarTurmasEmLoteImportOrc(criados);
+      turmasGeradas += r.turmas;
+      r.falhas.forEach((f) => falhas.push(f));
+    }
+  }
+  importacaoOrcRelatorio = (importacaoOrcRelatorio || []).concat(falhas);
+  orcPagina = 1;
+  await carregarPaginaOrcamentos();
+  painelImportacaoOrc(`
+    <p class="text-teal-700 font-medium mb-2">✅ ${gravados} orçamento(s) importados${gerarTurmas ? `, com turmas geradas em ${turmasGeradas}` : ""}.</p>
+    ${falhas.length ? `<p class="text-xs text-rose-700 mb-2">${falhas.length} item(ns) com falha: ${falhas.slice(0, 5).map((f) => `${f.numero} (${f.motivo})`).join("; ")}${falhas.length > 5 ? "…" : ""}</p>` : ""}
+    <div class="flex gap-2">
+      <button id="btn-orc-imp-relatorio2" class="text-xs font-medium text-slate-600 border border-slate-300 rounded-md px-4 py-2">Baixar relatório de pendências (.xlsx)</button>
+      <button id="btn-orc-imp-fechar" class="text-xs font-medium text-slate-600 border border-slate-300 rounded-md px-4 py-2">Fechar</button>
+    </div>`);
+  $("btn-orc-imp-relatorio2").addEventListener("click", baixarRelatorioImportacaoOrc);
+  $("btn-orc-imp-fechar").addEventListener("click", () => $("orc-importacao-painel").classList.add("hidden"));
+}
+
+$("btn-orc-importar").addEventListener("click", () => $("orc-importar-arquivo").click());
+$("orc-importar-arquivo").addEventListener("change", (ev) => {
+  const arquivo = ev.target.files && ev.target.files[0];
+  ev.target.value = "";
+  if (arquivo) lerPlanilhaOrcamentos(arquivo);
+});
 
 async function excluirOrcamento(id) {
   const o = listaOrcamentos.find((x) => x.id === id);
