@@ -28,7 +28,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.22 · 04/10/2026";
+const APP_VERSAO = "Prod 1.23 · 04/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -2066,13 +2066,14 @@ const CRUD_CONFIG = {
         ),
       },
       { id: "valor", label: "Valor (R$)", tipo: "number", min: 0, step: "0.01", obrigatorio: true },
+      { id: "opcional", label: "Item opcional", tipo: "checkbox", padrao: false },
       { id: "status", label: "Status", tipo: "select", opcoes: ["Ativo", "Inativo"], padrao: "Ativo" },
     ],
     campoBusca: (i) => `${i.item || ""} ${(itemCustoRefUnidades.find((u) => u.id === i.unidade_medida_id) || {}).sigla || ""}`,
     cardTitulo: (i) => i.item,
     cardLinhas: (i) => {
       const un = itemCustoRefUnidades.find((u) => u.id === i.unidade_medida_id);
-      return [un && `📏 ${un.sigla} — ${un.descricao}`, `💰 ${fmtBRL(i.valor)}`].filter(Boolean);
+      return [un && `📏 ${un.sigla} — ${un.descricao}`, `💰 ${fmtBRL(i.valor)}`, i.opcional ? "☑️ Item opcional" : "Item obrigatório"].filter(Boolean);
     },
     renderTabela: (lista, { podeAlterar, podeExcluir }) => {
       const un = (id) => { const u = itemCustoRefUnidades.find((x) => x.id === id); return u ? `${u.sigla} — ${u.descricao}` : "—"; };
@@ -2084,6 +2085,7 @@ const CRUD_CONFIG = {
             <th class="px-3 py-2 font-medium">Item</th>
             <th class="px-3 py-2 font-medium">Unidade</th>
             <th class="px-3 py-2 font-medium text-right">Valor</th>
+            <th class="px-3 py-2 font-medium">Opcional</th>
             <th class="px-3 py-2 font-medium">Status</th>
             <th class="px-3 py-2"></th>
           </tr>
@@ -2094,6 +2096,7 @@ const CRUD_CONFIG = {
             <td class="px-3 py-2 text-slate-800 font-medium">${i.item || "—"}</td>
             <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${un(i.unidade_medida_id)}</td>
             <td class="px-3 py-2 text-slate-700 text-right whitespace-nowrap">${fmtBRL(i.valor)}</td>
+            <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${i.opcional ? "Sim" : "Não"}</td>
             <td class="px-3 py-2 whitespace-nowrap">${badge(i.status)}</td>
             <td class="px-3 py-2 text-right whitespace-nowrap">
               ${podeAlterar ? `<button data-crud-editar="${i.id}" class="text-slate-500 hover:text-slate-800 mr-2">✏️</button>` : ""}

@@ -1072,3 +1072,11 @@ alter table instrutores
 --   unidades_medida (id, sigla [única, sem diferenciar maiúsculas], descricao, status Ativo/Inativo, created_at),
 --   RLS com pode_acessar_tabela(..., 'unidades_medida', ...) e ('unidades_medida','unidades_medida','own')
 --   incluído na função pode_acessar_tabela. Módulo "unidades_medida" no MODULOS (grupo Cadastros Básicos).
+
+-- migração cadastro_itens_custo (aplicada em 04/10/2026):
+--   itens_custo (id, item, unidade_medida_id -> unidades_medida on delete restrict, valor numeric(14,2) >= 0,
+--   status Ativo/Inativo, created_at); único por (lower(item), unidade_medida_id). RLS com pode_acessar_tabela;
+--   mapa: ('itens_custo','itens_custo','own') e ('itens_custo','unidades_medida','leitura').
+--   Módulo "itens_custo" no MODULOS (grupo Cadastros Básicos).
+
+-- migração itens_custo_opcional (aplicada em 04/10/2026): itens_custo.opcional boolean not null default false.
