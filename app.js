@@ -28,7 +28,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.24 · 04/10/2026";
+const APP_VERSAO = "Prod 1.26 · 04/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -2080,6 +2080,7 @@ const CRUD_CONFIG = {
     },
     campos: [
       { id: "item", label: "Item", obrigatorio: true },
+      { id: "descricao_impressao", label: "Descrição para impressão", tipo: "textarea" },
       {
         id: "unidade_medida_id", label: "Unidade de medida", tipo: "select", obrigatorio: true,
         opcoesFn: () => [{ value: "", label: "— Selecione —" }].concat(
@@ -2090,11 +2091,11 @@ const CRUD_CONFIG = {
       { id: "opcional", label: "Item opcional", tipo: "checkbox", padrao: false },
       { id: "status", label: "Status", tipo: "select", opcoes: ["Ativo", "Inativo"], padrao: "Ativo" },
     ],
-    campoBusca: (i) => `${i.item || ""} ${(itemCustoRefUnidades.find((u) => u.id === i.unidade_medida_id) || {}).sigla || ""}`,
+    campoBusca: (i) => `${i.item || ""} ${i.descricao_impressao || ""} ${(itemCustoRefUnidades.find((u) => u.id === i.unidade_medida_id) || {}).sigla || ""}`,
     cardTitulo: (i) => i.item,
     cardLinhas: (i) => {
       const un = itemCustoRefUnidades.find((u) => u.id === i.unidade_medida_id);
-      return [un && `📏 ${un.sigla} — ${un.descricao}`, `💰 ${fmtBRL(i.valor)}`, i.opcional ? "☑️ Item opcional" : "Item obrigatório"].filter(Boolean);
+      return [un && `📏 ${un.sigla} — ${un.descricao}`, `💰 ${fmtBRL(i.valor)}`, i.opcional ? "☑️ Item opcional" : "Item obrigatório", i.descricao_impressao && `🖨️ ${i.descricao_impressao}`].filter(Boolean);
     },
     renderTabela: (lista, { podeAlterar, podeExcluir }) => {
       const un = (id) => { const u = itemCustoRefUnidades.find((x) => x.id === id); return u ? `${u.sigla} — ${u.descricao}` : "—"; };
@@ -2104,6 +2105,7 @@ const CRUD_CONFIG = {
         <thead>
           <tr class="bg-slate-50 text-left text-slate-500 uppercase tracking-wide text-[10px]">
             <th class="px-3 py-2 font-medium">Item</th>
+            <th class="px-3 py-2 font-medium">Descrição para impressão</th>
             <th class="px-3 py-2 font-medium">Unidade</th>
             <th class="px-3 py-2 font-medium text-right">Valor</th>
             <th class="px-3 py-2 font-medium">Opcional</th>
@@ -2115,6 +2117,7 @@ const CRUD_CONFIG = {
           ${lista.map((i) => `
           <tr class="hover:bg-slate-50">
             <td class="px-3 py-2 text-slate-800 font-medium">${i.item || "—"}</td>
+            <td class="px-3 py-2 text-slate-600"><div class="max-w-[320px] whitespace-normal">${i.descricao_impressao || "—"}</div></td>
             <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${un(i.unidade_medida_id)}</td>
             <td class="px-3 py-2 text-slate-700 text-right whitespace-nowrap">${fmtBRL(i.valor)}</td>
             <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${i.opcional ? "Sim" : "Não"}</td>
@@ -4244,7 +4247,7 @@ async function salvarPermissoesForm(usuarioId) {
 
 // ===========================================================
 // Itens de custo do treinamento (dentro do cadastro de Treinamentos)
-// Cada linha: item de custo + divisor + unidade do divisor + múltiplo.
+// Cada linha: item de custo + divisor (opcional) + unidade do divisor + múltiplo + imprime + ordem de impressão.
 // ===========================================================
 function htmlSecaoItensCustoTreinamento() {
   return `
@@ -4253,7 +4256,7 @@ function htmlSecaoItensCustoTreinamento() {
       <p class="text-xs font-medium text-slate-500 uppercase tracking-wide">Itens de custo do treinamento</p>
       <button type="button" id="btn-treino-item-add" class="text-xs font-medium text-white bg-slate-900 hover:bg-slate-800 rounded-md px-3 py-1.5">+ Adicionar item</button>
     </div>
-    <p class="text-[11px] text-slate-400 mb-3">Para cada item informe o divisor (ex.: 20) com a sua unidade (ex.: aluno) e o múltiplo.</p>
+    <p class="text-[11px] text-slate-400 mb-3">Para cada item informe o divisor (ex.: 20) com a sua unidade (ex.: aluno) — o divisor pode ficar em branco, e então a unidade também — e o múltiplo. Marque "Imprime" para o item sair na impressão e defina a ordem.</p>
     <div id="treino-itens-custo-lista" class="space-y-2"></div>
   </div>`;
 }
@@ -4266,6 +4269,8 @@ function novaLinhaItemCustoTreino(base = {}) {
     divisor: base.divisor != null ? String(Number(base.divisor)) : "",
     unidade_divisor_id: base.unidade_divisor_id || "",
     multiplo: base.multiplo != null ? String(Number(base.multiplo)) : "1",
+    imprime: !!base.imprime,
+    ordem_impressao: base.ordem_impressao != null ? String(base.ordem_impressao) : "",
   };
 }
 
@@ -4275,7 +4280,8 @@ async function iniciarSecaoItensCustoTreinamento(item) {
   const lista = $("treino-itens-custo-lista");
   if (!lista) return;
   $("btn-treino-item-add").addEventListener("click", () => {
-    treinoItensCustoForm.push(novaLinhaItemCustoTreino());
+    const maior = treinoItensCustoForm.reduce((m, x) => Math.max(m, parseInt(x.ordem_impressao, 10) || 0), 0);
+    treinoItensCustoForm.push(novaLinhaItemCustoTreino({ ordem_impressao: maior + 1 }));
     renderizarItensCustoTreinamento();
   });
   // um único conjunto de ouvintes (delegação) para alterações e remoções
@@ -4284,7 +4290,7 @@ async function iniciarSecaoItensCustoTreinamento(item) {
     const linhaEl = ev.target.closest("[data-treino-linha]");
     if (!el || !linhaEl) return;
     const l = treinoItensCustoForm.find((x) => x.chave === linhaEl.getAttribute("data-treino-linha"));
-    if (l) l[el.getAttribute("data-treino-campo")] = el.value;
+    if (l) l[el.getAttribute("data-treino-campo")] = el.type === "checkbox" ? el.checked : el.value;
   });
   lista.addEventListener("click", (ev) => {
     const b = ev.target.closest("[data-treino-remover]");
@@ -4294,7 +4300,7 @@ async function iniciarSecaoItensCustoTreinamento(item) {
   });
   if (item && item.id) {
     lista.innerHTML = `<p class="text-xs text-slate-400">Carregando itens de custo…</p>`;
-    const { data, error } = await supabase.from("treinamento_itens_custo").select("*").eq("tipo_treinamento_id", item.id).order("created_at").order("id");
+    const { data, error } = await supabase.from("treinamento_itens_custo").select("*").eq("tipo_treinamento_id", item.id).order("ordem_impressao", { nullsFirst: false }).order("created_at").order("id");
     if (error) {
       lista.innerHTML = `<p class="text-xs text-rose-600">Não foi possível carregar os itens de custo deste treinamento.</p>`;
       return;
@@ -4325,12 +4331,12 @@ function renderizarItensCustoTreinamento() {
     .map((u) => `<option value="${u.id}" ${u.id === sel ? "selected" : ""}>${u.sigla} — ${u.descricao}${u.status === "Inativo" ? " (inativa)" : ""}</option>`).join("");
   lista.innerHTML = treinoItensCustoForm.map((l) => `
     <div data-treino-linha="${l.chave}" class="grid grid-cols-12 gap-2 items-end border border-slate-200 rounded-md p-2.5 bg-slate-50">
-      <div class="col-span-12 sm:col-span-4">
+      <div class="col-span-12 sm:col-span-5">
         <label class="${rotulo}">Item de custo</label>
         <select data-treino-campo="item_custo_id" class="${classeCampo}">${opcoesItens(l.item_custo_id)}</select>
       </div>
       <div class="col-span-4 sm:col-span-2">
-        <label class="${rotulo}">Divisor</label>
+        <label class="${rotulo}">Divisor <span class="normal-case text-slate-400">(opcional)</span></label>
         <input data-treino-campo="divisor" type="number" min="0" step="any" value="${l.divisor}" class="${classeCampo}" />
       </div>
       <div class="col-span-8 sm:col-span-3">
@@ -4341,8 +4347,18 @@ function renderizarItensCustoTreinamento() {
         <label class="${rotulo}">Múltiplo</label>
         <input data-treino-campo="multiplo" type="number" min="0" step="any" value="${l.multiplo}" class="${classeCampo}" />
       </div>
-      <div class="col-span-4 sm:col-span-1 text-right">
-        <button type="button" data-treino-remover="${l.chave}" title="Remover item" class="text-rose-500 hover:text-rose-700 px-2 py-1.5">🗑️</button>
+      <div class="col-span-6 sm:col-span-3 flex items-center pb-1.5">
+        <label class="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
+          <input data-treino-campo="imprime" type="checkbox" ${l.imprime ? "checked" : ""} class="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500" />
+          Imprime
+        </label>
+      </div>
+      <div class="col-span-6 sm:col-span-3">
+        <label class="${rotulo}">Ordem de impressão</label>
+        <input data-treino-campo="ordem_impressao" type="number" min="0" step="1" value="${l.ordem_impressao}" class="${classeCampo}" />
+      </div>
+      <div class="col-span-12 sm:col-span-6 text-right">
+        <button type="button" data-treino-remover="${l.chave}" title="Remover item" class="text-rose-500 hover:text-rose-700 px-2 py-1.5">🗑️ Remover</button>
       </div>
     </div>`).join("");
 }
@@ -4358,9 +4374,13 @@ function validarItensCustoTreinamento() {
       return `${n}: o item "${nome}" já foi adicionado a este treinamento.`;
     }
     vistos.add(l.item_custo_id);
-    if (!(Number(l.divisor) > 0)) return `${n}: informe o divisor (maior que zero).`;
-    if (!l.unidade_divisor_id) return `${n}: selecione a unidade do divisor.`;
+    const temDivisor = String(l.divisor).trim() !== "";
+    if (temDivisor && !(Number(l.divisor) > 0)) return `${n}: o divisor deve ser maior que zero (ou deixe em branco).`;
+    if (temDivisor && !l.unidade_divisor_id) return `${n}: selecione a unidade do divisor (ou deixe o divisor em branco).`;
     if (!(Number(l.multiplo) > 0)) return `${n}: informe o múltiplo (maior que zero).`;
+    const temOrdem = String(l.ordem_impressao).trim() !== "";
+    if (temOrdem && !(Number.isInteger(Number(l.ordem_impressao)) && Number(l.ordem_impressao) >= 0)) return `${n}: a ordem de impressão deve ser um número inteiro (0 ou mais).`;
+    if (l.imprime && !temOrdem) return `${n}: informe a ordem de impressão (o item está marcado para imprimir).`;
   }
   return null;
 }
@@ -4371,9 +4391,11 @@ async function salvarItensCustoTreinamento(tipoTreinamentoId) {
   const linhas = treinoItensCustoForm.map((l) => ({
     tipo_treinamento_id: tipoTreinamentoId,
     item_custo_id: l.item_custo_id,
-    divisor: Number(l.divisor),
-    unidade_divisor_id: l.unidade_divisor_id,
+    divisor: String(l.divisor).trim() === "" ? null : Number(l.divisor),
+    unidade_divisor_id: String(l.divisor).trim() === "" ? null : (l.unidade_divisor_id || null),
     multiplo: Number(l.multiplo),
+    imprime: !!l.imprime,
+    ordem_impressao: String(l.ordem_impressao).trim() === "" ? null : Number(l.ordem_impressao),
   }));
   const substituirTudo = async () => {
     const { error: eDel } = await supabase.from("treinamento_itens_custo").delete().eq("tipo_treinamento_id", tipoTreinamentoId);
@@ -4393,11 +4415,13 @@ async function salvarItensCustoTreinamento(tipoTreinamentoId) {
     for (const l of treinoItensCustoForm.filter((x) => x.id)) {
       const ori = treinoItensCustoOriginais.find((o) => o.id === l.id);
       const novo = linhas[treinoItensCustoForm.indexOf(l)];
-      const igual = ori && ori.item_custo_id === novo.item_custo_id && ori.unidade_divisor_id === novo.unidade_divisor_id
-        && Number(ori.divisor) === novo.divisor && Number(ori.multiplo) === novo.multiplo;
+      const igual = ori && ori.item_custo_id === novo.item_custo_id && (ori.unidade_divisor_id || null) === novo.unidade_divisor_id
+        && (ori.divisor == null ? null : Number(ori.divisor)) === novo.divisor && Number(ori.multiplo) === novo.multiplo
+        && !!ori.imprime === novo.imprime && (ori.ordem_impressao == null ? null : Number(ori.ordem_impressao)) === novo.ordem_impressao;
       if (igual) continue;
       const { error } = await supabase.from("treinamento_itens_custo").update({
         item_custo_id: novo.item_custo_id, divisor: novo.divisor, unidade_divisor_id: novo.unidade_divisor_id, multiplo: novo.multiplo,
+        imprime: novo.imprime, ordem_impressao: novo.ordem_impressao,
       }).eq("id", l.id);
       if (error) {
         if (error.code === "23505") { await substituirTudo(); return; } // troca de itens entre linhas: regrava tudo

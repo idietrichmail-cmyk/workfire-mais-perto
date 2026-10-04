@@ -1089,3 +1089,8 @@ alter table instrutores
 --   ('tipos_treinamento','unidades_medida','leitura'). Seção "Itens de custo" no cadastro de Treinamentos.
 -- migração orcamentos_qtd_localidades (aplicada em 04/10/2026):
 --   orcamentos.qtd_localidades integer not null default 1 check (>= 1) — locais do cliente onde os alunos vão treinar.
+-- migração itens_custo_descricao_impressao (aplicada em 04/10/2026):
+--   itens_custo.descricao_impressao text (nullable) — texto que aparece nas impressões (ex.: proposta/orçamento).
+-- migração treinamento_itens_custo_divisor_nulo_imprime_ordem (aplicada em 04/10/2026):
+--   treinamento_itens_custo.divisor e unidade_divisor_id agora aceitam NULL (divisor em branco → unidade em branco);
+--   novas colunas imprime boolean not null default false e ordem_impressao integer (nullable, check >= 0).
