@@ -389,13 +389,19 @@
         <span class="text-amber-500 text-xl">🔥</span>
         <span class="font-serif text-lg text-white tracking-wide">Work Fire</span>
       </div>
+      <div class="px-2 mb-4 pb-4 border-b border-slate-800">
+        <p class="text-[10px] uppercase tracking-wider text-slate-500">Usuário</p>
+        <p id="admin-usuario-nome" class="text-sm font-medium text-white truncate" title=""></p>
+        <div class="mt-2 flex items-center gap-2">
+          <button id="btn-reembolso-sidebar" title="Solicitar reembolso" aria-label="Solicitar reembolso" class="rounded-md border border-slate-700 text-base leading-none px-2.5 py-1.5 hover:bg-slate-800">💸</button>
+          <button id="btn-treinamentos-sidebar" title="Treinamentos" aria-label="Treinamentos" class="rounded-md border border-slate-700 text-base leading-none px-2.5 py-1.5 hover:bg-slate-800">📚</button>
+          <button id="btn-admin-sair" class="ml-auto inline-flex items-center gap-1.5 rounded-md text-xs font-medium text-rose-400 border border-rose-900 px-2.5 py-1.5 hover:bg-rose-950 hover:text-rose-300">🚪 Sair</button>
+        </div>
+      </div>
       <nav id="admin-nav" class="flex-1 flex flex-col gap-1 text-sm overflow-y-auto"></nav>
       <div class="pt-4 mt-4 border-t border-slate-800 flex flex-col gap-1 text-sm">
-        <button id="btn-treinamentos-sidebar" class="flex items-center gap-2 rounded-md px-3 py-2 text-left w-full text-slate-300 hover:bg-slate-800 hover:text-white">📚 Treinamentos</button>
-        <button id="btn-reembolso-sidebar" class="flex items-center gap-2 rounded-md px-3 py-2 text-left w-full text-slate-300 hover:bg-slate-800 hover:text-white">💸 Meus Reembolsos</button>
         <button id="btn-ver-instrutor" class="flex items-center gap-2 rounded-md px-3 py-2 text-left w-full text-slate-300 hover:bg-slate-800 hover:text-white">📱 Ver tela do instrutor</button>
         <button id="btn-admin-trocar-senha" class="flex items-center gap-2 rounded-md px-3 py-2 text-left w-full text-slate-300 hover:bg-slate-800 hover:text-white">🔑 Trocar minha senha</button>
-        <button id="btn-admin-sair" class="flex items-center gap-2 rounded-md px-3 py-2 text-left w-full text-rose-400 hover:bg-rose-950 hover:text-rose-300">🚪 Sair</button>
       </div>
       <p id="app-versao-label" class="px-2 pt-3 text-[10px] text-slate-500"></p>
     </aside>
@@ -2000,6 +2006,6 @@
 </div>
 
 <script src="config.js"></script>
-<script src="app.js?v=20261004h"></script>
+<script src="app.js?v=20261004i"></script>
 </body>
 </html>

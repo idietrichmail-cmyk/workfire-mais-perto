@@ -28,8 +28,89 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.18 · 04/10/2026";
+const APP_VERSAO = "Prod 1.19 · 04/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
+
+// ---------------------------------------------------------
+// Verificação de nova versão publicada
+// Ao navegar pelo aplicativo, compara a versão em uso (APP_VERSAO) com a que está
+// publicada no servidor (lida do início do app.js, sem usar cache). Se forem diferentes,
+// avisa o usuário e atualiza a página para carregar a versão nova.
+// ---------------------------------------------------------
+let verUltimaChecagem = 0;
+let verAvisoAtivo = false;
+
+async function buscarVersaoPublicada() {
+  const ctrl = new AbortController();
+  const limite = setTimeout(() => ctrl.abort(), 8000);
+  try {
+    const resp = await fetch(`app.js?chk=${Date.now()}`, { cache: "no-store", signal: ctrl.signal });
+    if (!resp.ok || !resp.body) return null;
+    // Lê só o começo do arquivo: a constante APP_VERSAO fica nas primeiras linhas.
+    const leitor = resp.body.getReader();
+    const decodificador = new TextDecoder();
+    let texto = "";
+    let achada = null;
+    while (texto.length < 30000) {
+      const { done, value } = await leitor.read();
+      if (done) break;
+      texto += decodificador.decode(value, { stream: true });
+      const m = texto.match(/const APP_VERSAO = "([^"]+)"/);
+      if (m) { achada = m[1]; break; }
+    }
+    try { await leitor.cancel(); } catch (e) { /* já encerrado */ }
+    return achada;
+  } catch (e) {
+    return null; // sem conexão ou lento: tenta de novo na próxima navegação
+  } finally {
+    clearTimeout(limite);
+  }
+}
+
+function mostrarAvisoNovaVersao(versaoNova, recarregarSozinho) {
+  if (verAvisoAtivo) return;
+  verAvisoAtivo = true;
+  const faixa = document.createElement("div");
+  faixa.id = "aviso-nova-versao";
+  faixa.setAttribute("role", "alert");
+  faixa.className = "fixed top-0 inset-x-0 z-[100] bg-amber-500 text-slate-900 shadow-lg px-4 py-3 text-sm flex flex-wrap items-center justify-center gap-3";
+  document.body.appendChild(faixa);
+  const atualizar = () => {
+    try { sessionStorage.setItem("wf_ver_reload", JSON.stringify({ versao: versaoNova, em: Date.now() })); } catch (e) { /* sem storage */ }
+    window.location.reload();
+  };
+  let restante = 5;
+  const desenhar = () => {
+    faixa.innerHTML = `<span>🔄 <strong>Há uma nova versão do aplicativo (${versaoNova}).</strong> ${
+      recarregarSozinho ? `A página será atualizada em ${restante}s para você usar a versão mais recente.` : "Atualize a página (Ctrl+F5) para usar a versão mais recente."}</span>
+      <button id="btn-aviso-atualizar" class="rounded-md bg-slate-900 text-white text-xs font-medium px-3 py-1.5 hover:bg-slate-800">Atualizar agora</button>`;
+    $("btn-aviso-atualizar").addEventListener("click", atualizar);
+  };
+  desenhar();
+  if (recarregarSozinho) {
+    const relogio = setInterval(() => {
+      restante -= 1;
+      if (restante <= 0) { clearInterval(relogio); atualizar(); } else desenhar();
+    }, 1000);
+  }
+}
+
+async function verificarNovaVersao(forcar = false) {
+  if (verAvisoAtivo) return;
+  const agora = Date.now();
+  if (!forcar && agora - verUltimaChecagem < 30000) return; // no máximo uma checagem a cada 30s
+  verUltimaChecagem = agora;
+  const publicada = await buscarVersaoPublicada();
+  if (!publicada || publicada === APP_VERSAO) return;
+  // Não interrompe uma importação de orçamentos em andamento: avisa depois que terminar.
+  try { if (typeof impOrc !== "undefined" && impOrc && impOrc.rodando) { verUltimaChecagem = 0; return; } } catch (e) { /* ainda não inicializado */ }
+  // Evita laço de recarregamentos se o servidor/cache ainda entregar a versão antiga.
+  let anterior = null;
+  try { anterior = JSON.parse(sessionStorage.getItem("wf_ver_reload") || "null"); } catch (e) { /* ignora */ }
+  const jaTentou = !!anterior && anterior.versao === publicada && Date.now() - anterior.em < 120000;
+  mostrarAvisoNovaVersao(publicada, !jaTentou);
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden) verificarNovaVersao(); });
 
 const diasSemana = ["D", "S", "T", "Q", "Q", "S", "S"];
 const nomesMeses = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
@@ -1079,6 +1160,11 @@ async function entrarNoPainelAdmin() {
     (permsData || []).forEach((p) => { permissoesAtual[p.modulo] = p; });
   }
   mostrarTela("tela-admin");
+  if ($("admin-usuario-nome")) {
+    const nomeUsuario = usuarioSistemaAtual.nome || usuarioSistemaAtual.email || "";
+    $("admin-usuario-nome").textContent = nomeUsuario;
+    $("admin-usuario-nome").title = usuarioSistemaAtual.email || nomeUsuario;
+  }
   try {
     const areaGuardada = sessionStorage.getItem("wf_area_ativa");
     sessionStorage.removeItem("wf_area_ativa");
@@ -1148,6 +1234,7 @@ function voltarParaInicio() {
 }
 
 function mostrarMenuInicio() {
+  verificarNovaVersao();
   moduloAtivo = null;
   document.querySelectorAll("#tela-admin main > section").forEach((s) => s.classList.add("hidden"));
   renderizarNavAdmin();
@@ -1191,10 +1278,16 @@ function renderizarNavAdmin() {
     (grupos[m.grupo] = grupos[m.grupo] || []).push(m);
   });
 
+  // Áreas da empresa como botões (clicar de novo na área ativa volta a mostrar todas).
   const seletorArea = `
-    <select data-area-select class="mb-2 w-full rounded-md bg-slate-800 text-white text-xs px-2 py-1.5 border border-slate-700">
-      ${AREAS.map((a) => `<option value="${a}" ${a === areaAtiva ? "selected" : ""}>${a === "Geral" ? "Todas as áreas" : a}</option>`).join("")}
-    </select>`;
+    <div class="grid grid-cols-2 gap-1.5 mb-3">
+      ${AREAS.filter((a) => a !== "Geral").map((a) => `
+        <button data-area-btn="${a}" class="text-[11px] leading-tight rounded-md px-2 py-2 text-center border transition ${
+          a === areaAtiva
+            ? "bg-amber-500 text-slate-900 border-amber-500 font-semibold"
+            : "border-slate-700 text-slate-300 hover:bg-slate-800 hover:text-white"
+        }">${a}</button>`).join("")}
+    </div>`;
 
   const botaoInicio = `
     <button data-nav-inicio class="flex items-center gap-2 rounded-md px-3 py-2 text-left w-full mb-3 ${
@@ -1213,13 +1306,15 @@ function renderizarNavAdmin() {
     `).join("")}
   `).join("");
 
-  nav.querySelector("[data-area-select]").addEventListener("change", (e) => {
-    areaAtiva = e.target.value;
+  nav.querySelectorAll("[data-area-btn]").forEach((btn) => btn.addEventListener("click", () => {
+    const a = btn.getAttribute("data-area-btn");
+    areaAtiva = areaAtiva === a ? "Geral" : a;
     const atual = MODULOS.find((m) => m.id === moduloAtivo);
     // Se o módulo aberto não pertence mais à área escolhida, volta ao menu.
-    if (!atual || (areaAtiva !== "Geral" && atual.grupo !== areaAtiva)) voltarParaInicio();
+    if (moduloAtivo === null) mostrarMenuInicio();
+    else if (!atual || (areaAtiva !== "Geral" && atual.grupo !== areaAtiva)) voltarParaInicio();
     else renderizarNavAdmin();
-  });
+  }));
   nav.querySelector("[data-nav-inicio]").addEventListener("click", voltarParaInicio);
   nav.querySelectorAll("[data-nav-modulo]").forEach((btn) =>
     btn.addEventListener("click", () => irParaModulo(btn.getAttribute("data-nav-modulo")))
@@ -1240,6 +1335,7 @@ $("admin-nav-mobile").addEventListener("change", (e) => {
 });
 
 function irParaModulo(id) {
+  verificarNovaVersao();
   moduloAtivo = id;
   const metaArea = MODULOS.find((m) => m.id === id);
   if (metaArea && areaAtiva !== "Geral" && metaArea.grupo !== areaAtiva) areaAtiva = metaArea.grupo;
