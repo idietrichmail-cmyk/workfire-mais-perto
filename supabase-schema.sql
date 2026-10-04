@@ -1080,3 +1080,12 @@ alter table instrutores
 --   Módulo "itens_custo" no MODULOS (grupo Cadastros Básicos).
 
 -- migração itens_custo_opcional (aplicada em 04/10/2026): itens_custo.opcional boolean not null default false.
+
+-- migração treinamento_itens_custo (aplicada em 04/10/2026):
+--   treinamento_itens_custo (id, tipo_treinamento_id -> tipos_treinamento on delete cascade,
+--   item_custo_id -> itens_custo restrict, divisor numeric(14,4) > 0, unidade_divisor_id -> unidades_medida restrict,
+--   multiplo numeric(14,4) > 0 default 1); único por (tipo_treinamento_id, item_custo_id). RLS com pode_acessar_tabela;
+--   mapa: ('tipos_treinamento','treinamento_itens_custo','own'), ('tipos_treinamento','itens_custo','leitura'),
+--   ('tipos_treinamento','unidades_medida','leitura'). Seção "Itens de custo" no cadastro de Treinamentos.
+-- migração orcamentos_qtd_localidades (aplicada em 04/10/2026):
+--   orcamentos.qtd_localidades integer not null default 1 check (>= 1) — locais do cliente onde os alunos vão treinar.

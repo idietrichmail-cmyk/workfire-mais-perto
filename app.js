@@ -28,7 +28,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.23 · 04/10/2026";
+const APP_VERSAO = "Prod 1.24 · 04/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -319,6 +319,13 @@ async function carregarUsuariosSistemaRefGestores(forcar) {
 let materialRefTipos = [];
 let materialRefFornecedores = [];
 let itemCustoRefUnidades = [];
+// Itens de custo do treinamento (seção dentro do cadastro de Treinamentos)
+let treinoRefItensCusto = [];
+let treinoRefUnidades = [];
+let treinoContagemItensCusto = {};
+let treinoItensCustoForm = [];        // linhas exibidas no formulário
+let treinoItensCustoOriginais = [];   // linhas que já estavam gravadas (ao editar)
+let treinoItensSeq = 0;
 let materialContagemPorTipo = {};
 
 // Requisições de Compra
@@ -1949,11 +1956,24 @@ const CRUD_CONFIG = {
     descricao: "Treinamentos oferecidos e o consumo de dias na operação (teoria, prática ou ambos).",
     buscaPlaceholder: "Buscar por nome",
     ordenarPor: "nome",
+    painelLargo: true,
     carregarRefs: async () => {
-      const { data } = await supabase
-        .from("categorias_treinamento").select("id, codigo, descricao, status").order("codigo");
+      const [{ data }, { data: itens }, { data: unidades }, { data: contagem }] = await Promise.all([
+        supabase.from("categorias_treinamento").select("id, codigo, descricao, status").order("codigo"),
+        supabase.from("itens_custo").select("id, item, unidade_medida_id, valor, opcional, status").order("item"),
+        supabase.from("unidades_medida").select("id, sigla, descricao, status").order("sigla"),
+        supabase.from("treinamento_itens_custo").select("tipo_treinamento_id"),
+      ]);
       treinoRefCategorias = data || [];
+      treinoRefItensCusto = itens || [];
+      treinoRefUnidades = unidades || [];
+      treinoContagemItensCusto = {};
+      (contagem || []).forEach((r) => { treinoContagemItensCusto[r.tipo_treinamento_id] = (treinoContagemItensCusto[r.tipo_treinamento_id] || 0) + 1; });
     },
+    camposExtraHtml: () => htmlSecaoItensCustoTreinamento(),
+    aoMontarForm: (item) => iniciarSecaoItensCustoTreinamento(item),
+    validarForm: () => validarItensCustoTreinamento(),
+    aoSalvar: async (linha) => { await salvarItensCustoTreinamento(linha.id); },
     campos: [
       { id: "nome", label: "Nome do treinamento", obrigatorio: true },
       {
@@ -1983,6 +2003,7 @@ const CRUD_CONFIG = {
       i.dias_pratica && `🛠️ ${i.dias_pratica} dia(s) de prática`,
       i.dias_teoria_pratica && `📘🛠️ ${i.dias_teoria_pratica} dia(s) de teoria com prática`,
       i.alunos_por_instrutor && `👥 até ${i.alunos_por_instrutor} aluno(s) por instrutor`,
+      treinoContagemItensCusto[i.id] && `🧾 ${treinoContagemItensCusto[i.id]} item(ns) de custo`,
     ].filter(Boolean),
   },
   empresas_transporte: {
@@ -3186,6 +3207,14 @@ function montarBlocoPermissoes(cfg, item) {
   $("crud-campo-role").addEventListener("change", (e) => atualizarVisibilidadePermissoesPorRole(e.target.value));
 }
 
+// Formulários com seção de itens (ex.: Treinamentos) usam o painel lateral mais largo.
+function ajustarLarguraPainelCrud(cfg) {
+  const caixa = $("painel-crud-caixa");
+  if (!caixa) return;
+  caixa.classList.toggle("max-w-md", !cfg.painelLargo);
+  caixa.classList.toggle("max-w-3xl", !!cfg.painelLargo);
+}
+
 function abrirNovoCrud() {
   crudEditandoId = null;
   crudItemEmEdicao = null;
@@ -3193,6 +3222,7 @@ function abrirNovoCrud() {
   esconderErro("crud-form-erro");
   $("painel-crud-titulo").textContent = "Novo " + cfg.titulo.toLowerCase();
   $("btn-salvar-crud").textContent = "Cadastrar";
+  ajustarLarguraPainelCrud(cfg);
   $("crud-campos").innerHTML = cfg.campos.map((c) => renderCampoHtml(c, c.padrao)).join("")
     + (cfg.camposExtraHtml ? cfg.camposExtraHtml(null) : "");
   ligarBotoesAcaoCampos(cfg);
@@ -3209,6 +3239,7 @@ function abrirEdicaoCrud(id) {
   esconderErro("crud-form-erro");
   $("painel-crud-titulo").textContent = "Editar " + cfg.titulo.toLowerCase();
   $("btn-salvar-crud").textContent = "Salvar alterações";
+  ajustarLarguraPainelCrud(cfg);
   $("crud-campos").innerHTML = cfg.campos.map((c) => renderCampoHtml(c, item[c.id], item)).join("")
     + (cfg.camposExtraHtml ? cfg.camposExtraHtml(item) : "");
   ligarBotoesAcaoCampos(cfg);
@@ -4210,6 +4241,179 @@ async function salvarPermissoesForm(usuarioId) {
   }
 }
 
+
+// ===========================================================
+// Itens de custo do treinamento (dentro do cadastro de Treinamentos)
+// Cada linha: item de custo + divisor + unidade do divisor + múltiplo.
+// ===========================================================
+function htmlSecaoItensCustoTreinamento() {
+  return `
+  <div id="treino-itens-custo-bloco" class="pt-4 mt-2 border-t border-slate-200">
+    <div class="flex items-center justify-between mb-1">
+      <p class="text-xs font-medium text-slate-500 uppercase tracking-wide">Itens de custo do treinamento</p>
+      <button type="button" id="btn-treino-item-add" class="text-xs font-medium text-white bg-slate-900 hover:bg-slate-800 rounded-md px-3 py-1.5">+ Adicionar item</button>
+    </div>
+    <p class="text-[11px] text-slate-400 mb-3">Para cada item informe o divisor (ex.: 20) com a sua unidade (ex.: aluno) e o múltiplo.</p>
+    <div id="treino-itens-custo-lista" class="space-y-2"></div>
+  </div>`;
+}
+
+function novaLinhaItemCustoTreino(base = {}) {
+  return {
+    chave: `n${++treinoItensSeq}`,
+    id: base.id || null,
+    item_custo_id: base.item_custo_id || "",
+    divisor: base.divisor != null ? String(Number(base.divisor)) : "",
+    unidade_divisor_id: base.unidade_divisor_id || "",
+    multiplo: base.multiplo != null ? String(Number(base.multiplo)) : "1",
+  };
+}
+
+async function iniciarSecaoItensCustoTreinamento(item) {
+  treinoItensCustoForm = [];
+  treinoItensCustoOriginais = [];
+  const lista = $("treino-itens-custo-lista");
+  if (!lista) return;
+  $("btn-treino-item-add").addEventListener("click", () => {
+    treinoItensCustoForm.push(novaLinhaItemCustoTreino());
+    renderizarItensCustoTreinamento();
+  });
+  // um único conjunto de ouvintes (delegação) para alterações e remoções
+  lista.addEventListener("input", (ev) => {
+    const el = ev.target.closest("[data-treino-campo]");
+    const linhaEl = ev.target.closest("[data-treino-linha]");
+    if (!el || !linhaEl) return;
+    const l = treinoItensCustoForm.find((x) => x.chave === linhaEl.getAttribute("data-treino-linha"));
+    if (l) l[el.getAttribute("data-treino-campo")] = el.value;
+  });
+  lista.addEventListener("click", (ev) => {
+    const b = ev.target.closest("[data-treino-remover]");
+    if (!b) return;
+    treinoItensCustoForm = treinoItensCustoForm.filter((x) => x.chave !== b.getAttribute("data-treino-remover"));
+    renderizarItensCustoTreinamento();
+  });
+  if (item && item.id) {
+    lista.innerHTML = `<p class="text-xs text-slate-400">Carregando itens de custo…</p>`;
+    const { data, error } = await supabase.from("treinamento_itens_custo").select("*").eq("tipo_treinamento_id", item.id).order("created_at").order("id");
+    if (error) {
+      lista.innerHTML = `<p class="text-xs text-rose-600">Não foi possível carregar os itens de custo deste treinamento.</p>`;
+      return;
+    }
+    treinoItensCustoOriginais = data || [];
+    treinoItensCustoForm = treinoItensCustoOriginais.map((r) => novaLinhaItemCustoTreino(r));
+  }
+  renderizarItensCustoTreinamento();
+}
+
+function renderizarItensCustoTreinamento() {
+  const lista = $("treino-itens-custo-lista");
+  if (!lista) return;
+  if (treinoItensCustoForm.length === 0) {
+    lista.innerHTML = `<p class="text-xs text-slate-400 border border-dashed border-slate-300 rounded-md px-3 py-4 text-center">Nenhum item de custo cadastrado para este treinamento.</p>`;
+    return;
+  }
+  const classeCampo = "mt-0.5 w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500";
+  const rotulo = "text-[10px] font-medium text-slate-500 uppercase tracking-wide";
+  const opcoesItens = (sel) => `<option value="">— Selecione —</option>` + treinoRefItensCusto
+    .filter((i) => i.status === "Ativo" || i.id === sel)
+    .map((i) => {
+      const u = treinoRefUnidades.find((x) => x.id === i.unidade_medida_id);
+      return `<option value="${i.id}" ${i.id === sel ? "selected" : ""}>${i.item}${u ? ` (${u.sigla})` : ""}${i.opcional ? " · opcional" : ""}${i.status === "Inativo" ? " · inativo" : ""}</option>`;
+    }).join("");
+  const opcoesUnidades = (sel) => `<option value="">— Selecione —</option>` + treinoRefUnidades
+    .filter((u) => u.status === "Ativo" || u.id === sel)
+    .map((u) => `<option value="${u.id}" ${u.id === sel ? "selected" : ""}>${u.sigla} — ${u.descricao}${u.status === "Inativo" ? " (inativa)" : ""}</option>`).join("");
+  lista.innerHTML = treinoItensCustoForm.map((l) => `
+    <div data-treino-linha="${l.chave}" class="grid grid-cols-12 gap-2 items-end border border-slate-200 rounded-md p-2.5 bg-slate-50">
+      <div class="col-span-12 sm:col-span-4">
+        <label class="${rotulo}">Item de custo</label>
+        <select data-treino-campo="item_custo_id" class="${classeCampo}">${opcoesItens(l.item_custo_id)}</select>
+      </div>
+      <div class="col-span-4 sm:col-span-2">
+        <label class="${rotulo}">Divisor</label>
+        <input data-treino-campo="divisor" type="number" min="0" step="any" value="${l.divisor}" class="${classeCampo}" />
+      </div>
+      <div class="col-span-8 sm:col-span-3">
+        <label class="${rotulo}">Unidade do divisor</label>
+        <select data-treino-campo="unidade_divisor_id" class="${classeCampo}">${opcoesUnidades(l.unidade_divisor_id)}</select>
+      </div>
+      <div class="col-span-8 sm:col-span-2">
+        <label class="${rotulo}">Múltiplo</label>
+        <input data-treino-campo="multiplo" type="number" min="0" step="any" value="${l.multiplo}" class="${classeCampo}" />
+      </div>
+      <div class="col-span-4 sm:col-span-1 text-right">
+        <button type="button" data-treino-remover="${l.chave}" title="Remover item" class="text-rose-500 hover:text-rose-700 px-2 py-1.5">🗑️</button>
+      </div>
+    </div>`).join("");
+}
+
+function validarItensCustoTreinamento() {
+  const vistos = new Set();
+  for (let i = 0; i < treinoItensCustoForm.length; i++) {
+    const l = treinoItensCustoForm[i];
+    const n = `Item de custo ${i + 1}`;
+    if (!l.item_custo_id) return `${n}: selecione o item de custo (ou remova a linha).`;
+    if (vistos.has(l.item_custo_id)) {
+      const nome = (treinoRefItensCusto.find((x) => x.id === l.item_custo_id) || {}).item || "";
+      return `${n}: o item "${nome}" já foi adicionado a este treinamento.`;
+    }
+    vistos.add(l.item_custo_id);
+    if (!(Number(l.divisor) > 0)) return `${n}: informe o divisor (maior que zero).`;
+    if (!l.unidade_divisor_id) return `${n}: selecione a unidade do divisor.`;
+    if (!(Number(l.multiplo) > 0)) return `${n}: informe o múltiplo (maior que zero).`;
+  }
+  return null;
+}
+
+// Grava só o que mudou: remove as linhas retiradas, atualiza as alteradas e inclui as novas.
+async function salvarItensCustoTreinamento(tipoTreinamentoId) {
+  const falha = (e) => Object.assign(new Error(e?.message || "erro"), { mensagemUsuario: `Treinamento salvo, mas os itens de custo não foram gravados: ${e?.message || "erro desconhecido"}. Tente novamente pela edição.` });
+  const linhas = treinoItensCustoForm.map((l) => ({
+    tipo_treinamento_id: tipoTreinamentoId,
+    item_custo_id: l.item_custo_id,
+    divisor: Number(l.divisor),
+    unidade_divisor_id: l.unidade_divisor_id,
+    multiplo: Number(l.multiplo),
+  }));
+  const substituirTudo = async () => {
+    const { error: eDel } = await supabase.from("treinamento_itens_custo").delete().eq("tipo_treinamento_id", tipoTreinamentoId);
+    if (eDel) throw eDel;
+    if (linhas.length) {
+      const { error: eIns } = await supabase.from("treinamento_itens_custo").insert(linhas);
+      if (eIns) throw eIns;
+    }
+  };
+  try {
+    const mantidos = new Set(treinoItensCustoForm.filter((l) => l.id).map((l) => l.id));
+    const removidos = treinoItensCustoOriginais.filter((o) => !mantidos.has(o.id)).map((o) => o.id);
+    if (removidos.length) {
+      const { error } = await supabase.from("treinamento_itens_custo").delete().in("id", removidos);
+      if (error) throw error;
+    }
+    for (const l of treinoItensCustoForm.filter((x) => x.id)) {
+      const ori = treinoItensCustoOriginais.find((o) => o.id === l.id);
+      const novo = linhas[treinoItensCustoForm.indexOf(l)];
+      const igual = ori && ori.item_custo_id === novo.item_custo_id && ori.unidade_divisor_id === novo.unidade_divisor_id
+        && Number(ori.divisor) === novo.divisor && Number(ori.multiplo) === novo.multiplo;
+      if (igual) continue;
+      const { error } = await supabase.from("treinamento_itens_custo").update({
+        item_custo_id: novo.item_custo_id, divisor: novo.divisor, unidade_divisor_id: novo.unidade_divisor_id, multiplo: novo.multiplo,
+      }).eq("id", l.id);
+      if (error) {
+        if (error.code === "23505") { await substituirTudo(); return; } // troca de itens entre linhas: regrava tudo
+        throw error;
+      }
+    }
+    const novas = treinoItensCustoForm.map((l, idx) => ({ l, row: linhas[idx] })).filter((x) => !x.l.id).map((x) => x.row);
+    if (novas.length) {
+      const { error } = await supabase.from("treinamento_itens_custo").insert(novas);
+      if (error) throw error;
+    }
+  } catch (e) {
+    throw falha(e);
+  }
+}
+
 async function salvarCrud() {
   esconderErro("crud-form-erro");
   const cfg = CRUD_CONFIG[crudModuloId];
@@ -4229,6 +4433,11 @@ async function salvarCrud() {
     else if (campo.tipo === "date") valor = valor === "" ? null : valor;
     else if (campo.tipo === "select" && valor === "") valor = null;
     payload[campo.id] = valor;
+  }
+
+  if (cfg.validarForm) {
+    const msgForm = cfg.validarForm();
+    if (msgForm) return mostrarErro("crud-form-erro", msgForm);
   }
 
   if (cfg.ajustarPayload) await cfg.ajustarPayload(payload);
@@ -4268,7 +4477,7 @@ async function salvarCrud() {
     } catch (e) {
       $("btn-salvar-crud").disabled = false;
       $("btn-salvar-crud").textContent = crudEditandoId ? "Salvar alterações" : "Cadastrar";
-      return mostrarErro("crud-form-erro", "Registro salvo, mas houve falha ao enviar o arquivo. Tente novamente pela edição.");
+      return mostrarErro("crud-form-erro", (e && e.mensagemUsuario) || "Registro salvo, mas houve falha ao enviar o arquivo. Tente novamente pela edição.");
     }
   }
 
@@ -5158,6 +5367,7 @@ function renderizarListaOrcamentos() {
       <td class="px-3 py-2"><span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${corStatus[o.status] || ""}">${o.status}</span></td>
       <td class="px-3 py-2 text-slate-500">${o.qtd_turmas || 0}</td>
       <td class="px-3 py-2 text-slate-500">${o.qtd_alunos || 0}</td>
+      <td class="px-3 py-2 text-slate-500">${o.qtd_localidades || 1}</td>
       <td class="px-3 py-2 text-slate-500">${o.data || "—"}</td>
       <td class="px-3 py-2 text-right whitespace-nowrap">
         ${podeAlterar ? `<button data-orc-editar="${o.id}" title="Editar orçamento" class="text-slate-500 hover:text-slate-800 px-2 py-1">✏️</button>` : ""}
@@ -5210,6 +5420,7 @@ function abrirNovoOrcamento() {
   preencherSelect("orc-formato-teoria", FORMATOS_TEORIA.map((f) => ({ id: f, nome: f })), "id", (i) => i.nome, "— Selecione —");
   preencherSelect("orc-formato-pratica", FORMATOS_PRATICA.map((f) => ({ id: f, nome: f })), "id", (i) => i.nome, "— Selecione —");
   $("orc-qtd-turmas").value = "1";
+  $("orc-qtd-localidades").value = "1";
   $("orc-qtd-alunos-turma").value = "";
   atualizarQtdAlunosCalculado();
   $("orc-data").value = formatarData(new Date());
@@ -5251,6 +5462,7 @@ async function abrirEdicaoOrcamento(id) {
   preencherSelect("orc-formato-pratica", FORMATOS_PRATICA.map((f) => ({ id: f, nome: f })), "id", (i) => i.nome, "— Selecione —");
   $("orc-formato-pratica").value = o.formato_pratica || "";
   $("orc-qtd-turmas").value = o.qtd_turmas || "";
+  $("orc-qtd-localidades").value = o.qtd_localidades || 1;
   $("orc-qtd-alunos-turma").value = o.qtd_alunos_por_turma || "";
   atualizarQtdAlunosCalculado();
   $("orc-data").value = o.data || "";
@@ -5357,11 +5569,13 @@ async function salvarOrcamento() {
   const centroId = $("orc-centro").value;
   const tipoId = $("orc-tipo").value;
   const qtdTurmas = Number($("orc-qtd-turmas").value) || 0;
+  const qtdLocalidades = Math.floor(Number($("orc-qtd-localidades").value) || 0);
   if (!numero) return mostrarErro("orc-form-erro", "Informe o número do orçamento.");
   if (!empresaId) return mostrarErro("orc-form-erro", "Selecione a empresa.");
   if (!centroId) return mostrarErro("orc-form-erro", "Selecione o centro de treinamento.");
   if (!tipoId) return mostrarErro("orc-form-erro", "Selecione o treinamento.");
   if (qtdTurmas < 1) return mostrarErro("orc-form-erro", "Informe a quantidade de turmas (mínimo 1).");
+  if (qtdLocalidades < 1) return mostrarErro("orc-form-erro", "Informe a quantidade de localidades do cliente onde os alunos vão treinar (mínimo 1).");
 
   const teoriaInCompany = $("orc-formato-teoria").value === "InCompany";
   const praticaInCompany = $("orc-formato-pratica").value === "InCompany";
@@ -5411,6 +5625,7 @@ async function salvarOrcamento() {
     formato_teoria: $("orc-formato-teoria").value || null,
     formato_pratica: $("orc-formato-pratica").value || null,
     qtd_turmas: qtdTurmas,
+    qtd_localidades: qtdLocalidades,
     qtd_alunos_por_turma: qtdAlunosPorTurma || null,
     qtd_alunos: qtdTurmas * qtdAlunosPorTurma,
     necessita_dois_instrutores: $("orc-dois-instrutores").checked,
@@ -6261,7 +6476,7 @@ $("turma-orcamento-select").addEventListener("change", () => {
     <p><strong>Empresa:</strong> ${o.empresas?.nome || "—"}</p>
     <p><strong>Treinamento:</strong> ${o.tipos_treinamento?.nome || "—"}</p>
     <p><strong>Status do orçamento:</strong> ${o.status}</p>
-    <p><strong>Previsto:</strong> ${o.qtd_turmas || 0} turma(s) · ${o.qtd_alunos || 0} aluno(s) · ${o.qtd_alunos_por_turma || 0} aluno(s)/turma</p>
+    <p><strong>Previsto:</strong> ${o.qtd_turmas || 0} turma(s) · ${o.qtd_alunos || 0} aluno(s) · ${o.qtd_alunos_por_turma || 0} aluno(s)/turma · ${o.qtd_localidades || 1} localidade(s)</p>
   `;
   $("turma-conteudo").classList.remove("hidden");
   $("btn-turma-novo").classList.toggle("hidden", !podeFazer("turmas", "incluir"));

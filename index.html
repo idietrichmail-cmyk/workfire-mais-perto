@@ -531,6 +531,7 @@
                 <th class="px-3 py-2 font-medium">Status</th>
                 <th class="px-3 py-2 font-medium">Turmas</th>
                 <th class="px-3 py-2 font-medium">Alunos</th>
+                <th class="px-3 py-2 font-medium" title="Quantidade de localidades do cliente onde os alunos vão treinar">Localid.</th>
                 <th class="px-3 py-2 font-medium">Data</th>
                 <th class="px-3 py-2 font-medium"></th>
               </tr>
@@ -1278,7 +1279,7 @@
   <!-- Painel genérico: Empresas / Centros de Treinamento / Tipos de Treinamento / Usuários do Sistema -->
   <div id="painel-crud" class="hidden fixed inset-0 z-50 flex justify-end">
     <div id="painel-crud-overlay" class="absolute inset-0 bg-slate-900/40"></div>
-    <div class="relative w-full max-w-md bg-white h-full shadow-xl px-6 py-6 overflow-y-auto">
+    <div id="painel-crud-caixa" class="relative w-full max-w-md bg-white h-full shadow-xl px-6 py-6 overflow-y-auto">
       <div class="flex items-center justify-between mb-6">
         <h2 id="painel-crud-titulo" class="font-serif text-xl text-slate-900">Novo</h2>
         <button id="btn-fechar-painel-crud" class="text-slate-400 hover:text-slate-700 text-xl">×</button>
@@ -1503,7 +1504,7 @@
           <p id="orc-pra-geo-status" class="text-[11px] text-slate-400"></p>
         </div>
 
-        <div class="grid grid-cols-3 gap-3">
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <div>
             <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Qtde de turmas</label>
             <input id="orc-qtd-turmas" type="number" min="1" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
@@ -1516,6 +1517,11 @@
             <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Qtde de alunos</label>
             <input id="orc-qtd-alunos" type="number" readonly class="mt-1 w-full rounded-md border border-slate-300 bg-slate-100 text-slate-500 px-3 py-2 text-sm" />
             <p class="text-[11px] text-slate-400 mt-1">Calculado: turmas × alunos por turma</p>
+          </div>
+          <div>
+            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Localidades</label>
+            <input id="orc-qtd-localidades" type="number" min="1" step="1" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
+            <p class="text-[11px] text-slate-400 mt-1">Locais do cliente onde os alunos vão treinar</p>
           </div>
         </div>
         <label class="flex items-center gap-2 text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-md px-3 py-2">
@@ -1995,6 +2001,6 @@
 </div>
 
 <script src="config.js"></script>
-<script src="app.js?v=20261004m"></script>
+<script src="app.js?v=20261004n"></script>
 </body>
 </html>
