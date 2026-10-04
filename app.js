@@ -28,7 +28,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.14 · 04/10/2026";
+const APP_VERSAO = "Prod 1.15 · 04/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 const diasSemana = ["D", "S", "T", "Q", "Q", "S", "S"];
@@ -272,7 +272,7 @@ let agDataForcada = null; // data que deve ficar selecionável mesmo fora da dis
 
 let listaOrcamentos = [];
 let editandoOrcamentoId = null;
-let orcFiltroStatus = new Set(["Aberto", "Aprovado", "Recusado", "Cancelado", "Concluído"]);
+let orcFiltroStatus = new Set(["Aberto", "Aprovado", "Aprovado e Agendado", "Aprovado e Confirmado", "Aberto e Pré-Agendado", "Aberto e Pré-Confirmado", "Recusado", "Concluído"]);
 // Controlam se o horário de início (teoria/prática) já foi digitado manualmente pelo
 // usuário — enquanto não for, trocar o formato continua atualizando o valor padrão.
 let orcHorarioTeoriaEditadoManualmente = false;
@@ -309,7 +309,7 @@ let turmaFiltroDataAte = "";
 const FORMATOS_TEORIA = ["CT", "InCompany", "EAD", "EAD Síncrono", "Móvel"];
 const FORMATOS_PRATICA = ["CT", "InCompany", "Móvel"];
 const AGENDA_STATUS = ["A agendar", "Agendado", "Aguardando confirmação", "Não aplicável"];
-const ORCAMENTO_STATUS = ["Aberto", "Aprovado", "Recusado", "Cancelado", "Concluído"];
+const ORCAMENTO_STATUS = ["Aberto", "Aprovado", "Aprovado e Agendado", "Aprovado e Confirmado", "Aberto e Pré-Agendado", "Aberto e Pré-Confirmado", "Recusado", "Concluído"];
 
 const AREAS = ["Geral", "Cadastros Básicos", "Comercial", "Compras", "Logística", "Operações", "Financeiro"];
 
@@ -4922,7 +4922,7 @@ async function consultarPaginaOrcamentos() {
       .select("*, empresas(nome), centros_treinamento(nome), tipos_treinamento(nome)", { count: "exact" })
       .in("status", [...orcFiltroStatus]);
     if (filtroOr) q = q.or(filtroOr);
-    return q.order("created_at", { ascending: false }).order("id");
+    return q.order("data", { ascending: false }).order("created_at", { ascending: false }).order("id");
   };
   const tam = ORC_TAMANHO_PAGINA;
   let resp = await montar().range((orcPagina - 1) * tam, orcPagina * tam - 1);
@@ -4976,7 +4976,16 @@ function renderizarListaOrcamentos() {
     cont.innerHTML = `<tr><td colspan="9" class="text-center text-slate-500 text-sm py-16">Nenhum orçamento encontrado.</td></tr>`;
     return;
   }
-  const corStatus = { Aberto: "bg-amber-50 text-amber-700", Aprovado: "bg-teal-50 text-teal-700", Recusado: "bg-rose-50 text-rose-600", Cancelado: "bg-slate-100 text-slate-500", "Concluído": "bg-blue-50 text-blue-700" };
+  const corStatus = {
+    Aberto: "bg-amber-50 text-amber-700",
+    "Aberto e Pré-Agendado": "bg-yellow-50 text-yellow-700",
+    "Aberto e Pré-Confirmado": "bg-orange-50 text-orange-700",
+    Aprovado: "bg-teal-50 text-teal-700",
+    "Aprovado e Agendado": "bg-sky-50 text-sky-700",
+    "Aprovado e Confirmado": "bg-emerald-50 text-emerald-700",
+    Recusado: "bg-rose-50 text-rose-600",
+    "Concluído": "bg-blue-50 text-blue-700",
+  };
   cont.innerHTML = lista.map((o) => `
     <tr class="hover:bg-slate-50">
       <td class="px-3 py-2 font-mono text-slate-700 cursor-pointer select-none" data-orc-numero="${o.id}" title="Dois cliques para editar">${o.numero}</td>
@@ -5400,9 +5409,11 @@ async function gerarTurmasParaOrcamento(orcamento, qtdTurmas) {
 // ===========================================================
 // Colunas esperadas (por posição): A número · B empresa (CNPJ/CPF) · C centro · D treinamento ·
 // E formato teoria · F formato prática · G horário teoria · H horário prática · I qtde turmas ·
-// J alunos por turma (fórmula, recalculada aqui) · K qtde alunos · L contato · M telefone · N e-mail.
+// J alunos por turma (fórmula, recalculada aqui) · K qtde alunos · L contato · M telefone · N e-mail ·
+// O data de criação · P validade · Q status.
 let importacaoOrcPendente = null;
 let importacaoOrcRelatorio = null;
+let importacaoOrcAtualizacoes = [];
 
 function painelImportacaoOrc(html) {
   const el = $("orc-importacao-painel");
@@ -5432,17 +5443,37 @@ function formatoImportOrc(v, permitidos) {
   const achado = permitidos.find((f) => normalizarNomeImportOrc(f).replace(/\s+/g, "") === t);
   return achado ? { valor: achado } : { erro: `formato "${textoCelulaImport(v)}" desconhecido` };
 }
+// Data da planilha (Date do Excel, número de série ou texto dd/mm/aaaa) → "aaaa-mm-dd".
+function dataCelulaImportOrc(v) {
+  if (v == null || v === "") return null;
+  const dois = (n) => String(n).padStart(2, "0");
+  if (v instanceof Date && !isNaN(v)) return `${v.getUTCFullYear()}-${dois(v.getUTCMonth() + 1)}-${dois(v.getUTCDate())}`;
+  if (typeof v === "number" && v > 20000) return dataCelulaImportOrc(new Date(Math.round((v - 25569) * 86400000)));
+  const t = String(v).trim();
+  let m = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (m) return `${m[3]}-${dois(m[2])}-${dois(m[1])}`;
+  m = t.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? `${m[1]}-${m[2]}-${m[3]}` : null;
+}
+// Status da planilha (ex.: "APROVADO E AGENDADO", "CONCLUIDO") → status do sistema.
+function statusImportOrc(v) {
+  const chave = (s) => normalizarNomeImportOrc(s).replace(/[-_]/g, " ").replace(/\s+/g, " ");
+  const t = chave(v);
+  return ORCAMENTO_STATUS.find((s) => chave(s) === t) || null;
+}
 function numeroCelulaImportOrc(v) {
   if (typeof v === "number") return v;
   const n = Number(String(v == null ? "" : v).replace(/\./g, "").replace(",", "."));
   return Number.isFinite(n) ? n : NaN;
 }
 
-// Aplica as regras linha a linha. ctx = { empresasPorDoc, centros, tipos, numerosExistentes }.
-// Devolve { validos, problemas, resumo }; problemas = [{ linha, numero, motivo, tipo: "erro"|"existente"|"repetido" }].
+// Aplica as regras linha a linha. ctx = { empresasPorDoc, centros, tipos, numerosExistentes (Map número → id) }.
+// Devolve { validos, atualizacoes, problemas, resumo }; atualizacoes = orçamentos já existentes com o
+// status/data/validade da planilha; problemas = [{ linha, numero, motivo, tipo: "erro"|"existente"|"repetido" }].
 function prepararOrcamentosPlanilha(linhas, ctx) {
   const resumo = { total: 0, vazias: 0, validos: 0, existentes: 0, repetidos: 0, erros: 0 };
   const validos = [];
+  const atualizacoes = [];
   const problemas = [];
   const vistos = new Set();
   const centrosPorNome = new Map(ctx.centros.map((c) => [normalizarNomeImportOrc(c.nome), c]));
@@ -5457,7 +5488,17 @@ function prepararOrcamentosPlanilha(linhas, ctx) {
     if (!numero) return erro("sem número do orçamento");
     if (vistos.has(numero)) { resumo.repetidos++; problemas.push({ linha, numero, motivo: "número repetido na planilha", tipo: "repetido" }); return; }
     vistos.add(numero);
-    if (ctx.numerosExistentes.has(numero)) { resumo.existentes++; problemas.push({ linha, numero, motivo: "já existe no sistema (não alterado)", tipo: "existente" }); return; }
+    const dataOrc = dataCelulaImportOrc(r[14]);
+    const validade = dataCelulaImportOrc(r[15]);
+    const status = statusImportOrc(r[16]);
+    if (ctx.numerosExistentes.has(numero)) {
+      resumo.existentes++;
+      problemas.push({ linha, numero, motivo: "já existe no sistema", tipo: "existente" });
+      if (dataOrc && status) atualizacoes.push({ id: ctx.numerosExistentes.get(numero), numero, data: dataOrc, validade, status });
+      return;
+    }
+    if (!dataOrc) return erro(`data de criação inválida ("${textoCelulaImport(r[14])}")`);
+    if (!status) return erro(`status "${textoCelulaImport(r[16])}" não reconhecido`);
 
     let doc = textoCelulaImport(r[1]).replace(/\D/g, "");
     if (!doc) return erro("sem empresa (CNPJ)");
@@ -5512,9 +5553,9 @@ function prepararOrcamentosPlanilha(linhas, ctx) {
         qtd_alunos_por_turma: porTurma,
         qtd_alunos: qtdAlunos,
         necessita_dois_instrutores: capacidade > 0 && (porTurma || 0) > capacidade,
-        data: null, // preenchida na hora de importar (coluna obrigatória; a planilha não traz data)
-        validade: null,
-        status: "Aberto",
+        data: dataOrc,
+        validade,
+        status,
         observacoes: "",
         contato_nome: textoCelulaImport(r[11]) || null,
         contato_telefone: textoCelulaImport(r[12]) || null,
@@ -5528,7 +5569,7 @@ function prepararOrcamentosPlanilha(linhas, ctx) {
     });
   });
   resumo.validos = validos.length;
-  return { validos, problemas, resumo };
+  return { validos, atualizacoes, problemas, resumo };
 }
 
 async function lerPlanilhaOrcamentos(arquivo) {
@@ -5553,9 +5594,10 @@ async function lerPlanilhaOrcamentos(arquivo) {
     if (e1 || e2) throw new Error((e1 || e2).message);
     const empresasPorDoc = new Map();
     (empresas || []).forEach((e) => { const d = (e.cnpj || "").replace(/\D/g, ""); if (d) empresasPorDoc.set(d, e); });
-    const numerosExistentes = new Set((orcsExistentes || []).map((o) => String(o.numero)));
-    const { validos, problemas, resumo } = prepararOrcamentosPlanilha(linhas, { empresasPorDoc, centros: centros || [], tipos: tipos || [], numerosExistentes });
+    const numerosExistentes = new Map((orcsExistentes || []).map((o) => [String(o.numero), o.id]));
+    const { validos, atualizacoes, problemas, resumo } = prepararOrcamentosPlanilha(linhas, { empresasPorDoc, centros: centros || [], tipos: tipos || [], numerosExistentes });
     importacaoOrcPendente = validos;
+    importacaoOrcAtualizacoes = atualizacoes;
     importacaoOrcRelatorio = problemas;
     listaTiposAtivos = tipos || listaTiposAtivos;
 
@@ -5567,21 +5609,22 @@ async function lerPlanilhaOrcamentos(arquivo) {
       <p class="font-medium text-slate-800 mb-2">Conferência da planilha (${resumo.total} orçamentos${resumo.vazias ? `; ${resumo.vazias} linhas em branco ignoradas` : ""})</p>
       <ul class="text-xs text-slate-600 space-y-0.5 mb-3">
         <li>✅ Prontos para importar: <strong>${resumo.validos}</strong> (${totalTurmas.toLocaleString("pt-BR")} turmas no total, em ${linhasDiaEstimadas.toLocaleString("pt-BR")} linhas de turma/dia)</li>
-        <li>⏭️ Já existem no sistema (serão mantidos como estão, sem alteração): <strong>${resumo.existentes}</strong></li>
+        <li>⏭️ Já existem no sistema: <strong>${resumo.existentes}</strong> (não são recriados; veja a opção abaixo)</li>
         <li>⛔ Com erro (não serão importados): <strong>${resumo.erros}</strong>${resumo.repetidos ? ` · repetidos na planilha: ${resumo.repetidos}` : ""}</li>
       </ul>
       ${erros.length ? `<div class="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-md px-3 py-2 mb-3 max-h-40 overflow-y-auto">${erros.slice(0, 50).map((p) => `Linha ${p.linha}${p.numero ? ` (orç. ${p.numero})` : ""}: ${p.motivo}`).join("<br>")}${erros.length > 50 ? `<br>… e mais ${erros.length - 50} (veja o relatório)` : ""}</div>` : ""}
-      <p class="text-xs text-slate-500 mb-3">Os orçamentos entram com status <strong>Aberto</strong>, com o contato da planilha e o endereço in-company igual ao da empresa.</p>
+      <p class="text-xs text-slate-500 mb-3">Os orçamentos entram com a data de criação, a validade e o status da planilha, com o contato da planilha e o endereço in-company igual ao da empresa.</p>
+      ${resumo.existentes ? `<label class="flex items-start gap-2 text-xs text-slate-700 mb-3">
+        <input id="orc-imp-atualizar-existentes" type="checkbox" checked class="mt-0.5 rounded border-slate-300" />
+        <span>Atualizar também a <strong>data, a validade e o status</strong> dos ${atualizacoes.length} orçamento(s) que já existem no sistema, com os valores da planilha (nenhum outro campo e nenhuma turma é alterado). Desmarque para deixá-los exatamente como estão.</span>
+      </label>` : ""}
       <label class="flex items-start gap-2 text-xs text-slate-700 mb-3">
         <input id="orc-imp-gerar-turmas" type="checkbox" checked class="mt-0.5 rounded border-slate-300" />
         <span>Gerar também as turmas de cada orçamento (como no cadastro manual). Desmarque para importar só os orçamentos. Com as turmas, a importação leva alguns minutos — mantenha esta página aberta até terminar.</span>
       </label>
-      <label class="flex items-center gap-2 text-xs text-slate-700 mb-3">
-        Data do orçamento (a planilha não traz data):
-        <input id="orc-imp-data" type="date" value="${formatarData(new Date())}" class="rounded-md border border-slate-300 px-2 py-1 text-xs" />
-      </label>
+
       <div class="flex flex-wrap gap-2">
-        <button id="btn-orc-imp-confirmar" class="text-xs font-medium text-white bg-teal-600 hover:bg-teal-700 rounded-md px-4 py-2" ${validos.length ? "" : "disabled"}>Importar ${resumo.validos} orçamento(s)</button>
+        <button id="btn-orc-imp-confirmar" class="text-xs font-medium text-white bg-teal-600 hover:bg-teal-700 rounded-md px-4 py-2" ${validos.length || atualizacoes.length ? "" : "disabled"}>${validos.length ? `Importar ${resumo.validos} orçamento(s)` : "Aplicar atualizações"}</button>
         <button id="btn-orc-imp-relatorio" class="text-xs font-medium text-slate-600 border border-slate-300 rounded-md px-4 py-2" ${problemas.length ? "" : "disabled"}>Baixar relatório de pendências (.xlsx)</button>
         <button id="btn-orc-imp-cancelar" class="text-xs font-medium text-slate-600 border border-slate-300 rounded-md px-4 py-2">Cancelar</button>
       </div>`);
@@ -5652,13 +5695,14 @@ async function gerarTurmasEmLoteImportOrc(orcamentos) {
 }
 
 async function executarImportacaoOrcamentos() {
-  const lista = importacaoOrcPendente;
-  if (!lista || lista.length === 0) return;
+  const lista = importacaoOrcPendente || [];
+  const atualizar = !!$("orc-imp-atualizar-existentes")?.checked;
+  const atualizacoes = atualizar ? (importacaoOrcAtualizacoes || []) : [];
+  if (lista.length === 0 && atualizacoes.length === 0) return;
   const gerarTurmas = !!$("orc-imp-gerar-turmas")?.checked;
-  const dataOrc = $("orc-imp-data")?.value || formatarData(new Date());
-  lista.forEach((v) => { v.payload.data = dataOrc; });
   importacaoOrcPendente = null;
   const falhas = [];
+  let atualizados = 0;
   let gravados = 0;
   let turmasGeradas = 0;
   const tam = 100;
@@ -5685,11 +5729,22 @@ async function executarImportacaoOrcamentos() {
       r.falhas.forEach((f) => falhas.push(f));
     }
   }
+  // orçamentos que já existiam: aplica data, validade e status da planilha
+  for (const u of atualizacoes) {
+    painelImportacaoOrc(`<p class="text-slate-700">Orçamentos gravados: <strong>${gravados}</strong> · atualizando orçamentos já existentes… ${atualizados} de ${atualizacoes.length}</p>`);
+    const { error } = await supabase.from("orcamentos").update({ data: u.data, validade: u.validade, status: u.status }).eq("id", u.id);
+    if (error) falhas.push({ linha: "", numero: u.numero, motivo: `não foi possível atualizar: ${error.message}`, tipo: "erro" });
+    else {
+      atualizados++;
+      const p = (importacaoOrcRelatorio || []).find((x) => x.tipo === "existente" && x.numero === u.numero);
+      if (p) p.motivo = "já existia — data, validade e status atualizados";
+    }
+  }
   importacaoOrcRelatorio = (importacaoOrcRelatorio || []).concat(falhas);
   orcPagina = 1;
   await carregarPaginaOrcamentos();
   painelImportacaoOrc(`
-    <p class="text-teal-700 font-medium mb-2">✅ ${gravados} orçamento(s) importados${gerarTurmas ? `, com turmas geradas em ${turmasGeradas}` : ""}.</p>
+    <p class="text-teal-700 font-medium mb-2">✅ ${gravados} orçamento(s) importados${gerarTurmas ? `, com ${turmasGeradas.toLocaleString("pt-BR")} turmas geradas` : ""}${atualizados ? ` · ${atualizados} já existente(s) atualizados` : ""}.</p>
     ${falhas.length ? `<p class="text-xs text-rose-700 mb-2">${falhas.length} item(ns) com falha: ${falhas.slice(0, 5).map((f) => `${f.numero} (${f.motivo})`).join("; ")}${falhas.length > 5 ? "…" : ""}</p>` : ""}
     <div class="flex gap-2">
       <button id="btn-orc-imp-relatorio2" class="text-xs font-medium text-slate-600 border border-slate-300 rounded-md px-4 py-2">Baixar relatório de pendências (.xlsx)</button>
