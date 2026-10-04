@@ -28,7 +28,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.16 · 04/10/2026";
+const APP_VERSAO = "Prod 1.17 · 04/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 const diasSemana = ["D", "S", "T", "Q", "Q", "S", "S"];
@@ -5329,9 +5329,9 @@ $("btn-salvar-orcamento").addEventListener("click", salvarOrcamento);
 // A1,A2,A3 teoria / A4,A5 prática / A6 teoria com prática, e o mesmo para B.
 function montarTurmasOrcamento(orcamento, qtdTurmas) {
   const tipo = listaTiposAtivos.find((t) => t.id === orcamento.tipo_treinamento_id);
-  const diasTeoria = tipo ? Number(tipo.dias_teoria) || 0 : 0;
-  const diasPratica = tipo ? Number(tipo.dias_pratica) || 0 : 0;
-  const diasTeoriaPratica = tipo ? Number(tipo.dias_teoria_pratica) || 0 : 0;
+  const diasTeoria = tipo ? Math.max(0, Math.floor(Number(tipo.dias_teoria) || 0)) : 0;
+  const diasPratica = tipo ? Math.max(0, Math.floor(Number(tipo.dias_pratica) || 0)) : 0;
+  const diasTeoriaPratica = tipo ? Math.max(0, Math.floor(Number(tipo.dias_teoria_pratica) || 0)) : 0;
   const diasTotais = diasTeoria + diasPratica + diasTeoriaPratica;
 
   const sequenciaDias = [
@@ -5619,7 +5619,7 @@ async function lerPlanilhaOrcamentos(arquivo) {
 
     const erros = problemas.filter((p) => p.tipo === "erro");
     const totalTurmas = validos.reduce((s, v) => s + v.payload.qtd_turmas, 0);
-    const diasDoTipo = (id) => { const t = (tipos || []).find((x) => x.id === id); const d = t ? (Number(t.dias_teoria) || 0) + (Number(t.dias_pratica) || 0) + (Number(t.dias_teoria_pratica) || 0) : 0; return d > 0 ? d : 1; };
+    const diasDoTipo = (id) => { const t = (tipos || []).find((x) => x.id === id); const d = t ? Math.max(0, Number(t.dias_teoria) || 0) + Math.max(0, Number(t.dias_pratica) || 0) + Math.max(0, Number(t.dias_teoria_pratica) || 0) : 0; return d > 0 ? d : 1; };
     const linhasDiaEstimadas = validos.reduce((s, v) => s + v.payload.qtd_turmas * diasDoTipo(v.payload.tipo_treinamento_id), 0);
     painelImportacaoOrc(`
       <p class="font-medium text-slate-800 mb-2">Conferência da planilha (${resumo.total} orçamentos${resumo.vazias ? `; ${resumo.vazias} linhas em branco ignoradas` : ""})</p>
@@ -5803,7 +5803,10 @@ async function gerarTurmasEmLoteImportOrc(orcamentos) {
   };
   for (const o of orcamentos) {
     if (impOrc.cancelar) break;
-    bloco.push({ o, linhas: montarTurmasOrcamento(o, o.qtd_turmas) });
+    let linhasTurma;
+    try { linhasTurma = montarTurmasOrcamento(o, o.qtd_turmas); }
+    catch (e) { const itens = []; registrarFalhaImpOrc(itens, null, o.numero, `não foi possível montar as turmas: ${e.message || e}`); await logItensImpOrc(itens); continue; }
+    bloco.push({ o, linhas: linhasTurma });
     if (bloco.reduce((s, x) => s + x.linhas.length, 0) >= 300) {
       passoImpOrc("Gerando turmas…");
       await descarregar();
@@ -5828,8 +5831,8 @@ async function executarImportacaoOrcamentos() {
     criados: 0, turmas: 0, atualizados: 0, falhas: 0, totalNovos: novos.length, totalAtualizar: atualizacoes.length,
     totalTurmasEstimadas: 0, gerarTurmas, avisoLog: false, runId: null, relatorio: (importacaoOrcRelatorio || []).slice(),
   };
-  const estimar = (lista) => lista.reduce((s, v) => s + montarTurmasOrcamento({ ...v.payload, id: "x" }, v.payload.qtd_turmas).length, 0);
-  if (gerarTurmas) impOrc.totalTurmasEstimadas = estimar(novos) + pendentesTurmas.reduce((s, o) => s + montarTurmasOrcamento(o, o.qtd_turmas).length, 0);
+  const contar = (o, q) => { try { return montarTurmasOrcamento(o, q).length; } catch (e) { return 0; } };
+  if (gerarTurmas) impOrc.totalTurmasEstimadas = novos.reduce((s, v) => s + contar({ ...v.payload, id: "x" }, v.payload.qtd_turmas), 0) + pendentesTurmas.reduce((s, o) => s + contar(o, o.qtd_turmas), 0);
 
   // proteções: avisa ao fechar a aba e tenta impedir que o computador durma durante a importação
   const avisoSaida = (ev) => { ev.preventDefault(); ev.returnValue = ""; };
@@ -6349,7 +6352,7 @@ async function salvarTurma() {
   if (!identificacao) return mostrarErro("turma-form-erro", "Informe a identificação da turma.");
   if (!tipoId) return mostrarErro("turma-form-erro", "Selecione o treinamento.");
   const tipo = listaTiposAtivos.find((t) => t.id === tipoId);
-  const diasTotais = tipo ? (Number(tipo.dias_teoria) || 0) + (Number(tipo.dias_pratica) || 0) + (Number(tipo.dias_teoria_pratica) || 0) : null;
+  const diasTotais = tipo ? Math.max(0, Number(tipo.dias_teoria) || 0) + Math.max(0, Number(tipo.dias_pratica) || 0) + Math.max(0, Number(tipo.dias_teoria_pratica) || 0) : null;
 
   const payload = {
     orcamento_id: turmaOrcamentoSelecionadoId,
