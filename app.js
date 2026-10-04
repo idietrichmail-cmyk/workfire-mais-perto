@@ -28,7 +28,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.11 · 04/10/2026";
+const APP_VERSAO = "Prod 1.12 · 04/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 const diasSemana = ["D", "S", "T", "Q", "Q", "S", "S"];
@@ -2802,34 +2802,51 @@ function irParaPaginaCrud(n) {
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
-function renderizarPaginacaoCrud() {
-  const el = $("crud-paginacao");
-  const cfg = CRUD_CONFIG[crudModuloId];
-  if (!cfg || !cfg.paginacao) { el.classList.add("hidden"); el.innerHTML = ""; return; }
-  const tam = cfg.paginacao.tamanho;
-  const totalPaginas = Math.max(1, Math.ceil(crudTotal / tam));
-  if (crudTotal === 0) { el.classList.add("hidden"); el.innerHTML = ""; return; }
-  const de = (crudPagina - 1) * tam + 1;
-  const ate = Math.min(crudPagina * tam, crudTotal);
+// Paginador genérico (usado por Empresas e Orçamentos): devolve o HTML do painel
+// "Mostrando X–Y de N" + Anterior / números / Próxima. Os botões levam o atributo
+// data-pagina-<attr>; ligarPaginador() conecta os cliques.
+function htmlPaginador(pagina, total, tamanho, attr) {
+  const totalPaginas = Math.max(1, Math.ceil(total / tamanho));
+  const de = (pagina - 1) * tamanho + 1;
+  const ate = Math.min(pagina * tamanho, total);
   const paginas = new Set([1, totalPaginas]);
-  for (let p = crudPagina - 2; p <= crudPagina + 2; p++) if (p >= 1 && p <= totalPaginas) paginas.add(p);
-  const ordenadas = [...paginas].sort((a, b) => a - b);
+  for (let p = pagina - 2; p <= pagina + 2; p++) if (p >= 1 && p <= totalPaginas) paginas.add(p);
+  const ordenadas = [...paginas].sort((x, y) => x - y);
   const botoes = [];
   ordenadas.forEach((p, i) => {
     if (i > 0 && p - ordenadas[i - 1] > 1) botoes.push(`<span class="px-1 text-slate-400">…</span>`);
-    botoes.push(`<button data-crud-pagina="${p}" class="min-w-[2rem] px-2 py-1 rounded-md text-xs font-medium ${p === crudPagina ? "bg-slate-900 text-white" : "border border-slate-300 text-slate-600 hover:bg-white"}">${p}</button>`);
+    botoes.push(`<button data-pagina-${attr}="${p}" class="min-w-[2rem] px-2 py-1 rounded-md text-xs font-medium ${p === pagina ? "bg-slate-900 text-white" : "border border-slate-300 text-slate-600 hover:bg-white"}">${p}</button>`);
   });
-  el.classList.remove("hidden");
-  el.innerHTML = `<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-    <p class="text-xs text-slate-500">Mostrando ${de.toLocaleString("pt-BR")}–${ate.toLocaleString("pt-BR")} de ${crudTotal.toLocaleString("pt-BR")}</p>
+  const estiloNav = "px-2 py-1 rounded-md text-xs font-medium border border-slate-300 text-slate-600 hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed";
+  return `<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+    <p class="text-xs text-slate-500">Mostrando ${de.toLocaleString("pt-BR")}–${ate.toLocaleString("pt-BR")} de ${total.toLocaleString("pt-BR")} · página ${pagina} de ${totalPaginas.toLocaleString("pt-BR")}</p>
     <div class="flex flex-wrap items-center gap-1">
-      <button data-crud-pagina="${crudPagina - 1}" ${crudPagina <= 1 ? "disabled" : ""} class="px-2 py-1 rounded-md text-xs font-medium border border-slate-300 text-slate-600 hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed">‹ Anterior</button>
+      <button data-pagina-${attr}="${pagina - 1}" ${pagina <= 1 ? "disabled" : ""} class="${estiloNav}">‹ Anterior</button>
       ${botoes.join("")}
-      <button data-crud-pagina="${crudPagina + 1}" ${crudPagina >= totalPaginas ? "disabled" : ""} class="px-2 py-1 rounded-md text-xs font-medium border border-slate-300 text-slate-600 hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed">Próxima ›</button>
+      <button data-pagina-${attr}="${pagina + 1}" ${pagina >= totalPaginas ? "disabled" : ""} class="${estiloNav}">Próxima ›</button>
     </div></div>`;
-  el.querySelectorAll("[data-crud-pagina]").forEach((b) => b.addEventListener("click", () => {
-    if (!b.disabled) irParaPaginaCrud(Number(b.getAttribute("data-crud-pagina")));
+}
+function ligarPaginador(el, attr, irPara) {
+  el.querySelectorAll(`[data-pagina-${attr}]`).forEach((b) => b.addEventListener("click", () => {
+    if (!b.disabled) irPara(Number(b.getAttribute(`data-pagina-${attr}`)));
   }));
+}
+// Preenche o painel do topo (cabeçalho da lista) e o do rodapé com o mesmo conteúdo.
+function renderizarPaginadores(ids, pagina, total, tamanho, attr, irPara) {
+  ids.forEach((id) => {
+    const el = $(id);
+    if (total === 0) { el.classList.add("hidden"); el.innerHTML = ""; return; }
+    el.classList.remove("hidden");
+    el.innerHTML = htmlPaginador(pagina, total, tamanho, attr);
+    ligarPaginador(el, attr, irPara);
+  });
+}
+
+function renderizarPaginacaoCrud() {
+  const ids = ["crud-paginacao-topo", "crud-paginacao"];
+  const cfg = CRUD_CONFIG[crudModuloId];
+  if (!cfg || !cfg.paginacao) { ids.forEach((id) => { $(id).classList.add("hidden"); $(id).innerHTML = ""; }); return; }
+  renderizarPaginadores(ids, crudPagina, crudTotal, cfg.paginacao.tamanho, "crud", irParaPaginaCrud);
 }
 
 async function carregarModuloCrud(id, opcoes = {}) {
@@ -4864,21 +4881,68 @@ function letraIndice(i) {
   return letra;
 }
 
+const ORC_TAMANHO_PAGINA = 20;
+let orcPagina = 1;
+let orcTotal = 0;
+let orcBuscaTimer = null;
+
 async function carregarOrcamentos() {
   $("admin-descricao-pagina").textContent = "Registre orçamentos de treinamento por empresa. Ao criar um novo orçamento, as turmas já são geradas automaticamente.";
-  const [{ data: orcs }, { data: empresas }, { data: tipos }, { data: centros }] = await Promise.all([
-    supabase.from("orcamentos").select("*, empresas(nome), centros_treinamento(nome), tipos_treinamento(nome)").order("created_at", { ascending: false }),
+  const [{ data: empresas }, { data: tipos }, { data: centros }] = await Promise.all([
     buscarTodos(() => supabase.from("empresas").select("*").eq("status", "Ativo").order("nome").order("id")),
     supabase.from("tipos_treinamento").select("*").eq("status", "Ativo").order("nome"),
     supabase.from("centros_treinamento").select("*").eq("status", "Ativo").order("nome"),
   ]);
-  listaOrcamentos = orcs || [];
   listaEmpresasAtivas = empresas || [];
   listaTiposAtivos = tipos || [];
   listaCentrosAtivos = centros || [];
   $("btn-orc-novo").classList.toggle("hidden", !podeFazer("orcamentos", "incluir"));
   renderizarFiltroStatusOrcamento();
+  await carregarPaginaOrcamentos();
+}
+
+// Consulta a página atual de orçamentos no servidor, respeitando os filtros de
+// status e a busca (número, empresa, fantasia ou CNPJ). Devolve { data, count, error }.
+async function consultarPaginaOrcamentos() {
+  if (orcFiltroStatus.size === 0) return { data: [], count: 0, error: null };
+  const termo = $("orc-busca").value.replace(/[,()%*\\]/g, " ").replace(/\s+/g, " ").trim();
+  let filtroOr = null;
+  if (termo) {
+    const filtrosEmp = [`nome.ilike.%${termo}%`, `nome_fantasia.ilike.%${termo}%`];
+    const digitos = termo.replace(/\D/g, "");
+    if (digitos.length >= 3 && /^[\d.\/\-\s]+$/.test(termo)) filtrosEmp.push(`cnpj_digitos.like.%${digitos}%`);
+    const { data: emps } = await supabase.from("empresas").select("id").or(filtrosEmp.join(",")).limit(150);
+    const ids = (emps || []).map((e) => e.id);
+    filtroOr = `numero.ilike.%${termo}%` + (ids.length ? `,empresa_id.in.(${ids.join(",")})` : "");
+  }
+  const montar = () => {
+    let q = supabase.from("orcamentos")
+      .select("*, empresas(nome), centros_treinamento(nome), tipos_treinamento(nome)", { count: "exact" })
+      .in("status", [...orcFiltroStatus]);
+    if (filtroOr) q = q.or(filtroOr);
+    return q.order("created_at", { ascending: false }).order("id");
+  };
+  const tam = ORC_TAMANHO_PAGINA;
+  let resp = await montar().range((orcPagina - 1) * tam, orcPagina * tam - 1);
+  if (!resp.error && (resp.count || 0) > 0 && (resp.data || []).length === 0 && orcPagina > 1) {
+    // a página deixou de existir (ex.: último orçamento da página foi excluído)
+    orcPagina = Math.max(1, Math.ceil(resp.count / tam));
+    resp = await montar().range((orcPagina - 1) * tam, orcPagina * tam - 1);
+  }
+  return resp;
+}
+
+async function carregarPaginaOrcamentos() {
+  const { data, error, count } = await consultarPaginaOrcamentos();
+  listaOrcamentos = error ? [] : data || [];
+  orcTotal = error ? 0 : count || 0;
   renderizarListaOrcamentos();
+}
+
+function irParaPaginaOrcamentos(n) {
+  orcPagina = n;
+  carregarPaginaOrcamentos();
+  window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
 function renderizarFiltroStatusOrcamento() {
@@ -4894,19 +4958,18 @@ function renderizarFiltroStatusOrcamento() {
       const s = e.target.getAttribute("data-filtro-status");
       if (e.target.checked) orcFiltroStatus.add(s);
       else orcFiltroStatus.delete(s);
-      renderizarListaOrcamentos();
+      orcPagina = 1;
+      carregarPaginaOrcamentos();
     });
   });
 }
 
 function renderizarListaOrcamentos() {
-  const busca = $("orc-busca").value.toLowerCase();
   const podeAlterar = podeFazer("orcamentos", "alterar");
   const podeExcluir = podeFazer("orcamentos", "excluir");
-  const lista = listaOrcamentos
-    .filter((o) => orcFiltroStatus.has(o.status))
-    .filter((o) => `${o.numero} ${o.empresas?.nome || ""}`.toLowerCase().includes(busca));
+  const lista = listaOrcamentos;
   const cont = $("orc-lista");
+  renderizarPaginadores(["orc-paginacao-topo", "orc-paginacao"], orcPagina, orcTotal, ORC_TAMANHO_PAGINA, "orc", irParaPaginaOrcamentos);
   if (lista.length === 0) {
     cont.innerHTML = `<tr><td colspan="9" class="text-center text-slate-500 text-sm py-16">Nenhum orçamento encontrado.</td></tr>`;
     return;
@@ -4933,7 +4996,10 @@ function renderizarListaOrcamentos() {
   cont.querySelectorAll("[data-orc-excluir]").forEach((btn) => btn.addEventListener("click", () => excluirOrcamento(btn.getAttribute("data-orc-excluir"))));
 }
 
-$("orc-busca").addEventListener("input", renderizarListaOrcamentos);
+$("orc-busca").addEventListener("input", () => {
+  clearTimeout(orcBuscaTimer);
+  orcBuscaTimer = setTimeout(() => { orcPagina = 1; carregarPaginaOrcamentos(); }, 350);
+});
 
 function atualizarQtdAlunosCalculado() {
   const turmas = Number($("orc-qtd-turmas").value) || 0;
@@ -5231,12 +5297,12 @@ async function salvarOrcamento() {
     $("painel-orcamento-titulo").textContent = "Editar orçamento";
     $("btn-salvar-orcamento").textContent = "Salvar alterações";
     await carregarTabelaTurmasOrcamento(linha.id);
-    await carregarOrcamentos();
+    await carregarPaginaOrcamentos();
     return;
   }
 
   $("painel-orcamento").classList.add("hidden");
-  await carregarOrcamentos();
+  await carregarPaginaOrcamentos();
 }
 
 $("btn-salvar-orcamento").addEventListener("click", salvarOrcamento);
@@ -5323,7 +5389,7 @@ async function excluirOrcamento(id) {
   const o = listaOrcamentos.find((x) => x.id === id);
   if (!confirmarExclusao(`o orçamento ${o?.numero || ""}`.trim())) return;
   const { error } = await supabase.from("orcamentos").delete().eq("id", id);
-  if (!error) await carregarOrcamentos();
+  if (!error) await carregarPaginaOrcamentos();
 }
 
 // ===========================================================
@@ -7365,12 +7431,10 @@ async function refreshAgendamentos() {
 }
 
 async function refreshOrcamentos() {
-  const { data, error } = await supabase
-    .from("orcamentos")
-    .select("*, empresas(nome), centros_treinamento(nome), tipos_treinamento(nome)")
-    .order("created_at", { ascending: false });
-  if (error || !dadosMudaram("orcamentos", data)) return;
+  const { data, error, count } = await consultarPaginaOrcamentos();
+  if (error || !dadosMudaram("orcamentos", { data, count })) return;
   listaOrcamentos = data || [];
+  orcTotal = count || 0;
   renderizarListaOrcamentos();
 }
 
