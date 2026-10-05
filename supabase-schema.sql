@@ -1151,3 +1151,5 @@ alter table instrutores
 -- Prod 1.36 · Turmas por Orçamento e Agendamento de Turmas passam a buscar TODOS os orçamentos em páginas (o servidor limita cada consulta a 1000 linhas; orçamentos mais antigos, como o 23367, não apareciam). Sem alterações no banco.
 
 -- Prod 1.37 · Turmas por Orçamento: a atualização automática (a cada 5 s) reaplicava a ordem alfabética do banco (A1, AA1, AB1...); agora mantém A1..Z1, AA1, AB1... Sem alterações no banco.
+
+-- Prod 1.38 · Documentos de Turmas: filtro "Turmas com documento" (alunos, fotos da turma ou lista de presença), marcado por padrão; a busca agora percorre todas as turmas (antes ficava limitada a 1000 de 7315). Sem alterações no banco.

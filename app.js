@@ -34,7 +34,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.37 · 05/10/2026";
+const APP_VERSAO = "Prod 1.38 · 05/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -10786,72 +10786,93 @@ async function carregarDocumentosTurmasInit() {
   await carregarDocumentosTurmas();
 }
 
+let dtCarregando = 0;
 async function carregarDocumentosTurmas() {
   const empresaId = $("dt-empresa-select").value;
   const grupoEconomico = $("dt-grupo-economico").checked;
   const dataDe = $("dt-filtro-data-de").value;
   const dataAte = $("dt-filtro-data-ate").value;
+  const soComDocumento = $("dt-so-com-documento").checked;
+  const meuToken = ++dtCarregando; // descarta respostas antigas se o filtro mudar durante a carga
 
-  let q = supabase
-    .from("turmas")
-    .select("*, tipos_treinamento(nome), instrutor1:instrutores!instrutor1_id(nome), instrutor2:instrutores!instrutor2_id(nome), orcamentos!inner(numero, empresa_id, empresas(nome))")
-    .neq("status", "Cancelada")
-    .order("identificacao", { ascending: true });
-  if (dataDe) q = q.gte("data_inicio", dataDe);
-  if (dataAte) q = q.lte("data_inicio", dataAte);
-  if (empresaId) {
-    if (grupoEconomico) {
-      const empresaSel = dtEmpresasLista.find((e) => e.id === empresaId);
-      const alvo = grupoDeEmpresa(empresaSel || {});
-      const ids = alvo ? dtEmpresasLista.filter((e) => grupoDeEmpresa(e) === alvo).map((e) => e.id) : [empresaId];
-      q = q.in("orcamentos.empresa_id", ids);
-    } else {
-      q = q.eq("orcamentos.empresa_id", empresaId);
-    }
-  }
-
-  const { data, error } = await q;
-  if (error) {
+  const falha = (msg) => {
     $("dt-conteudo").classList.add("hidden");
     $("dt-vazio").classList.remove("hidden");
-    $("dt-vazio").textContent = `Não foi possível carregar as turmas: ${error.message}`;
-    return;
+    $("dt-vazio").textContent = `Não foi possível carregar as turmas: ${msg}`;
+  };
+
+  // Documentos: alunos e fotos são buscados por inteiro (em páginas) — são poucos em relação ao total de turmas.
+  const [{ data: da, error: eA }, { data: dm, error: eM }] = await Promise.all([
+    buscarTodos(() => supabase.from("turma_alunos").select("turma_id").order("id")),
+    buscarTodos(() => supabase.from("turma_midias").select("turma_id, tipo").order("id")),
+  ]);
+  if (eA || eM) return falha((eA || eM).message);
+  const alunos = da || [];
+  const midias = dm || [];
+
+  const consulta = () => {
+    let q = supabase
+      .from("turmas")
+      .select("*, tipos_treinamento(nome), instrutor1:instrutores!instrutor1_id(nome), instrutor2:instrutores!instrutor2_id(nome), orcamentos!inner(numero, empresa_id, empresas(nome))")
+      .neq("status", "Cancelada");
+    if (dataDe) q = q.gte("data_inicio", dataDe);
+    if (dataAte) q = q.lte("data_inicio", dataAte);
+    if (empresaId) {
+      if (grupoEconomico) {
+        const empresaSel = dtEmpresasLista.find((e) => e.id === empresaId);
+        const alvo = grupoDeEmpresa(empresaSel || {});
+        const ids = alvo ? dtEmpresasLista.filter((e) => grupoDeEmpresa(e) === alvo).map((e) => e.id) : [empresaId];
+        q = q.in("orcamentos.empresa_id", ids);
+      } else {
+        q = q.eq("orcamentos.empresa_id", empresaId);
+      }
+    }
+    return q;
+  };
+
+  let turmas = [], erro = null;
+  if (soComDocumento) {
+    // só as turmas que têm aluno, foto da turma ou foto da lista de presença
+    const comDoc = [...new Set([...alunos.map((a) => a.turma_id), ...midias.filter((m) => m.tipo === "foto_turma" || m.tipo === "foto_presenca").map((m) => m.turma_id)])];
+    for (let i = 0; i < comDoc.length && !erro; i += 100) {
+      const { data, error } = await consulta().in("id", comDoc.slice(i, i + 100)).order("id");
+      if (error) erro = error; else turmas = turmas.concat(data || []);
+    }
+  } else {
+    const r = await buscarTodos(() => consulta().order("identificacao", { ascending: true }).order("id"));
+    turmas = r.data || [];
+    erro = r.error;
   }
+  if (meuToken !== dtCarregando) return;
+  if (erro) return falha(erro.message);
 
-  const lista = (data || []).sort(compararIdentificacaoTurma);
-  const ids = lista.map((t) => t.id);
+  const contAlunos = new Map(), contFotosTurma = new Map(), contFotosPresenca = new Map();
+  alunos.forEach((a) => contAlunos.set(a.turma_id, (contAlunos.get(a.turma_id) || 0) + 1));
+  midias.forEach((m) => {
+    if (m.tipo === "foto_turma") contFotosTurma.set(m.turma_id, (contFotosTurma.get(m.turma_id) || 0) + 1);
+    else if (m.tipo === "foto_presenca") contFotosPresenca.set(m.turma_id, (contFotosPresenca.get(m.turma_id) || 0) + 1);
+  });
 
-  let alunos = [];
-  let midias = [];
-  if (ids.length) {
-    const [{ data: da }, { data: dm }] = await Promise.all([
-      supabase.from("turma_alunos").select("turma_id").in("turma_id", ids),
-      supabase.from("turma_midias").select("turma_id, tipo").in("turma_id", ids),
-    ]);
-    alunos = da || [];
-    midias = dm || [];
-  }
-
-  dtTurmasLista = lista.map((t) => ({
+  dtTurmasLista = turmas.sort(compararIdentificacaoTurma).map((t) => ({
     ...t,
-    qtdAlunos: alunos.filter((a) => a.turma_id === t.id).length,
-    qtdFotosTurma: midias.filter((m) => m.turma_id === t.id && m.tipo === "foto_turma").length,
-    qtdFotosPresenca: midias.filter((m) => m.turma_id === t.id && m.tipo === "foto_presenca").length,
+    qtdAlunos: contAlunos.get(t.id) || 0,
+    qtdFotosTurma: contFotosTurma.get(t.id) || 0,
+    qtdFotosPresenca: contFotosPresenca.get(t.id) || 0,
   }));
 
   renderizarDocumentosTurmas();
 }
 
 function renderizarDocumentosTurmas() {
-  const todasAsTurmas = $("dt-todas-turmas").checked;
-  const lista = todasAsTurmas
-    ? dtTurmasLista
-    : dtTurmasLista.filter((t) => t.qtdAlunos > 0 || t.qtdFotosTurma > 0 || t.qtdFotosPresenca > 0);
+  const soComDocumento = $("dt-so-com-documento").checked;
+  const lista = soComDocumento
+    ? dtTurmasLista.filter((t) => t.qtdAlunos > 0 || t.qtdFotosTurma > 0 || t.qtdFotosPresenca > 0)
+    : dtTurmasLista;
 
   $("dt-vazio").classList.toggle("hidden", lista.length > 0);
-  $("dt-vazio").textContent = todasAsTurmas
-    ? "Nenhuma turma encontrada para esta seleção."
-    : "Nenhuma turma com fotos ou alunos cadastrados para esta seleção.";
+  $("dt-vazio").textContent = soComDocumento
+    ? "Nenhuma turma com alunos, fotos ou lista de presença para esta seleção. Desmarque “Turmas com documento” para ver todas."
+    : "Nenhuma turma encontrada para esta seleção.";
   $("dt-conteudo").classList.toggle("hidden", lista.length === 0);
 
   const cont = $("dt-lista");
@@ -10936,7 +10957,7 @@ $("dt-empresa-select").addEventListener("change", () => {
   carregarDocumentosTurmas();
 });
 $("dt-grupo-economico").addEventListener("change", () => carregarDocumentosTurmas());
-$("dt-todas-turmas").addEventListener("change", () => renderizarDocumentosTurmas());
+$("dt-so-com-documento").addEventListener("change", () => carregarDocumentosTurmas());
 $("dt-filtro-data-de").addEventListener("change", () => carregarDocumentosTurmas());
 $("dt-filtro-data-ate").addEventListener("change", () => carregarDocumentosTurmas());
 $("btn-fechar-painel-documentos-turma").addEventListener("click", () => $("painel-documentos-turma").classList.add("hidden"));
