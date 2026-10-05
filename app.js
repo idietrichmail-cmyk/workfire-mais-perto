@@ -34,7 +34,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.34 · 05/10/2026";
+const APP_VERSAO = "Prod 1.35 · 05/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -8232,12 +8232,33 @@ async function carregarTurmasInit() {
   listaTiposAtivos = tipos || [];
   listaEmpresasParaValidacao = empresasTodas || [];
 
-  preencherSelect("turma-orcamento-select", listaOrcamentosParaTurma, "id", (o) => `${o.numero} — ${o.empresas?.nome || "—"}`, "— Selecione —");
+  $("turma-orcamento-busca").value = "";
+  preencherSelectOrcamentosTurma();
   $("turma-orcamento-select").value = "";
   $("turma-orcamento-info").classList.add("hidden");
   $("turma-conteudo").classList.add("hidden");
   turmaOrcamentoSelecionadoId = null;
 }
+
+// Filtra os orçamentos pelo texto digitado (número do orçamento ou nome da empresa, sem diferenciar
+// maiúsculas/acentos) e repopula o select, mantendo a seleção atual quando ela continua no resultado.
+const textoBuscaTurma = (t) => String(t == null ? "" : t).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+function preencherSelectOrcamentosTurma() {
+  const termo = textoBuscaTurma($("turma-orcamento-busca").value.trim());
+  const filtrados = !termo ? listaOrcamentosParaTurma : listaOrcamentosParaTurma.filter((o) =>
+    textoBuscaTurma(o.numero).includes(termo) || textoBuscaTurma(o.empresas?.nome).includes(termo)
+  );
+  const valorAtual = $("turma-orcamento-select").value;
+  // o orçamento já aberto na tela continua na lista mesmo que o filtro novo não o inclua (evita a tela mostrar um e o select outro)
+  const opcoes = valorAtual && !filtrados.some((o) => o.id === valorAtual)
+    ? [listaOrcamentosParaTurma.find((o) => o.id === valorAtual), ...filtrados].filter(Boolean) : filtrados;
+  preencherSelect("turma-orcamento-select", opcoes, "id", (o) => `${o.numero} — ${o.empresas?.nome || "—"}`, "— Selecione —");
+  if (opcoes.some((o) => o.id === valorAtual)) $("turma-orcamento-select").value = valorAtual;
+  $("turma-orcamento-busca-info").textContent = termo
+    ? (filtrados.length ? `${filtrados.length} de ${listaOrcamentosParaTurma.length} orçamento(s) encontrado(s)` : "Nenhum orçamento encontrado para esse filtro.")
+    : `${listaOrcamentosParaTurma.length} orçamento(s)`;
+}
+$("turma-orcamento-busca").addEventListener("input", preencherSelectOrcamentosTurma);
 
 $("turma-orcamento-select").addEventListener("change", () => {
   turmaOrcamentoSelecionadoId = $("turma-orcamento-select").value || null;

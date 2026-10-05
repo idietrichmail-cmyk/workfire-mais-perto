@@ -1145,3 +1145,5 @@ alter table instrutores
 --    Os 5 prazos já cadastrados receberam parcelas (À VISTA, 15, 30, 30/60, 30/60/90 DIAS). A soma de 100% é validada no aplicativo.
 --  Quem aprova precisa também de permissão "alterar" em Orçamentos (RLS de orcamento_propostas).
 -- ============================================================
+
+-- Prod 1.35 · Tela "Turmas por Orçamento": filtro por número do orçamento ou nome da empresa (sem diferenciar maiúsculas/acentos). Sem alterações no banco.
