@@ -28,7 +28,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.31 · 05/10/2026";
+const APP_VERSAO = "Prod 1.32 · 05/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -5564,7 +5564,7 @@ function atualizarQtdAlunosCalculado() {
   $("orc-qtd-alunos-turma").value = q.alunos > 0 ? q.alunosPorTurma : "";
   atualizarNecessitaDoisInstrutores();
   recalcularOrcamentoTela();
-  atualizarResumoGeraisOrc();
+  orcAtualizarAbas();
 }
 
 // Marca automaticamente "Necessita dois instrutores" quando a quantidade de
@@ -5586,7 +5586,7 @@ $("orc-tipo").addEventListener("change", () => {
     orcValidadeManual = false;
   }
   atualizarNecessitaDoisInstrutores();
-  atualizarResumoGeraisOrc();
+  orcAtualizarAbas();
   aplicarCadastroNoCalculo().catch((e) => mostrarErro("orc-form-erro", "Não foi possível carregar os itens de custo do treinamento: " + (e?.message || "erro desconhecido")));
 });
 
@@ -5612,11 +5612,7 @@ function abrirEditorOrcamento() {
   $("painel-orcamento").classList.remove("hidden");
   ajustarTopoEditorOrcamento();
   $("orc-editor-scroll").scrollTop = 0;
-  definirGeraisRecolhido(false);
-  // No celular o rodapé de turmas começa recolhido para sobrar espaço ao cálculo.
-  const recolher = window.innerWidth < 768;
-  $("orc-dock").classList.toggle("recolhido", recolher);
-  $("btn-orc-dock-toggle").textContent = recolher ? "⌃" : "⌄";
+  irParaAbaOrc(1); // sempre abre nos dados gerais
   orcEditorSujo = false;
 }
 
@@ -5637,19 +5633,40 @@ function sairEditorOrcamentoPermitido() {
 $("orc-editor-scroll").addEventListener("input", () => { orcEditorSujo = true; });
 $("orc-editor-scroll").addEventListener("change", () => { orcEditorSujo = true; });
 
-function definirGeraisRecolhido(recolhido) {
-  $("orc-gerais-corpo").classList.toggle("hidden", recolhido);
-  $("orc-resumo-gerais").classList.toggle("hidden", !recolhido);
-  $("btn-orc-gerais-toggle").textContent = recolhido ? "▾ Expandir" : "▴ Recolher";
-  if (recolhido) atualizarResumoGeraisOrc();
+// ---- Abas do editor: 1 Dados gerais · 2 Cálculo do orçamento · 3 Turmas ----
+let orcAbaAtiva = 1;
+function irParaAbaOrc(n) {
+  orcAbaAtiva = n;
+  document.querySelectorAll("[data-orc-aba]").forEach((b) => {
+    const ativa = Number(b.getAttribute("data-orc-aba")) === n;
+    b.classList.toggle("ativa", ativa);
+    b.setAttribute("aria-selected", ativa ? "true" : "false");
+  });
+  document.querySelectorAll("[data-orc-pagina]").forEach((p) => p.classList.toggle("hidden", Number(p.getAttribute("data-orc-pagina")) !== n));
+  $("orc-editor-scroll").scrollTop = 0;
+  orcAtualizarAbas();
 }
-function atualizarResumoGeraisOrc() {
-  const q = orcQuantidades();
-  const emp = listaEmpresasAtivas.find((e) => e.id === $("orc-empresa").value);
-  const tipo = listaTiposAtivos.find((t) => t.id === $("orc-tipo").value);
-  $("orc-resumo-gerais").textContent = [$("orc-numero").value, emp && emp.nome, tipo && tipo.nome, `${q.alunos} alunos`, `${q.turmas} turma(s)`, `${q.alunosPorTurma} por turma`, `${q.localidades} localidade(s)`].filter(Boolean).join(" · ");
+document.querySelectorAll("[data-orc-aba]").forEach((b) => b.addEventListener("click", () => irParaAbaOrc(Number(b.getAttribute("data-orc-aba")))));
+
+// Selos das abas e faixa de resumo (valor final e margem ficam à vista em qualquer aba).
+function orcAtualizarAbas() {
+  const resumo = $("orc-abas-resumo");
+  if (!resumo) return;
+  const c = calcularOrcamento();
+  const temCalc = c.itens.length > 0 && c.valido;
+  const bd2 = $("orc-aba-bd-2");
+  bd2.classList.toggle("hidden", !c.precisaAprovacao);
+  const grupos = orcTurmasGrupos.length;
+  const dias = orcTurmasGrupos.reduce((t, g) => t + (g.linhas ? g.linhas.length : 0), 0);
+  const bd3 = $("orc-aba-bd-3");
+  bd3.classList.toggle("hidden", grupos === 0);
+  bd3.textContent = `${grupos} turma(s) · ${dias} dia(s)`;
+  const cor = c.precisaAprovacao ? "text-rose-600" : "text-slate-800";
+  resumo.classList.toggle("hidden", false);
+  resumo.innerHTML = temCalc
+    ? `<span>Valor final <b class="text-sm ${cor}">${fmtBRL(c.final)}</b></span><span>Margem <b class="text-sm ${cor}">${fmtPercOrc(c.margemPerc)}</b></span><span>${c.q.alunos} alunos · ${c.q.turmas} turma(s)</span>`
+    : `<span>${c.q.alunos} alunos · ${c.q.turmas} turma(s)</span>`;
 }
-$("btn-orc-gerais-toggle").addEventListener("click", () => definirGeraisRecolhido(!$("orc-gerais-corpo").classList.contains("hidden")));
 
 // ---------------------------------------------------------
 // Cálculo do orçamento (planilha "Rotina de Calculo")
@@ -6005,6 +6022,7 @@ function recalcularOrcamentoTela() {
   }
   atualizarNotaDockTurmas();
   orcAtualizarAvisoProposta();
+  orcAtualizarAbas();
 }
 
 $("orc-calc-tbody").addEventListener("input", (ev) => {
@@ -6289,6 +6307,7 @@ async function carregarTabelaTurmasOrcamento(orcamentoId) {
 function atualizarNotaDockTurmas() {
   const nota = $("orc-turmas-nota");
   if (!nota) return;
+  orcAtualizarAbas();
   if (orcTurmasGrupos.length === 0) { nota.textContent = ""; return; }
   const c = calcularOrcamento();
   const g = orcTurmasGrupos[orcTurmaAtiva];
@@ -6361,13 +6380,15 @@ $("orc-turmas-abas").addEventListener("click", (ev) => {
 });
 $("btn-orc-turma-ant").addEventListener("click", () => irParaTurmaOrc(orcTurmaAtiva - 1));
 $("btn-orc-turma-prox").addEventListener("click", () => irParaTurmaOrc(orcTurmaAtiva + 1));
-$("btn-orc-dock-toggle").addEventListener("click", () => {
-  const rec = $("orc-dock").classList.toggle("recolhido");
-  $("btn-orc-dock-toggle").textContent = rec ? "⌃" : "⌄";
-});
 
 $("btn-orc-novo").addEventListener("click", abrirNovoOrcamento);
 $("btn-cancelar-painel-orcamento").addEventListener("click", () => { sairEditorOrcamentoPermitido(); });
+
+// Mostra o erro e leva o usuário à aba onde está o campo com problema.
+function orcFalha(aba, msg) {
+  if (aba && orcAbaAtiva !== aba) irParaAbaOrc(aba);
+  return mostrarErro("orc-form-erro", msg);
+}
 
 // opts.gerandoProposta: salva para em seguida gerar a proposta (mantém o editor aberto e devolve { linha, calc }).
 async function salvarOrcamento(opts = {}) {
@@ -6379,33 +6400,33 @@ async function salvarOrcamento(opts = {}) {
   const tipoId = $("orc-tipo").value;
   const qtdTurmas = Number($("orc-qtd-turmas").value) || 0;
   const qtdLocalidades = Math.floor(Number($("orc-qtd-localidades").value) || 0);
-  if (!numero) return mostrarErro("orc-form-erro", "Informe o número do orçamento.");
-  if (!empresaId) return mostrarErro("orc-form-erro", "Selecione a empresa.");
-  if (!centroId) return mostrarErro("orc-form-erro", "Selecione o centro de treinamento.");
-  if (!tipoId) return mostrarErro("orc-form-erro", "Selecione o treinamento.");
-  if (qtdTurmas < 1) return mostrarErro("orc-form-erro", "Informe a quantidade de turmas (mínimo 1).");
-  if (qtdLocalidades < 1) return mostrarErro("orc-form-erro", "Informe a quantidade de localidades do cliente onde os alunos vão treinar (mínimo 1).");
+  if (!numero) return orcFalha(1, "Informe o número do orçamento.");
+  if (!empresaId) return orcFalha(1, "Selecione a empresa.");
+  if (!centroId) return orcFalha(1, "Selecione o centro de treinamento.");
+  if (!tipoId) return orcFalha(1, "Selecione o treinamento.");
+  if (qtdTurmas < 1) return orcFalha(1, "Informe a quantidade de turmas (mínimo 1).");
+  if (qtdLocalidades < 1) return orcFalha(1, "Informe a quantidade de localidades do cliente onde os alunos vão treinar (mínimo 1).");
   const qtdAlunos = Math.floor(Number($("orc-qtd-alunos").value) || 0);
-  if (qtdAlunos < 1) return mostrarErro("orc-form-erro", "Informe a quantidade de alunos (mínimo 1).");
-  if (orcCalcPendentes > 0) return mostrarErro("orc-form-erro", "Aguarde: os itens de custo ainda estão sendo carregados.");
-  if (orcCalcErro) return mostrarErro("orc-form-erro", orcCalcErro);
+  if (qtdAlunos < 1) return orcFalha(1, "Informe a quantidade de alunos (mínimo 1).");
+  if (orcCalcPendentes > 0) return orcFalha(2, "Aguarde: os itens de custo ainda estão sendo carregados.");
+  if (orcCalcErro) return orcFalha(2, orcCalcErro);
   const calc = calcularOrcamento();
-  if (calc.descontoInvalido) return mostrarErro("orc-form-erro", "O desconto não pode ser maior que o total do orçamento.");
+  if (calc.descontoInvalido) return orcFalha(2, "O desconto não pode ser maior que o total do orçamento.");
   for (const [v, rot] of [[calc.apoio, "% de apoio"], [calc.margem, "% de margem"], [calc.imposto, "% de imposto"], [calc.desconto, "% de desconto"]]) {
-    if (!(v >= 0 && v <= 100)) return mostrarErro("orc-form-erro", `${rot}: informe um valor entre 0 e 100.`);
+    if (!(v >= 0 && v <= 100)) return orcFalha(2, `${rot}: informe um valor entre 0 e 100.`);
   }
-  if (orcLinhasCalc.length && !calc.valido) return mostrarErro("orc-form-erro", "No cálculo, a soma de apoio, margem e imposto precisa ser menor que 100%.");
+  if (orcLinhasCalc.length && !calc.valido) return orcFalha(2, "No cálculo, a soma de apoio, margem e imposto precisa ser menor que 100%.");
 
   const teoriaInCompany = $("orc-formato-teoria").value === "InCompany";
   const praticaInCompany = $("orc-formato-pratica").value === "InCompany";
   const praticaSincronizada = teoriaInCompany && praticaInCompany && $("orc-pra-mesmo-teoria").checked;
   if (teoriaInCompany) {
     const erroEnderecoTeoria = validarEnderecoInCompanyOrc("teo", "teoria");
-    if (erroEnderecoTeoria) return mostrarErro("orc-form-erro", erroEnderecoTeoria);
+    if (erroEnderecoTeoria) return orcFalha(1, erroEnderecoTeoria);
   }
   if (praticaInCompany && !praticaSincronizada) {
     const erroEnderecoPratica = validarEnderecoInCompanyOrc("pra", "prática");
-    if (erroEnderecoPratica) return mostrarErro("orc-form-erro", erroEnderecoPratica);
+    if (erroEnderecoPratica) return orcFalha(1, erroEnderecoPratica);
   }
 
   const enderecoVazio = { mesmo_empresa: false, cep: null, logradouro: null, numero: null, complemento: null, bairro: null, cidade: null, uf: null, latitude: null, longitude: null };
@@ -6433,7 +6454,7 @@ async function salvarOrcamento(opts = {}) {
   const qtdAlunosPorTurma = Math.ceil(qtdAlunos / Math.max(1, qtdTurmas));
   const validadeTxt = $("orc-validade-dias").value.trim();
   const validadeDias = validadeTxt === "" ? null : Math.floor(Number(validadeTxt));
-  if (validadeDias != null && !(validadeDias >= 1 && validadeDias <= 3650)) return mostrarErro("orc-form-erro", "Validade: informe de 1 a 3650 dias.");
+  if (validadeDias != null && !(validadeDias >= 1 && validadeDias <= 3650)) return orcFalha(1, "Validade: informe de 1 a 3650 dias.");
   let validadeData = null;
   if (validadeDias != null && $("orc-data").value) {
     const dv = new Date($("orc-data").value + "T00:00:00");
@@ -6442,7 +6463,7 @@ async function salvarOrcamento(opts = {}) {
   }
   const contatoEmail = $("orc-contato-email").value.trim();
   // aceita mais de um e-mail no mesmo campo (separados por vírgula ou ponto e vírgula)
-  if (contatoEmail && !contatoEmail.split(/[;,]/).map((x) => x.trim()).filter(Boolean).every((x) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(x))) return mostrarErro("orc-form-erro", "O e-mail do contato parece inválido. Se houver mais de um, separe por vírgula.");
+  if (contatoEmail && !contatoEmail.split(/[;,]/).map((x) => x.trim()).filter(Boolean).every((x) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(x))) return orcFalha(1, "O e-mail do contato parece inválido. Se houver mais de um, separe por vírgula.");
   const payload = {
     empresa_id: empresaId,
     contato_nome: $("orc-contato-nome").value.trim() || null,
@@ -6519,7 +6540,7 @@ async function salvarOrcamento(opts = {}) {
     $("btn-salvar-orcamento").disabled = false;
     $("btn-salvar-orcamento").textContent = editandoOrcamentoId ? "Salvar alterações" : "Salvar orçamento";
     if (erro.message && erro.message.includes("duplicate")) {
-      return mostrarErro("orc-form-erro", "Já existe um orçamento com esse número.");
+      return orcFalha(1, "Já existe um orçamento com esse número.");
     }
     return mostrarErro("orc-form-erro", "Não foi possível salvar. Tente novamente.");
   }
@@ -6724,12 +6745,12 @@ function montarDadosProposta(linha, calc, agora, numero, versao) {
 async function gerarPropostaOrcamento() {
   if (orcGerandoProposta || orcPropostaTravada) return;
   esconderErro("orc-form-erro");
-  if (!$("orc-prazo").value) return mostrarErro("orc-form-erro", "Selecione o prazo de pagamento da proposta.");
+  if (!$("orc-prazo").value) return orcFalha(1, "Selecione o prazo de pagamento da proposta.");
   const dias = Math.floor(Number($("orc-validade-dias").value) || 0);
-  if (!(dias >= 1)) return mostrarErro("orc-form-erro", "Informe a validade da proposta em dias.");
+  if (!(dias >= 1)) return orcFalha(1, "Informe a validade da proposta em dias.");
   const previa = calcularOrcamento();
-  if (!previa.itens.length) return mostrarErro("orc-form-erro", "Não há itens de custo no cálculo para gerar a proposta.");
-  if (itensParaImpressaoProposta(previa.itens.map((i) => i.l)).length === 0) return mostrarErro("orc-form-erro", "Marque ao menos um item do cálculo para imprimir (coluna “Imprime”), com descrição para impressão.");
+  if (!previa.itens.length) return orcFalha(2, "Não há itens de custo no cálculo para gerar a proposta.");
+  if (itensParaImpressaoProposta(previa.itens.map((i) => i.l)).length === 0) return orcFalha(2, "Marque ao menos um item do cálculo para imprimir (coluna “Imprime”), com descrição para impressão.");
   orcGerandoProposta = true;
   const btn = $("btn-orc-gerar-proposta");
   btn.disabled = true; btn.textContent = "Gerando…";

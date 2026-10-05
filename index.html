@@ -24,7 +24,12 @@
   body.orc-editando #tela-admin main > section { visibility: hidden; }
   @media (max-width: 767px) { body.orc-editando #app-header { display: none; } }
   #orc-calc-tabela:not(.mostrar-det) .orc-det { display: none; }
-  #orc-dock.recolhido #orc-turmas-corpo { display: none; }
+  .orc-aba { display:flex; align-items:center; gap:.5rem; padding:.6rem 1rem .5rem; font-size:.875rem; font-weight:500; color:#64748b; border-bottom:3px solid transparent; white-space:nowrap; }
+  .orc-aba:hover { color:#0f172a; }
+  .orc-aba.ativa { color:#0f172a; border-bottom-color:#d97706; }
+  .orc-aba-n { display:inline-grid; place-items:center; width:1.25rem; height:1.25rem; border-radius:9999px; background:#e2e8f0; color:#475569; font-size:.6875rem; font-weight:700; }
+  .orc-aba.ativa .orc-aba-n { background:#d97706; color:#fff; }
+  .orc-aba-bd { font-size:.6875rem; font-weight:600; padding:.05rem .5rem; border-radius:9999px; }
   #app-header {
     font-family: Arial, Helvetica, sans-serif;
     font-weight: 700;
@@ -1376,17 +1381,21 @@
       <div id="orc-proposta-hist" class="hidden mt-1.5 max-h-40 overflow-y-auto border-t border-amber-200 pt-1.5"></div>
     </div>
 
+    <!-- Abas do orçamento -->
+    <div id="orc-abas" class="flex-none bg-white border-b border-slate-200 px-3 flex items-end gap-1 overflow-x-auto" role="tablist">
+      <button type="button" role="tab" data-orc-aba="1" class="orc-aba"><span class="orc-aba-n">1</span>Dados gerais</button>
+      <button type="button" role="tab" data-orc-aba="2" class="orc-aba"><span class="orc-aba-n">2</span>Cálculo do orçamento <span id="orc-aba-bd-2" class="hidden orc-aba-bd bg-rose-100 text-rose-700">⚠ gestor</span></button>
+      <button type="button" role="tab" data-orc-aba="3" class="orc-aba"><span class="orc-aba-n">3</span>Turmas <span id="orc-aba-bd-3" class="hidden orc-aba-bd bg-slate-100 text-slate-600"></span></button>
+      <div id="orc-abas-resumo" class="hidden md:flex ml-auto items-center gap-4 pb-2 pl-3 text-xs text-slate-500 whitespace-nowrap"></div>
+    </div>
+
     <div id="orc-editor-scroll" class="flex-1 min-h-0 overflow-y-auto px-3 md:px-4 py-3 space-y-3">
 
-      <!-- 1) Dados gerais -->
+      <!-- ABA 1: Dados gerais -->
+      <div id="orc-pg-1" data-orc-pagina="1" class="space-y-3">
       <section class="bg-white border border-slate-200 rounded-lg">
-        <div class="flex items-center gap-3 px-3 py-1.5 border-b border-slate-100">
-          <h3 class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">1 · Dados gerais do orçamento</h3>
-          <span class="flex-1"></span>
-          <span id="orc-resumo-gerais" class="hidden text-xs text-slate-500 truncate"></span>
-          <button type="button" id="btn-orc-gerais-toggle" class="text-xs border border-slate-300 rounded-md px-2.5 py-0.5 text-slate-600 hover:bg-slate-50">▴ Recolher</button>
-        </div>
-        <div id="orc-gerais-corpo" class="px-3 py-2.5">
+        <div class="px-3 py-1.5 border-b border-slate-100"><h3 class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Cliente e contato</h3></div>
+        <div class="px-3 py-2.5">
           <div class="grid grid-cols-2 md:grid-cols-12 gap-x-3 gap-y-2">
             <div class="col-span-1 md:col-span-2"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Número</label>
               <input id="orc-numero" class="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono" placeholder="Ex: ORC-2026-001" /></div>
@@ -1398,7 +1407,13 @@
               <input id="orc-contato-telefone" class="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" /></div>
             <div class="col-span-1 md:col-span-2"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">E-mail</label>
               <input id="orc-contato-email" type="email" class="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" /></div>
-
+          </div>
+        </div>
+      </section>
+      <section class="bg-white border border-slate-200 rounded-lg">
+        <div class="px-3 py-1.5 border-b border-slate-100"><h3 class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Treinamento e local</h3></div>
+        <div class="px-3 py-2.5">
+          <div class="grid grid-cols-2 md:grid-cols-12 gap-x-3 gap-y-2">
             <div class="col-span-2 md:col-span-3"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Treinamento</label>
               <select id="orc-tipo" class="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"></select></div>
             <div class="col-span-2 md:col-span-3"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Centro de Treinamento</label>
@@ -1411,7 +1426,13 @@
               <input id="orc-horario-teoria" type="time" class="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" /></div>
             <div id="orc-horario-pratica-bloco" class="col-span-1 md:col-span-2"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Início prática</label>
               <input id="orc-horario-pratica" type="time" class="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" /></div>
-
+          </div>
+        </div>
+      </section>
+      <section class="bg-white border border-slate-200 rounded-lg">
+        <div class="px-3 py-1.5 border-b border-slate-100"><h3 class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Quantidades e condições</h3></div>
+        <div class="px-3 py-2.5">
+          <div class="grid grid-cols-2 md:grid-cols-12 gap-x-3 gap-y-2">
             <div class="col-span-1 md:col-span-1"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Alunos</label>
               <input id="orc-qtd-alunos" type="number" min="1" step="1" class="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" /></div>
             <div class="col-span-1 md:col-span-1"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Turmas</label>
@@ -1438,7 +1459,11 @@
               </label>
             </div>
           </div>
-          <details class="mt-2 border border-dashed border-slate-300 rounded-md bg-slate-50/70 px-3 py-1.5">
+        </div>
+      </section>
+      <section class="bg-white border border-slate-200 rounded-lg">
+        <div class="px-3 py-2.5">
+          <details open class="border border-dashed border-slate-300 rounded-md bg-slate-50/70 px-3 py-1.5">
             <summary class="cursor-pointer text-[11px] font-semibold uppercase tracking-wide text-slate-500">Observações e endereço in-company</summary>
             <div class="space-y-3 mt-3 pb-2">
               <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -1548,11 +1573,13 @@
           </details>
         </div>
       </section>
+      </div>
 
-      <!-- 2) Cálculo do orçamento -->
+      <!-- ABA 2: Cálculo do orçamento -->
+      <div id="orc-pg-2" data-orc-pagina="2" class="hidden">
       <section class="bg-white border border-slate-200 rounded-lg">
         <div class="flex items-center gap-3 px-3 py-1.5 border-b border-slate-100 flex-wrap">
-          <h3 class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">2 · Cálculo do orçamento</h3>
+          <h3 class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Cálculo do orçamento</h3>
           <span id="orc-calc-origem" class="text-[11px] text-slate-400"></span>
           <span class="flex-1"></span>
           <label class="flex items-center gap-1.5 text-[11px] text-slate-500 cursor-pointer"><input type="checkbox" id="orc-calc-detalhes" /> Mostrar detalhes do cálculo da quantidade</label>
@@ -1624,35 +1651,37 @@
           <span aria-hidden="true">⚠</span><p id="orc-aviso-aprovacao-texto"></p>
         </div>
       </section>
-    </div>
-
-    <!-- 3) Turmas (fixo no rodapé da tela) -->
-    <div id="orc-dock" class="flex-none bg-white border-t-2 border-slate-900 shadow-[0_-4px_14px_rgba(15,23,42,0.08)]">
-      <div class="flex items-center gap-2 px-4 py-1.5 border-b border-slate-100 flex-wrap">
-        <h3 class="text-[11px] font-semibold uppercase tracking-wide text-slate-500 mr-1">3 · Turmas</h3>
-        <button type="button" id="btn-orc-turma-ant" class="border border-slate-300 rounded-md px-2.5 py-0.5 text-sm hover:bg-slate-50">◀</button>
-        <span id="orc-turmas-abas" class="flex flex-wrap gap-1"></span>
-        <button type="button" id="btn-orc-turma-prox" class="border border-slate-300 rounded-md px-2.5 py-0.5 text-sm hover:bg-slate-50">▶</button>
-        <span id="orc-turmas-nota" class="ml-auto text-[11px] text-slate-500"></span>
-        <button type="button" id="btn-orc-dock-toggle" title="Recolher / expandir" class="border border-slate-300 rounded-md px-2.5 py-0.5 text-sm hover:bg-slate-50">⌄</button>
       </div>
-      <div id="orc-turmas-corpo" class="px-4 py-1 max-h-[140px] overflow-y-auto">
-        <p id="orc-turmas-vazio" class="hidden text-xs text-slate-400 py-3"></p>
-        <div id="orc-turmas-bloco" class="hidden overflow-x-auto">
-          <table class="w-full text-xs">
+
+      <!-- ABA 3: Turmas -->
+      <div id="orc-pg-3" data-orc-pagina="3" class="hidden">
+        <section class="bg-white border border-slate-200 rounded-lg">
+          <div class="flex items-center gap-2 px-3 py-1.5 border-b border-slate-100 flex-wrap">
+            <h3 class="text-[11px] font-semibold uppercase tracking-wide text-slate-500 mr-1">Turmas do orçamento</h3>
+            <button type="button" id="btn-orc-turma-ant" class="border border-slate-300 rounded-md px-2.5 py-0.5 text-sm hover:bg-slate-50">◀</button>
+            <span id="orc-turmas-abas" class="flex flex-wrap gap-1"></span>
+            <button type="button" id="btn-orc-turma-prox" class="border border-slate-300 rounded-md px-2.5 py-0.5 text-sm hover:bg-slate-50">▶</button>
+            <span id="orc-turmas-nota" class="ml-auto text-[11px] text-slate-500"></span>
+          </div>
+          <div id="orc-turmas-corpo" class="px-3 py-2">
+            <p id="orc-turmas-vazio" class="hidden text-xs text-slate-400 py-3"></p>
+            <div id="orc-turmas-bloco" class="hidden overflow-x-auto">
+              <table class="w-full text-xs">
             <thead>
               <tr class="text-slate-500 text-left">
-                <th class="px-2 py-1 font-medium">Dia</th>
-                <th class="px-2 py-1 font-medium">Tipo do dia</th>
-                <th class="px-2 py-1 font-medium">Data</th>
-                <th class="px-2 py-1 font-medium">Instrutor 1</th>
-                <th class="px-2 py-1 font-medium">Instrutor 2</th>
-                <th class="px-2 py-1 font-medium">Transporte</th>
+                <th class="px-3 py-1.5 font-medium">Dia</th>
+                <th class="px-3 py-1.5 font-medium">Tipo do dia</th>
+                <th class="px-3 py-1.5 font-medium">Data</th>
+                <th class="px-3 py-1.5 font-medium">Instrutor 1</th>
+                <th class="px-3 py-1.5 font-medium">Instrutor 2</th>
+                <th class="px-3 py-1.5 font-medium">Transporte</th>
               </tr>
             </thead>
             <tbody id="orc-turmas-tbody" class="divide-y divide-slate-100"></tbody>
           </table>
-        </div>
+            </div>
+          </div>
+        </section>
       </div>
     </div>
   </div>
@@ -2076,6 +2105,6 @@
 </div>
 
 <script src="config.js"></script>
-<script src="app.js?v=20261005c"></script>
+<script src="app.js?v=20261005d"></script>
 </body>
 </html>

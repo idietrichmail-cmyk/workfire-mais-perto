@@ -1123,3 +1123,5 @@ alter table instrutores
 --    gerado_por, created_at, dados jsonb = instantâneo do cálculo/textos/itens impressos) + RLS
 --  Permissão: o novo módulo "prazos_pagamento" precisa ser liberado em Usuários do Sistema para quem não é admin.
 -- ============================================================
+
+-- Prod 1.32 · Editor do orçamento em 3 abas (Dados gerais · Cálculo do orçamento · Turmas). Sem alterações no banco.
