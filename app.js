@@ -34,7 +34,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.35 · 05/10/2026";
+const APP_VERSAO = "Prod 1.36 · 05/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -8220,7 +8220,8 @@ async function excluirOrcamento(id) {
 async function carregarTurmasInit() {
   $("admin-descricao-pagina").textContent = "Acompanhe e ajuste as turmas geradas automaticamente para cada orçamento.";
   const [{ data: orcs }, { data: centros }, { data: insts }, { data: tipos }, { data: empresasTodas }] = await Promise.all([
-    supabase.from("orcamentos").select("*, empresas(nome, cnpj, cnpj_grupo_economico), tipos_treinamento(nome)").order("created_at", { ascending: false }),
+    // o servidor devolve no máximo 1000 linhas por consulta: busca em páginas para trazer TODOS os orçamentos
+    buscarTodos(() => supabase.from("orcamentos").select("*, empresas(nome, cnpj, cnpj_grupo_economico), tipos_treinamento(nome)").order("created_at", { ascending: false }).order("id")),
     supabase.from("centros_treinamento").select("*").eq("status", "Ativo").order("nome"),
     supabase.from("instrutores").select("*").eq("status", "Ativo").order("nome"),
     supabase.from("tipos_treinamento").select("*").eq("status", "Ativo").order("nome"),
@@ -8749,11 +8750,12 @@ $("agend-centro-select").addEventListener("change", async () => {
     return;
   }
 
-  const { data: orcs } = await supabase
+  const { data: orcs } = await buscarTodos(() => supabase
     .from("orcamentos")
     .select("*, empresas(nome, cnpj, cnpj_grupo_economico), tipos_treinamento(nome)")
     .eq("centro_treinamento_id", agendTurmaCentroId)
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false })
+    .order("id"));
   agendTurmaListaOrcamentos = orcs || [];
   $("agend-orcamento-busca").value = "";
   $("agend-orcamento-busca").disabled = false;
