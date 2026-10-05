@@ -1127,3 +1127,21 @@ alter table instrutores
 -- Prod 1.32 · Editor do orçamento em 3 abas (Dados gerais · Cálculo do orçamento · Turmas). Sem alterações no banco.
 
 -- Prod 1.33 · Cliente do orçamento sempre alocado na edição (busca a empresa gravada mesmo se a lista de ativas vier incompleta ou o cliente estiver inativo). Sem alterações no banco.
+
+-- ============================================================
+-- Prod 1.34 · Aprovação do gestor, proposta Válida/Inválida (Nova negociação), marca d'água, prévia e parcelas do prazo
+-- (já aplicado via migrations no Supabase em 05/10/2026)
+--  usuarios_sistema.aprovador_comercial boolean not null default false (admin também aprova)
+--  orcamento_propostas: status ('Válida'|'Inválida', default 'Válida'), requer_aprovacao, margem_final_valor/perc, margem_minima_perc/valor
+--    (snapshot do momento da geração), aprovado_em/aprovado_por/aprovado_por_id/justificativa_aprovacao (>= 5 caracteres),
+--    invalidada_em/invalidada_por/motivo_invalidacao (obrigatório, >= 3 caracteres, quando status = 'Inválida')
+--  índice único parcial orcamento_propostas_valida_uq (orcamento_id) where status = 'Válida'  -> só uma proposta válida por orçamento
+--  função proteger_aprovacao_proposta() + trigger trg_proteger_aprovacao_proposta (before insert/update): só administrador ou
+--    usuário ativo com aprovador_comercial grava/altera as colunas de aprovação (security definer; ignora chamadas sem auth.uid())
+--  orcamentos.requer_aprovacao_gestor recalculado para todos os orçamentos calculados (valor antigo podia ficar desatualizado
+--    quando o mínimo do treinamento era definido depois do salvamento do orçamento)
+--  prazos_pagamento_parcelas (prazo_pagamento_id cascade, numero >= 1, dias 0..3650, percentual > 0 e <= 100; único por prazo+numero)
+--    + RLS; mapa ('prazos_pagamento','prazos_pagamento_parcelas','own') e ('orcamentos','prazos_pagamento_parcelas','leitura').
+--    Os 5 prazos já cadastrados receberam parcelas (À VISTA, 15, 30, 30/60, 30/60/90 DIAS). A soma de 100% é validada no aplicativo.
+--  Quem aprova precisa também de permissão "alterar" em Orçamentos (RLS de orcamento_propostas).
+-- ============================================================

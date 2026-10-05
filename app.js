@@ -34,7 +34,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.33 · 05/10/2026";
+const APP_VERSAO = "Prod 1.34 · 05/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -2237,16 +2237,31 @@ const CRUD_CONFIG = {
   prazos_pagamento: {
     tabela: "prazos_pagamento",
     titulo: "Prazo de Pagamento",
-    descricao: "Condições de pagamento usadas nas propostas dos orçamentos (ex.: À VISTA, 30 DIAS, 30/60/90 DIAS).",
+    descricao: "Condições de pagamento usadas nas propostas dos orçamentos. Cada prazo tem suas parcelas (dias e percentual de cada uma, totalizando 100%).",
     buscaPlaceholder: "Buscar por descrição",
     ordenarPor: "descricao",
+    carregarRefs: async () => {
+      const { data } = await supabase.from("prazos_pagamento_parcelas").select("prazo_pagamento_id, numero, dias, percentual").order("numero");
+      prazosParcelasPorPrazo = {};
+      (data || []).forEach((r) => { (prazosParcelasPorPrazo[r.prazo_pagamento_id] = prazosParcelasPorPrazo[r.prazo_pagamento_id] || []).push(r); });
+    },
     campos: [
       { id: "descricao", label: "Descrição (como será impressa na proposta)", obrigatorio: true },
       { id: "status", label: "Status", tipo: "select", opcoes: ["Ativo", "Inativo"], padrao: "Ativo" },
     ],
+    camposExtraHtml: () => htmlSecaoParcelasPrazo(),
+    aoMontarForm: (item) => iniciarSecaoParcelasPrazo(item),
+    validarForm: () => validarParcelasPrazo(),
+    aoSalvar: async (linha) => { await salvarParcelasPrazo(linha.id); },
     campoBusca: (i) => i.descricao || "",
     cardTitulo: (i) => i.descricao,
-    cardLinhas: (i) => [i.status === "Inativo" && "🚫 Inativo"].filter(Boolean),
+    cardLinhas: (i) => {
+      const ps = prazosParcelasPorPrazo[i.id] || [];
+      return [
+        ps.length ? `${ps.length} parcela${ps.length > 1 ? "s" : ""}: ` + ps.map((p) => `${p.dias === 0 ? "à vista" : p.dias + "d"} ${fmtPercParcela(p.percentual)}%`).join(" · ") : "Sem parcelas cadastradas",
+        i.status === "Inativo" && "🚫 Inativo",
+      ].filter(Boolean);
+    },
   },
   tipos_despesas: {
     tabela: "tipos_despesas",
@@ -2588,6 +2603,7 @@ const CRUD_CONFIG = {
         ),
       },
       { id: "gestor_financeiro", label: "É gestor financeiro (aprova reembolsos na 2ª fase)", tipo: "checkbox", padrao: false },
+      { id: "aprovador_comercial", label: "É aprovador comercial (aprova propostas com margem abaixo da mínima)", tipo: "checkbox", padrao: false },
     ],
     campoBusca: (i) => `${i.nome} ${i.email} ${i.telefone || ""}`,
     cardTitulo: (i) => i.nome,
@@ -2601,6 +2617,7 @@ const CRUD_CONFIG = {
         : (i.reset_senha_solicitado_em ? "🔑 Redefinição de senha SOLICITADA" : null),
       i.gestor_direto_id ? `🧭 Gestor direto: ${(usuariosSistemaRefGestores.find((u) => u.id === i.gestor_direto_id) || {}).nome || "—"}` : null,
       i.gestor_financeiro ? "💰 Gestor financeiro (2ª fase de reembolsos)" : null,
+      i.aprovador_comercial ? "✅ Aprovador comercial (propostas)" : null,
     ].filter(Boolean),
     camposExtraHtml: (item) => {
       if (!item) return "";
@@ -4395,6 +4412,165 @@ async function salvarPermissoesForm(usuarioId) {
 
 
 // ===========================================================
+// Parcelas do prazo de pagamento (dentro do cadastro de Prazos de Pagamento)
+// Cada parcela: nº, dias após o faturamento e % do total; a soma deve fechar 100%.
+// ===========================================================
+let prazosParcelasPorPrazo = {};
+let prazoParcelasForm = [];
+let prazoParcelasOriginais = [];
+let prazoParcelasSeq = 0;
+
+function fmtPercParcela(v) {
+  return Number(v).toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+}
+
+function htmlSecaoParcelasPrazo() {
+  return `
+  <div id="prazo-parcelas-bloco" class="pt-4 mt-2 border-t border-slate-200">
+    <div class="flex items-center justify-between mb-1">
+      <p class="text-xs font-medium text-slate-500 uppercase tracking-wide">Parcelas</p>
+      <button type="button" id="btn-prazo-parcela-add" class="text-xs font-medium text-white bg-slate-900 hover:bg-slate-800 rounded-md px-3 py-1.5">+ Adicionar parcela</button>
+    </div>
+    <p class="text-[11px] text-slate-400 mb-3">Informe, para cada parcela, os dias após o faturamento (0 = à vista) e o percentual do valor total. A soma dos percentuais deve ser 100%.</p>
+    <div id="prazo-parcelas-lista" class="space-y-2"></div>
+    <p id="prazo-parcelas-total" class="text-xs mt-2 text-right"></p>
+  </div>`;
+}
+
+function novaLinhaParcelaPrazo(base = {}) {
+  return {
+    chave: `p${++prazoParcelasSeq}`,
+    id: base.id || null,
+    dias: base.dias != null ? String(base.dias) : "30",
+    percentual: base.percentual != null ? String(Number(base.percentual)) : "",
+  };
+}
+
+async function iniciarSecaoParcelasPrazo(item) {
+  prazoParcelasForm = [];
+  prazoParcelasOriginais = [];
+  const lista = $("prazo-parcelas-lista");
+  if (!lista) return;
+  $("btn-prazo-parcela-add").addEventListener("click", () => {
+    const ult = prazoParcelasForm[prazoParcelasForm.length - 1];
+    const dias = ult ? (parseInt(ult.dias, 10) || 0) + 30 : 30;
+    const soma = prazoParcelasForm.reduce((t, x) => t + (Number(x.percentual) || 0), 0);
+    prazoParcelasForm.push(novaLinhaParcelaPrazo({ dias, percentual: soma > 0 && soma < 100 ? Math.round((100 - soma) * 100) / 100 : (prazoParcelasForm.length ? "" : 100) }));
+    renderizarParcelasPrazo();
+  });
+  lista.addEventListener("input", (ev) => {
+    const el = ev.target.closest("[data-parcela-campo]");
+    const linhaEl = ev.target.closest("[data-parcela-linha]");
+    if (!el || !linhaEl) return;
+    const l = prazoParcelasForm.find((x) => x.chave === linhaEl.getAttribute("data-parcela-linha"));
+    if (l) l[el.getAttribute("data-parcela-campo")] = el.value;
+    atualizarTotalParcelasPrazo();
+  });
+  lista.addEventListener("click", (ev) => {
+    const b = ev.target.closest("[data-parcela-remover]");
+    if (!b) return;
+    prazoParcelasForm = prazoParcelasForm.filter((x) => x.chave !== b.getAttribute("data-parcela-remover"));
+    renderizarParcelasPrazo();
+  });
+  if (item && item.id) {
+    lista.innerHTML = `<p class="text-xs text-slate-400">Carregando parcelas…</p>`;
+    const { data, error } = await supabase.from("prazos_pagamento_parcelas").select("*").eq("prazo_pagamento_id", item.id).order("numero");
+    if (error) {
+      lista.innerHTML = `<p class="text-xs text-rose-600">Não foi possível carregar as parcelas deste prazo.</p>`;
+      return;
+    }
+    prazoParcelasOriginais = data || [];
+    prazoParcelasForm = prazoParcelasOriginais.map((r) => novaLinhaParcelaPrazo(r));
+  } else {
+    prazoParcelasForm = [novaLinhaParcelaPrazo({ dias: 0, percentual: 100 })];
+  }
+  renderizarParcelasPrazo();
+}
+
+function somaParcelasPrazo() {
+  return prazoParcelasForm.reduce((t, x) => t + (Number(String(x.percentual).replace(",", ".")) || 0), 0);
+}
+
+function atualizarTotalParcelasPrazo() {
+  const el = $("prazo-parcelas-total");
+  if (!el) return;
+  const soma = Math.round(somaParcelasPrazo() * 100) / 100;
+  const ok = Math.abs(soma - 100) < 0.005;
+  el.className = "text-xs mt-2 text-right font-medium " + (ok ? "text-teal-700" : "text-rose-600");
+  el.textContent = `Total: ${fmtPercParcela(soma)}%` + (ok ? " ✓" : ` — faltam ${fmtPercParcela(Math.round((100 - soma) * 100) / 100)}% para fechar 100%`);
+}
+
+function renderizarParcelasPrazo() {
+  const lista = $("prazo-parcelas-lista");
+  if (!lista) return;
+  if (prazoParcelasForm.length === 0) {
+    lista.innerHTML = `<p class="text-xs text-slate-400 border border-dashed border-slate-300 rounded-md px-3 py-4 text-center">Nenhuma parcela. Adicione ao menos uma.</p>`;
+    atualizarTotalParcelasPrazo();
+    return;
+  }
+  const classeCampo = "mt-0.5 w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500";
+  const rotulo = "text-[10px] font-medium text-slate-500 uppercase tracking-wide";
+  lista.innerHTML = prazoParcelasForm.map((l, i) => `
+    <div data-parcela-linha="${l.chave}" class="grid grid-cols-12 gap-2 items-end border border-slate-200 rounded-md p-2.5 bg-slate-50">
+      <div class="col-span-2 sm:col-span-2"><p class="${rotulo}">Parcela</p><p class="mt-1.5 text-sm font-medium text-slate-700">${i + 1}ª</p></div>
+      <div class="col-span-4 sm:col-span-4">
+        <label class="${rotulo}">Dias após faturamento</label>
+        <input data-parcela-campo="dias" type="number" min="0" max="3650" step="1" value="${l.dias}" class="${classeCampo}" />
+      </div>
+      <div class="col-span-4 sm:col-span-4">
+        <label class="${rotulo}">% do total</label>
+        <input data-parcela-campo="percentual" type="number" min="0" max="100" step="any" value="${l.percentual}" class="${classeCampo}" />
+      </div>
+      <div class="col-span-2 sm:col-span-2 text-right">
+        <button type="button" data-parcela-remover="${l.chave}" title="Remover parcela" class="text-rose-500 hover:text-rose-700 px-2 py-1.5">🗑️</button>
+      </div>
+    </div>`).join("");
+  atualizarTotalParcelasPrazo();
+}
+
+function validarParcelasPrazo() {
+  if (prazoParcelasForm.length === 0) return "Cadastre ao menos uma parcela para o prazo de pagamento.";
+  for (let i = 0; i < prazoParcelasForm.length; i++) {
+    const l = prazoParcelasForm[i];
+    const n = `Parcela ${i + 1}`;
+    const d = String(l.dias).trim();
+    if (d === "" || !(Number.isInteger(Number(d)) && Number(d) >= 0 && Number(d) <= 3650)) return `${n}: informe os dias (número inteiro de 0 a 3650).`;
+    const p = Number(String(l.percentual).replace(",", "."));
+    if (String(l.percentual).trim() === "" || !(p > 0 && p <= 100)) return `${n}: informe o percentual (maior que 0 e até 100).`;
+  }
+  const soma = Math.round(somaParcelasPrazo() * 100) / 100;
+  if (Math.abs(soma - 100) >= 0.005) return `A soma dos percentuais das parcelas é ${fmtPercParcela(soma)}%. Ajuste para totalizar exatamente 100%.`;
+  return null;
+}
+
+// Regrava o conjunto de parcelas: insere as novas e só depois remove as antigas (não perde dados se a inserção falhar).
+async function salvarParcelasPrazo(prazoId) {
+  const falha = (e) => Object.assign(new Error(e?.message || "erro"), { mensagemUsuario: `Prazo salvo, mas as parcelas não foram gravadas: ${e?.message || "erro desconhecido"}. Tente novamente pela edição.` });
+  try {
+    const antigos = prazoParcelasOriginais.map((o) => o.id);
+    // numero tem unicidade por prazo: remove as antigas antes, guardando-as para restaurar em caso de erro
+    if (antigos.length) {
+      const { error } = await supabase.from("prazos_pagamento_parcelas").delete().in("id", antigos);
+      if (error) throw error;
+    }
+    const linhas = prazoParcelasForm.map((l, i) => ({
+      prazo_pagamento_id: prazoId, numero: i + 1, dias: parseInt(l.dias, 10), percentual: Math.round(Number(String(l.percentual).replace(",", ".")) * 100) / 100,
+    }));
+    const { error: eIns } = await supabase.from("prazos_pagamento_parcelas").insert(linhas);
+    if (eIns) {
+      if (prazoParcelasOriginais.length) {
+        await supabase.from("prazos_pagamento_parcelas").insert(prazoParcelasOriginais.map((o) => ({ prazo_pagamento_id: prazoId, numero: o.numero, dias: o.dias, percentual: o.percentual })));
+      }
+      throw eIns;
+    }
+  } catch (e) {
+    console.error("Falha ao gravar parcelas do prazo:", e);
+    throw falha(e);
+  }
+}
+
+
+// ===========================================================
 // Itens de custo do treinamento (dentro do cadastro de Treinamentos)
 // Cada linha: item de custo + divisor (opcional) + unidade do divisor + múltiplo + imprime + ordem de impressão.
 // ===========================================================
@@ -5444,6 +5620,21 @@ function letraIndice(i) {
   return letra;
 }
 
+// Valor do orçamento na lista, com a situação de aprovação do gestor.
+//  - proposta válida que precisa de aprovação: pendente (⏳ vermelho) ou aprovada (✔ verde);
+//  - sem proposta válida: ⚠ quando a margem calculada está abaixo do mínimo.
+function htmlValorOrcamentoLista(o) {
+  const val = (o.orcamento_propostas || []).find((p) => p.status !== "Inválida");
+  let cls = "", mark = "", tip = "";
+  if (val && val.requer_aprovacao) {
+    if (val.aprovado_em) { cls = "text-emerald-700 font-semibold"; mark = "✔ "; tip = "Proposta aprovada pelo gestor (margem abaixo do mínimo)"; }
+    else { cls = "text-rose-600 font-semibold"; mark = "⏳ "; tip = "Proposta aguardando aprovação do gestor (margem abaixo do mínimo)"; }
+  } else if (!val && o.requer_aprovacao_gestor) {
+    cls = "text-rose-600 font-semibold"; mark = "⚠ "; tip = "Margem abaixo do mínimo: precisará de aprovação do gestor após gerar a proposta";
+  }
+  return `<span class="${cls}" ${tip ? `title="${tip}"` : ""}>${mark}${fmtBRL(o.valor_final)}</span>`;
+}
+
 const ORC_TAMANHO_PAGINA = 20;
 let orcPagina = 1;
 let orcTotal = 0;
@@ -5457,7 +5648,8 @@ async function carregarOrcamentos() {
     supabase.from("centros_treinamento").select("*").eq("status", "Ativo").order("nome"),
     supabase.from("prazos_pagamento").select("id, descricao, status").order("descricao"),
   ]);
-  orcPrazosPagamento = prazos || [];
+  const { data: parcelasPrazos } = await supabase.from("prazos_pagamento_parcelas").select("prazo_pagamento_id, numero, dias, percentual").order("numero");
+  orcPrazosPagamento = (prazos || []).map((p) => ({ ...p, parcelas: (parcelasPrazos || []).filter((x) => x.prazo_pagamento_id === p.id).sort((a, b) => a.numero - b.numero) }));
   listaEmpresasAtivas = empresas || [];
   orcEmpresasIncompleta = !!erroEmpresas;
   if (erroEmpresas) $("admin-descricao-pagina").textContent += " ⚠ A lista de clientes não carregou por completo; recarregue a página. (O cliente de um orçamento já gravado continua sendo exibido.)";
@@ -5487,7 +5679,7 @@ async function consultarPaginaOrcamentos() {
   }
   const montar = () => {
     let q = supabase.from("orcamentos")
-      .select("*, empresas(nome), centros_treinamento(nome), tipos_treinamento(nome)", { count: "exact" })
+      .select("*, empresas(nome), centros_treinamento(nome), tipos_treinamento(nome), orcamento_propostas(status, requer_aprovacao, aprovado_em)", { count: "exact" })
       .in("status", [...orcFiltroStatus]);
     if (filtroOr) q = q.or(filtroOr);
     return q.order("data", { ascending: false }).order("created_at", { ascending: false }).order("id");
@@ -5565,7 +5757,7 @@ function renderizarListaOrcamentos() {
       <td class="px-3 py-2 text-slate-500">${o.qtd_alunos || 0}</td>
       <td class="px-3 py-2 text-slate-500">${o.qtd_localidades || 1}</td>
       <td class="px-3 py-2 text-slate-500">${o.data || "—"}</td>
-      <td class="px-3 py-2 text-right whitespace-nowrap text-slate-700">${o.calculado_em ? `<span class="${o.requer_aprovacao_gestor ? "text-rose-600 font-semibold" : ""}" ${o.requer_aprovacao_gestor ? 'title="Margem abaixo do mínimo: precisa de aprovação do gestor"' : ""}>${o.requer_aprovacao_gestor ? "⚠ " : ""}${fmtBRL(o.valor_final)}</span>` : '<span class="text-slate-300" title="Orçamento ainda sem cálculo">—</span>'}</td>
+      <td class="px-3 py-2 text-right whitespace-nowrap text-slate-700">${o.calculado_em ? htmlValorOrcamentoLista(o) : '<span class="text-slate-300" title="Orçamento ainda sem cálculo">—</span>'}</td>
       <td class="px-3 py-2 text-right whitespace-nowrap">
         ${podeAlterar ? `<button data-orc-editar="${o.id}" title="Editar orçamento" class="text-slate-500 hover:text-slate-800 px-2 py-1">✏️</button>` : ""}
         ${podeExcluir ? `<button data-orc-excluir="${o.id}" title="Excluir orçamento" class="text-rose-500 hover:text-rose-700 px-2 py-1">🗑️</button>` : ""}
@@ -5682,6 +5874,7 @@ function orcAtualizarAbas() {
   const temCalc = c.itens.length > 0 && c.valido;
   const bd2 = $("orc-aba-bd-2");
   bd2.classList.toggle("hidden", !c.precisaAprovacao);
+  orcAtualizarAprovacao(c);
   const grupos = orcTurmasGrupos.length;
   const dias = orcTurmasGrupos.reduce((t, g) => t + (g.linhas ? g.linhas.length : 0), 0);
   const bd3 = $("orc-aba-bd-3");
@@ -6019,14 +6212,6 @@ function recalcularOrcamentoTela() {
     $(id).classList.toggle("text-rose-600", c.precisaAprovacao);
   });
   $("orc-r-margem-final").classList.toggle("font-semibold", c.precisaAprovacao);
-  $("orc-aviso-aprovacao").classList.toggle("hidden", !c.precisaAprovacao);
-  $("orc-tag-aprovacao").classList.toggle("hidden", !c.precisaAprovacao);
-  if (c.precisaAprovacao) {
-    const motivos = [];
-    if (c.abaixoPerc) motivos.push(`${fmtPercOrc(c.margemPerc)} (mínimo ${fmtPercOrc(c.minPerc)})`);
-    if (c.abaixoValor) motivos.push(`${fmtBRL(c.margemTurma)} por turma (mínimo ${fmtBRL(c.minValor)})`);
-    $("orc-aviso-aprovacao-texto").textContent = `Este orçamento precisa de aprovação do gestor: a margem final depois do desconto está abaixo do mínimo do treinamento — ${motivos.join(" e ")}. Você pode salvar normalmente; os dados são gravados mesmo assim.`;
-  }
   const avisoDesc = $("orc-r-aviso-desc");
   avisoDesc.classList.toggle("hidden", !c.descontoInvalido);
   if (c.descontoInvalido) avisoDesc.textContent = "O desconto não pode ser maior que o total do orçamento.";
@@ -6530,7 +6715,7 @@ async function salvarOrcamento(opts = {}) {
     validade: validadeData,
     validade_dias: validadeDias,
     prazo_pagamento_id: $("orc-prazo").value || null,
-    proposta_em_elaboracao: opts.gerandoProposta ? false : (orcPropostas.length > 0 && !orcPropostaTravada),
+    proposta_em_elaboracao: false,
     status: $("orc-status").value,
     observacoes: $("orc-observacoes").value.trim(),
     observacao_ct: $("orc-observacao-ct").value.trim() || null,
@@ -6644,9 +6829,16 @@ function orcPreencherPrazos(selecionado) {
   sel.value = selecionado || "";
 }
 
+const PROPOSTA_CAMPOS = "id, numero, versao, valor_final, gerado_por, created_at, status, requer_aprovacao, margem_final_valor, margem_final_perc, margem_minima_perc, margem_minima_valor, aprovado_em, aprovado_por, justificativa_aprovacao, invalidada_em, invalidada_por, motivo_invalidacao";
+const escHtmlOrc = (t) => String(t == null ? "" : t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+const propostaVigente = () => orcPropostas.find((p) => p.status !== "Inválida") || null; // a proposta Válida (só pode haver uma)
+const usuarioPodeAprovar = () => !!usuarioSistemaAtual && (usuarioSistemaAtual.role === "admin" || !!usuarioSistemaAtual.aprovador_comercial);
+// Marca d'água do PDF de uma proposta gravada: "NÃO APROVADA" enquanto exigir aprovação do gestor e não a tiver.
+const marcaDaProposta = (p) => (p && p.requer_aprovacao && !p.aprovado_em ? "NÃO APROVADA" : null);
+
 async function carregarPropostasDoOrcamento(o) {
   const { data, error } = await supabase.from("orcamento_propostas")
-    .select("id, numero, versao, valor_final, gerado_por, created_at")
+    .select(PROPOSTA_CAMPOS)
     .eq("orcamento_id", o.id).order("created_at", { ascending: false });
   if (error) {
     orcPropostas = [];
@@ -6654,7 +6846,7 @@ async function carregarPropostasDoOrcamento(o) {
     mostrarErro("orc-form-erro", "Não foi possível carregar as propostas deste orçamento: " + (error.message || "erro desconhecido"));
   } else {
     orcPropostas = data || [];
-    orcPropostaTravada = orcPropostas.length > 0 && !o.proposta_em_elaboracao;
+    orcPropostaTravada = !!propostaVigente();
   }
   orcAtualizarModoProposta();
   renderizarCalcOrcamento();
@@ -6665,7 +6857,9 @@ function orcAtualizarModoProposta() {
   const trav = orcPropostaTravada;
   $("btn-orc-nova-proposta").classList.toggle("hidden", !(editandoOrcamentoId && trav));
   $("btn-orc-gerar-proposta").classList.toggle("hidden", trav);
+  $("btn-orc-previa").classList.toggle("hidden", trav);
   $("btn-orc-gerar-proposta").disabled = orcGerandoProposta;
+  $("btn-orc-previa").disabled = orcGerandoProposta;
   CAMPOS_TRAVA_PROPOSTA.forEach((id) => {
     const el = $(id);
     el.disabled = trav;
@@ -6674,12 +6868,15 @@ function orcAtualizarModoProposta() {
   });
   if (trav) $("orc-opcional-painel").classList.add("hidden");
   $("orc-proposta-faixa").classList.toggle("hidden", !tem);
+  orcAtualizarAprovacao();
   if (!tem) return;
-  const u = orcPropostas[0];
-  $("orc-proposta-texto").textContent = `Última proposta: nº ${u.numero} · versão ${u.versao} · gerada em ${formatarDataHoraBr(u.created_at)}${u.gerado_por ? " por " + u.gerado_por : ""} · ${fmtBRL(u.valor_final)}`
-    + (trav ? " · cálculo bloqueado (use “Nova proposta” para alterar)" : "");
+  const v = propostaVigente();
+  const u = v || orcPropostas[0];
+  $("orc-proposta-texto").textContent = (v ? "Proposta válida" : "Última proposta (inválida)")
+    + `: nº ${u.numero} · versão ${u.versao} · gerada em ${formatarDataHoraBr(u.created_at)}${u.gerado_por ? " por " + u.gerado_por : ""} · ${fmtBRL(u.valor_final)}`
+    + (v ? " · itens bloqueados (use “Nova negociação” para alterar)" : " · em negociação: gere uma nova proposta");
   const hist = $("orc-proposta-hist");
-  hist.innerHTML = orcPropostas.map((p) => `<div class="flex items-center gap-3 py-0.5"><span class="font-mono">${p.numero}</span><span>v${p.versao}</span><span>${formatarDataHoraBr(p.created_at)}</span><span>${p.gerado_por || ""}</span><span class="font-semibold">${fmtBRL(p.valor_final)}</span><button type="button" data-prop-pdf="${p.id}" class="underline hover:text-amber-700">⬇ PDF</button></div>`).join("");
+  hist.innerHTML = orcPropostas.map((p) => `<div class="flex items-center gap-3 py-0.5 flex-wrap"><span class="font-mono">${escHtmlOrc(p.numero)}</span><span>v${p.versao}</span><span>${formatarDataHoraBr(p.created_at)}</span><span>${escHtmlOrc(p.gerado_por || "")}</span><span class="font-semibold">${fmtBRL(p.valor_final)}</span><span class="${p.status === "Inválida" ? "text-slate-500" : "text-emerald-700 font-medium"}">${p.status === "Inválida" ? "Inválida" : "Válida"}</span><button type="button" data-prop-pdf="${p.id}" class="underline hover:text-amber-700">⬇ PDF</button></div>`).join("");
   orcAtualizarAvisoProposta();
 }
 
@@ -6687,18 +6884,165 @@ function orcAtualizarAvisoProposta() {
   const av = $("orc-proposta-aviso");
   if (!orcPropostas.length) { av.classList.add("hidden"); return; }
   let msg = "";
-  if (!orcPropostaTravada) msg = "Nova proposta em elaboração — as alterações valem para a próxima proposta.";
-  else if (orcLinhasCalc.length && Math.abs(calcularOrcamento().final - Number(orcPropostas[0].valor_final || 0)) > 0.01) msg = "O valor deste orçamento difere da última proposta.";
+  const v = propostaVigente();
+  if (!v) msg = "Nova negociação em andamento — as alterações valem para a próxima proposta.";
+  else if (orcLinhasCalc.length && Math.abs(calcularOrcamento().final - Number(v.valor_final || 0)) > 0.01) msg = "O valor deste orçamento difere da proposta válida.";
   av.textContent = msg;
   av.classList.toggle("hidden", !msg);
 }
 
-$("btn-orc-nova-proposta").addEventListener("click", () => {
-  if (!orcPropostas.length) return;
-  orcPropostaTravada = false;
-  orcEditorSujo = true;
-  orcAtualizarModoProposta();
-  renderizarCalcOrcamento();
+// ---- Aprovação do gestor (aba 4), selo do cabeçalho e aviso do cálculo ----
+// Estado: a aprovação fica vinculada à PROPOSTA válida (que guarda o cálculo e a margem do momento em que foi gerada).
+function orcAtualizarAprovacao(c) {
+  if (!$("orc-apr-estado")) return;
+  c = c || calcularOrcamento();
+  const v = propostaVigente();
+  const tag = $("orc-tag-aprovacao");
+  const bd4 = $("orc-aba-bd-4");
+  const est = $("orc-apr-estado");
+  const caixaCor = (cl) => { est.className = "rounded-md border px-3 py-2 text-sm " + cl; };
+  const margens = $("orc-apr-margens");
+  const form = $("orc-apr-form");
+  const feito = $("orc-apr-feito");
+  margens.classList.add("hidden"); form.classList.add("hidden"); feito.classList.add("hidden");
+  tag.classList.remove("bg-rose-100", "text-rose-700", "bg-emerald-100", "text-emerald-700", "bg-amber-100", "text-amber-800");
+  bd4.classList.remove("bg-rose-100", "text-rose-700", "bg-emerald-100", "text-emerald-700");
+
+  // aviso na aba de cálculo (valor ao vivo, antes de gerar proposta)
+  const aviso = $("orc-aviso-aprovacao");
+  const mostrarAviso = c.precisaAprovacao && !v;
+  aviso.classList.toggle("hidden", !mostrarAviso);
+  if (mostrarAviso) {
+    const motivos = [];
+    if (c.abaixoPerc) motivos.push(`${fmtPercOrc(c.margemPerc)} (mínimo ${fmtPercOrc(c.minPerc)})`);
+    if (c.abaixoValor) motivos.push(`${fmtBRL(c.margemTurma)} por turma (mínimo ${fmtBRL(c.minValor)})`);
+    $("orc-aviso-aprovacao-texto").textContent = `Este orçamento precisa de aprovação do gestor: a margem final depois do desconto está abaixo do mínimo do treinamento — ${motivos.join(" e ")}. Gere a proposta e peça a aprovação na aba “Aprovação do gestor”; a proposta sai com a marca d'água NÃO APROVADA até lá.`;
+  }
+
+  if (!v) {
+    if (c.precisaAprovacao) {
+      tag.textContent = "⚠ Margem abaixo do mínimo — precisa de aprovação";
+      tag.classList.add("bg-rose-100", "text-rose-700"); tag.classList.remove("hidden");
+      caixaCor("border-amber-200 bg-amber-50 text-amber-900");
+      est.innerHTML = `A margem calculada está abaixo do mínimo do treinamento. A aprovação do gestor é feita <b>depois que a proposta for gerada</b> (o botão “Gerar proposta” grava o cálculo), e fica vinculada àquela proposta.`;
+    } else {
+      tag.classList.add("hidden");
+      caixaCor("border-slate-200 bg-slate-50 text-slate-600");
+      est.textContent = orcPropostas.length
+        ? "Não há proposta válida (negociação em andamento). Gere uma nova proposta; se a margem ficar abaixo do mínimo, ela precisará de aprovação."
+        : "Ainda não há proposta gerada. A aprovação do gestor só é necessária quando a margem da proposta fica abaixo do mínimo do treinamento.";
+    }
+    bd4.classList.add("hidden");
+  } else if (!v.requer_aprovacao) {
+    tag.classList.add("hidden"); bd4.classList.add("hidden");
+    caixaCor("border-emerald-200 bg-emerald-50 text-emerald-800");
+    est.innerHTML = `A proposta <b>${escHtmlOrc(v.numero)}</b> está dentro da margem mínima do treinamento: não precisa de aprovação do gestor.`;
+  } else if (v.aprovado_em) {
+    tag.textContent = "✔ Proposta aprovada pelo gestor"; tag.classList.add("bg-emerald-100", "text-emerald-700"); tag.classList.remove("hidden");
+    bd4.textContent = "✔ aprovada"; bd4.classList.add("bg-emerald-100", "text-emerald-700"); bd4.classList.remove("hidden");
+    caixaCor("border-emerald-200 bg-emerald-50 text-emerald-800");
+    est.innerHTML = `A proposta <b>${escHtmlOrc(v.numero)}</b> foi aprovada com a margem abaixo do mínimo.`;
+    margens.classList.remove("hidden");
+    feito.classList.remove("hidden");
+    feito.innerHTML = `<p><b>Aprovada por ${escHtmlOrc(v.aprovado_por || "—")}</b> em ${formatarDataHoraBr(v.aprovado_em)}</p><p class="text-xs uppercase tracking-wide text-emerald-700 mt-1">Justificativa</p><p class="whitespace-pre-wrap">${escHtmlOrc(v.justificativa_aprovacao || "")}</p>`;
+  } else {
+    tag.textContent = "⏳ Aguardando aprovação do gestor"; tag.classList.add("bg-rose-100", "text-rose-700"); tag.classList.remove("hidden");
+    bd4.textContent = "⏳ pendente"; bd4.classList.add("bg-rose-100", "text-rose-700"); bd4.classList.remove("hidden");
+    caixaCor("border-rose-300 bg-rose-50 text-rose-800");
+    est.innerHTML = `A proposta <b>${escHtmlOrc(v.numero)}</b> tem margem abaixo do mínimo do treinamento e <b>ainda não foi aprovada</b>. O PDF dela sai com a marca d'água “NÃO APROVADA”.`;
+    margens.classList.remove("hidden");
+    if (usuarioPodeAprovar()) form.classList.remove("hidden");
+    else est.innerHTML += `<br><span class="text-xs">Somente o administrador ou um aprovador comercial pode aprovar.</span>`;
+  }
+
+  if (v && v.requer_aprovacao) {
+    const card = (rot, val, sub) => `<div class="rounded-md border border-slate-200 px-3 py-2"><p class="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">${rot}</p><p class="text-sm font-semibold text-slate-800">${val}</p>${sub ? `<p class="text-[11px] text-slate-500">${sub}</p>` : ""}</div>`;
+    margens.innerHTML =
+      card("Valor final da proposta", fmtBRL(v.valor_final), "") +
+      card("Margem final (por turma)", `${fmtBRL(v.margem_final_valor)} · ${fmtPercOrc(v.margem_final_perc)}`, "depois do desconto") +
+      card("Mínimo do treinamento", `${Number(v.margem_minima_perc) > 0 ? fmtPercOrc(v.margem_minima_perc) : "—"} · ${Number(v.margem_minima_valor) > 0 ? fmtBRL(v.margem_minima_valor) : "—"}`, "% e R$ por turma");
+  }
+
+  // histórico de propostas e aprovações
+  const hist = $("orc-apr-hist");
+  if (!orcPropostas.length) { hist.innerHTML = `<p class="text-xs text-slate-400">Nenhuma proposta gerada ainda.</p>`; return; }
+  hist.innerHTML = `<table class="w-full text-xs"><thead><tr class="text-slate-500 text-left"><th class="px-2 py-1 font-medium">Proposta</th><th class="px-2 py-1 font-medium">Situação</th><th class="px-2 py-1 font-medium text-right">Valor final</th><th class="px-2 py-1 font-medium">Margem</th><th class="px-2 py-1 font-medium">Aprovação do gestor</th><th class="px-2 py-1 font-medium">Invalidada</th></tr></thead><tbody>` +
+    orcPropostas.map((p) => {
+      const inval = p.status === "Inválida";
+      const apr = !p.requer_aprovacao ? `<span class="text-slate-400">não necessária</span>`
+        : p.aprovado_em ? `<span class="text-emerald-700">✔ ${escHtmlOrc(p.aprovado_por || "")} · ${formatarDataHoraBr(p.aprovado_em)}</span><div class="text-slate-500 whitespace-pre-wrap">${escHtmlOrc(p.justificativa_aprovacao || "")}</div>`
+        : `<span class="${inval ? "text-slate-500" : "text-rose-600"}">${inval ? "não aprovada" : "⏳ pendente"}</span>`;
+      const inv = inval ? `${formatarDataHoraBr(p.invalidada_em)}${p.invalidada_por ? " · " + escHtmlOrc(p.invalidada_por) : ""}<div class="text-slate-500 whitespace-pre-wrap">${escHtmlOrc(p.motivo_invalidacao || "")}</div>` : "";
+      return `<tr class="border-t border-slate-100 align-top"><td class="px-2 py-1.5"><span class="font-mono">${escHtmlOrc(p.numero)}</span> <span class="text-slate-400">v${p.versao}</span></td><td class="px-2 py-1.5 ${inval ? "text-slate-500" : "text-emerald-700 font-medium"}">${inval ? "Inválida" : "Válida"}</td><td class="px-2 py-1.5 text-right whitespace-nowrap">${fmtBRL(p.valor_final)}</td><td class="px-2 py-1.5 whitespace-nowrap">${p.margem_final_perc != null ? fmtPercOrc(p.margem_final_perc) : "—"}</td><td class="px-2 py-1.5">${apr}</td><td class="px-2 py-1.5">${inv}</td></tr>`;
+    }).join("") + `</tbody></table>`;
+}
+
+$("btn-orc-aprovar").addEventListener("click", async () => {
+  const v = propostaVigente();
+  const erro = $("orc-apr-erro");
+  erro.classList.add("hidden");
+  if (!v || !v.requer_aprovacao || v.aprovado_em) return;
+  if (!usuarioPodeAprovar()) { erro.textContent = "Somente o administrador ou um aprovador comercial pode aprovar propostas."; erro.classList.remove("hidden"); return; }
+  const just = $("orc-apr-justificativa").value.trim();
+  if (just.length < 5) { erro.textContent = "Descreva a justificativa da aprovação (mínimo de 5 caracteres)."; erro.classList.remove("hidden"); return; }
+  const btn = $("btn-orc-aprovar");
+  btn.disabled = true;
+  try {
+    const campos = { aprovado_em: new Date().toISOString(), aprovado_por: usuarioSistemaAtual.nome, aprovado_por_id: usuarioSistemaAtual.id, justificativa_aprovacao: just };
+    const { data, error } = await supabase.from("orcamento_propostas").update(campos).eq("id", v.id).is("aprovado_em", null).is("invalidada_em", null).select(PROPOSTA_CAMPOS).maybeSingle();
+    if (error) throw error;
+    if (!data) throw new Error("a proposta não está mais válida ou já foi aprovada — recarregue o orçamento");
+    orcPropostas = orcPropostas.map((p) => (p.id === v.id ? { ...p, ...data } : p));
+    $("orc-apr-justificativa").value = "";
+    orcAtualizarModoProposta();
+    await carregarPaginaOrcamentos();
+  } catch (e) {
+    erro.textContent = "Não foi possível aprovar: " + (e?.message || "erro desconhecido");
+    erro.classList.remove("hidden");
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+// ---- Nova negociação: invalida a proposta válida (guardando o motivo) e libera os itens ----
+function abrirModalNovaNegociacao() {
+  const v = propostaVigente();
+  if (!v) return;
+  $("neg-proposta-numero").textContent = v.numero;
+  $("neg-motivo").value = "";
+  $("neg-erro").classList.add("hidden");
+  $("modal-nova-negociacao").classList.remove("hidden");
+  setTimeout(() => $("neg-motivo").focus(), 30);
+}
+function fecharModalNovaNegociacao() { $("modal-nova-negociacao").classList.add("hidden"); }
+$("btn-orc-nova-proposta").addEventListener("click", abrirModalNovaNegociacao);
+$("btn-neg-cancelar").addEventListener("click", fecharModalNovaNegociacao);
+$("btn-neg-confirmar").addEventListener("click", async () => {
+  const v = propostaVigente();
+  const erro = $("neg-erro");
+  erro.classList.add("hidden");
+  if (!v) return fecharModalNovaNegociacao();
+  const motivo = $("neg-motivo").value.trim();
+  if (motivo.length < 3) { erro.textContent = "Informe por que a proposta precisa ser alterada."; erro.classList.remove("hidden"); return; }
+  const btn = $("btn-neg-confirmar");
+  btn.disabled = true;
+  try {
+    const campos = { status: "Inválida", motivo_invalidacao: motivo, invalidada_em: new Date().toISOString(), invalidada_por: usuarioSistemaAtual ? usuarioSistemaAtual.nome : null };
+    const { data, error } = await supabase.from("orcamento_propostas").update(campos).eq("id", v.id).eq("status", "Válida").select(PROPOSTA_CAMPOS).maybeSingle();
+    if (error) throw error;
+    if (!data) throw new Error("a proposta já não está válida — recarregue o orçamento");
+    orcPropostas = orcPropostas.map((p) => (p.id === v.id ? { ...p, ...data } : p));
+    orcPropostaTravada = !!propostaVigente();
+    fecharModalNovaNegociacao();
+    orcAtualizarModoProposta();
+    renderizarCalcOrcamento();
+    await carregarPaginaOrcamentos();
+  } catch (e) {
+    erro.textContent = "Não foi possível iniciar a nova negociação: " + (e?.message || "erro desconhecido");
+    erro.classList.remove("hidden");
+  } finally {
+    btn.disabled = false;
+  }
 });
 $("btn-orc-proposta-hist").addEventListener("click", () => $("orc-proposta-hist").classList.toggle("hidden"));
 $("btn-orc-proposta-pdf").addEventListener("click", () => { if (orcPropostas[0]) baixarPropostaPdf(orcPropostas[0].id); });
@@ -6718,9 +7062,10 @@ function baixarBlobArquivo(blob, nome) {
 async function baixarPropostaPdf(id) {
   esconderErro("orc-form-erro");
   try {
-    const { data, error } = await supabase.from("orcamento_propostas").select("numero, dados").eq("id", id).single();
+    const { data, error } = await supabase.from("orcamento_propostas").select("numero, dados, requer_aprovacao, aprovado_em").eq("id", id).single();
     if (error || !data) throw error || new Error("proposta não encontrada");
-    const blob = await gerarPdfProposta(data.dados);
+    // a marca d'água acompanha a situação ATUAL da aprovação (gera "NÃO APROVADA" até o gestor aprovar)
+    const blob = await gerarPdfProposta(data.dados, { marca: marcaDaProposta(data) });
     baixarBlobArquivo(blob, `Proposta ${data.numero}.pdf`);
   } catch (e) {
     mostrarErro("orc-form-erro", "Não foi possível gerar o PDF: " + (e?.message || "erro desconhecido"));
@@ -6740,6 +7085,19 @@ function itensParaImpressaoProposta(itens) {
 function numeroDaProposta(numeroOrc, agora, comSegundos) {
   const p = pad2;
   return `${numeroOrc}-${agora.getFullYear()}${p(agora.getMonth() + 1)}${p(agora.getDate())}-${p(agora.getHours())}${p(agora.getMinutes())}${comSegundos ? p(agora.getSeconds()) : ""}`;
+}
+
+// Parcelas do prazo de pagamento aplicadas ao total geral (a última absorve a diferença de centavos).
+function parcelasDaProposta(prazo, total) {
+  const ps = prazo && Array.isArray(prazo.parcelas) ? prazo.parcelas : [];
+  if (!ps.length) return [];
+  let acum = 0;
+  return ps.map((p, i) => {
+    const perc = Number(p.percentual);
+    const valor = i === ps.length - 1 ? r2(total - acum) : r2(total * perc / 100);
+    acum = r2(acum + valor);
+    return { numero: p.numero, dias: p.dias, percentual: perc, valor };
+  });
 }
 
 function montarDadosProposta(linha, calc, agora, numero, versao) {
@@ -6767,10 +7125,12 @@ function montarDadosProposta(linha, calc, agora, numero, versao) {
       custo_turma: r2(calc.custo), valor_turma: r2(calc.valorTurma), valor_total: r2(calc.total), valor_desconto: r2(calc.valorDesc),
       valor_final: r2(calc.final), valor_final_turma: r2(calc.finalTurma), valor_final_aluno: r2(calc.finalAluno),
       margem_final_valor: r2(calc.margemTurma), margem_final_perc: r2(calc.margemPerc), requer_aprovacao_gestor: calc.precisaAprovacao,
+      margem_minima_perc: calc.minPerc, margem_minima_valor: r2(calc.minValor),
     },
     itens,
     itens_impressao: itensParaImpressaoProposta(itens),
     prazo_pagamento: prazo ? prazo.descricao : "",
+    parcelas: parcelasDaProposta(prazo, r2(calc.final)),
     validade_dias: dias, validade_ate: formatarData(ate),
     data_impressao: formatarData(agora),
   };
@@ -6798,12 +7158,16 @@ async function gerarPropostaOrcamento() {
     for (let tent = 0; tent < 2 && !gravada; tent++) {
       const numero = numeroDaProposta(linha.numero, agora, tent > 0);
       dados = montarDadosProposta(linha, calc, agora, numero, versao);
-      blob = await gerarPdfProposta(dados); // se o PDF falhar, nada é gravado
+      blob = await gerarPdfProposta(dados, { marca: calc.precisaAprovacao ? "NÃO APROVADA" : null }); // se o PDF falhar, nada é gravado
       const { data, error } = await supabase.from("orcamento_propostas").insert({
         orcamento_id: linha.id, numero, versao, valor_final: dados.calculo.valor_final,
-        gerado_por: dados.gerado_por, dados,
-      }).select("id, numero, versao, valor_final, gerado_por, created_at").single();
+        gerado_por: dados.gerado_por, dados, status: "Válida",
+        requer_aprovacao: !!calc.precisaAprovacao,
+        margem_final_valor: dados.calculo.margem_final_valor, margem_final_perc: dados.calculo.margem_final_perc,
+        margem_minima_perc: dados.calculo.margem_minima_perc, margem_minima_valor: dados.calculo.margem_minima_valor,
+      }).select(PROPOSTA_CAMPOS).single();
       if (!error) { gravada = data; break; }
+      if (/valida_uq/i.test(error.message || "")) throw new Error("já existe uma proposta válida para este orçamento (gerada por outro usuário). Feche e reabra o orçamento.");
       if (!(error.code === "23505" || /duplicate/i.test(error.message || ""))) throw error;
     }
     if (!gravada) throw new Error("não foi possível numerar a proposta");
@@ -6813,6 +7177,7 @@ async function gerarPropostaOrcamento() {
     orcAtualizarModoProposta();
     renderizarCalcOrcamento();
     baixarBlobArquivo(blob, `Proposta ${gravada.numero}.pdf`);
+    if (gravada.requer_aprovacao) irParaAbaOrc(4);
   } catch (e) {
     mostrarErro("orc-form-erro", "Não foi possível gerar a proposta: " + (e?.message || "erro desconhecido"));
   } finally {
@@ -6822,6 +7187,43 @@ async function gerarPropostaOrcamento() {
   }
 }
 $("btn-orc-gerar-proposta").addEventListener("click", gerarPropostaOrcamento);
+
+// Prévia: PDF de rascunho (marca d'água "EM ELABORAÇÃO"), sem gravar proposta nem o orçamento.
+async function gerarPreviaProposta() {
+  if (orcGerandoProposta || orcPropostaTravada) return;
+  esconderErro("orc-form-erro");
+  if (!$("orc-empresa").value) return orcFalha(1, "Selecione a empresa para gerar a prévia.");
+  if (!$("orc-tipo").value) return orcFalha(1, "Selecione o treinamento para gerar a prévia.");
+  if (!$("orc-prazo").value) return orcFalha(1, "Selecione o prazo de pagamento da proposta.");
+  const dias = Math.floor(Number($("orc-validade-dias").value) || 0);
+  if (!(dias >= 1)) return orcFalha(1, "Informe a validade da proposta em dias.");
+  const calc = calcularOrcamento();
+  if (!calc.itens.length || !calc.valido) return orcFalha(2, "Não há cálculo válido para gerar a prévia.");
+  if (itensParaImpressaoProposta(calc.itens.map((i) => i.l)).length === 0) return orcFalha(2, "Marque ao menos um item do cálculo para imprimir (coluna “Imprime”), com descrição para impressão.");
+  orcGerandoProposta = true;
+  const btn = $("btn-orc-previa");
+  btn.disabled = true; btn.textContent = "Gerando…";
+  try {
+    const agora = new Date();
+    const numeroOrc = $("orc-numero").value.trim() || "novo";
+    const linha = {
+      numero: numeroOrc, empresa_id: $("orc-empresa").value, contato_nome: $("orc-contato-nome").value.trim(), contato_telefone: $("orc-contato-telefone").value.trim(),
+      contato_email: $("orc-contato-email").value.trim(), centro_treinamento_id: $("orc-centro").value || null, tipo_treinamento_id: $("orc-tipo").value,
+      prazo_pagamento_id: $("orc-prazo").value, validade_dias: dias,
+    };
+    const versao = orcPropostas.reduce((m, p) => Math.max(m, p.versao || 0), 0) + 1;
+    const dados = montarDadosProposta(linha, calc, agora, `${numeroOrc}-PREVIA`, versao);
+    const blob = await gerarPdfProposta(dados, { marca: "EM ELABORAÇÃO" });
+    baixarBlobArquivo(blob, `Previa orcamento ${numeroOrc}.pdf`);
+  } catch (e) {
+    mostrarErro("orc-form-erro", "Não foi possível gerar a prévia: " + (e?.message || "erro desconhecido"));
+  } finally {
+    orcGerandoProposta = false;
+    btn.textContent = "👁 Prévia";
+    orcAtualizarModoProposta();
+  }
+}
+$("btn-orc-previa").addEventListener("click", gerarPreviaProposta);
 
 // ---------------------------------------------------------------------
 // PDF da proposta (jsPDF carregado sob demanda)
@@ -6853,7 +7255,7 @@ function infoImagemPdf(dataUrl) {
 const pdfTxt = (t) => String(t == null ? "" : t).replace(/\r\n?/g, "\n").replace(/→/g, "->").replace(/[✓✔]/g, "v").replace(/[^\n\x20-\x7E\xA0-\xFF–—‘-„•…€]/g, "");
 const dataBrDeIso = (s) => (s ? String(s).slice(0, 10).split("-").reverse().join("/") : "");
 
-async function gerarPdfProposta(d) {
+async function gerarPdfProposta(d, opts = {}) {
   const JsPDF = await carregarJsPdf();
   const doc = new JsPDF({ unit: "mm", format: "a4", compress: true });
   const W = 210, H = 297, M = 17, CW = W - 2 * M, BASE = H - 26;
@@ -6986,6 +7388,33 @@ async function gerarPdfProposta(d) {
   });
   y += 22;
 
+  // Parcelas do prazo de pagamento (só quando há mais de uma parcela ou prazo após o faturamento)
+  const parc = Array.isArray(d.parcelas) ? d.parcelas : [];
+  if (parc.length && (parc.length > 1 || parc.some((x) => Number(x.dias) > 0))) {
+    garantir(18 + parc.length * 6.2);
+    fonte("bold", 8); cor(ACC); doc.text("PARCELAS", M, y, { charSpace: 0.8 });
+    traco(LINE, 0.3); doc.line(M + 24, y - 1, W - M, y - 1);
+    y += 3;
+    preenche(SOFT); doc.roundedRect(M, y, CW, 6.2, 1.2, 1.2, "F");
+    const cx = [M + 4, M + 30, M + 100, W - M - 4];
+    fonte("bold", 6.8); cor(MUT);
+    doc.text("PARCELA", cx[0], y + 4.1, { charSpace: 0.4 });
+    doc.text("VENCIMENTO", cx[1], y + 4.1, { charSpace: 0.4 });
+    doc.text("PERCENTUAL", cx[2], y + 4.1, { charSpace: 0.4 });
+    doc.text("VALOR", cx[3], y + 4.1, { align: "right", charSpace: 0.4 });
+    y += 6.2;
+    parc.forEach((x, k) => {
+      fonte("normal", 9.5); cor(INK);
+      doc.text(`${x.numero}ª`, cx[0], y + 4.4);
+      doc.text(Number(x.dias) === 0 ? "À vista" : `${x.dias} dias após o faturamento`, cx[1], y + 4.4);
+      doc.text(`${Number(x.percentual).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}%`, cx[2], y + 4.4);
+      fonte("bold", 9.5); doc.text(pdfTxt(fmtBRL(x.valor)), cx[3], y + 4.4, { align: "right" });
+      y += 6.2;
+      if (k < parc.length - 1) { traco(LINE, 0.2); doc.line(M, y, W - M, y); }
+    });
+    y += 8;
+  }
+
   // Esclarecimento / rodapé do treinamento + assinatura
   const rodape = (d.treinamento.rodape || "").trim();
   if (rodape) paragrafo(rodape, 9, true, [55, 65, 81], 4.4);
@@ -7016,6 +7445,33 @@ async function gerarPdfProposta(d) {
     fonte("normal", 7);
     doc.text(`Proposta ${pdfTxt(d.proposta_numero)}`, M, H - 5);
     doc.text(`Página ${p} de ${total}`, W - M, H - 5, { align: "right" });
+  }
+
+  // Marca d'água diagonal em todas as páginas (NÃO APROVADA / EM ELABORAÇÃO)
+  if (opts.marca) {
+    const texto = pdfTxt(opts.marca);
+    const ang = 55, rad = (ang * Math.PI) / 180;
+    const cor3 = /ELABORA/i.test(texto) ? [71, 85, 105] : [220, 38, 38];
+    for (let p = 1; p <= total; p++) {
+      doc.setPage(p);
+      doc.saveGraphicsState();
+      doc.setGState(new doc.GState({ opacity: 0.17 }));
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(100);
+      const w100 = doc.getTextWidth(texto);               // largura em mm com 100pt
+      const alvo = 235;                                    // comprimento desejado ao longo da diagonal (mm)
+      const tam = Math.min(100, (100 * alvo) / w100);
+      doc.setFontSize(tam);
+      const w = doc.getTextWidth(texto);
+      const capH = tam * 0.3528 * 0.72;                    // altura das maiúsculas em mm
+      // ponto inicial para que o texto fique centralizado na página (direção do texto e normal "para cima")
+      const dx = Math.cos(rad), dy = -Math.sin(rad), nx = -Math.sin(rad), ny = -Math.cos(rad);
+      const x0 = W / 2 - (w / 2) * dx - (capH / 2) * nx;
+      const y0 = H / 2 - (w / 2) * dy - (capH / 2) * ny;
+      doc.setTextColor(cor3[0], cor3[1], cor3[2]);
+      doc.text(texto, x0, y0, { angle: ang });
+      doc.restoreGraphicsState();
+    }
   }
   return doc.output("blob");
 }

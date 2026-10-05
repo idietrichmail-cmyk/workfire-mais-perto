@@ -1355,6 +1355,21 @@
     </div>
   </div>
 
+  <!-- Modal: Nova negociação (invalida a proposta vigente) -->
+  <div id="modal-nova-negociacao" class="hidden fixed inset-0 z-[60] bg-slate-900/60 flex items-center justify-center p-4">
+    <div class="bg-white rounded-lg shadow-xl w-full max-w-md p-5">
+      <h3 class="font-serif text-lg text-slate-900">Nova negociação</h3>
+      <p class="text-sm text-slate-600 mt-1">A proposta <b id="neg-proposta-numero"></b> passará para <b>Inválida</b> (com todos os cálculos mantidos nela) e os itens do orçamento serão liberados para alteração.</p>
+      <label for="neg-motivo" class="block text-xs font-medium text-slate-600 mt-3">Por que a proposta precisa ser alterada? <span class="text-rose-500">*</span></label>
+      <textarea id="neg-motivo" rows="3" maxlength="1000" class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"></textarea>
+      <p id="neg-erro" class="hidden text-sm text-rose-600 mt-1"></p>
+      <div class="flex justify-end gap-2 mt-4">
+        <button type="button" id="btn-neg-cancelar" class="px-4 py-1.5 text-sm font-medium text-slate-600 border border-slate-300 rounded-md hover:bg-slate-50">Cancelar</button>
+        <button type="button" id="btn-neg-confirmar" class="px-4 py-1.5 text-sm font-medium text-white bg-amber-600 hover:bg-amber-700 rounded-md">Invalidar proposta e liberar</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Painel: Orçamento -->
   <div id="painel-orcamento" class="hidden fixed left-0 right-0 bottom-0 z-40 flex flex-col bg-slate-100" style="top:0">
     <!-- Cabeçalho do orçamento -->
@@ -1362,9 +1377,10 @@
       <h2 id="painel-orcamento-titulo" class="font-serif text-lg text-slate-900">Novo orçamento</h2>
       <span id="orc-tag-numero" class="hidden text-[11px] font-mono px-2 py-0.5 rounded-full bg-sky-100 text-sky-700"></span>
       <span id="orc-tag-calculo" class="hidden text-[11px] px-2 py-0.5 rounded-full"></span>
-      <span id="orc-tag-aprovacao" class="hidden text-[11px] font-semibold px-2 py-0.5 rounded-full bg-rose-100 text-rose-700">⚠ Precisa de aprovação do gestor</span>
+      <span id="orc-tag-aprovacao" class="hidden text-[11px] font-semibold px-2 py-0.5 rounded-full bg-rose-100 text-rose-700"></span>
       <span class="flex-1"></span>
-      <button id="btn-orc-nova-proposta" class="hidden px-3 py-1.5 text-sm font-medium text-amber-800 bg-amber-50 border border-amber-300 rounded-md hover:bg-amber-100">✎ Nova proposta</button>
+      <button id="btn-orc-nova-proposta" class="hidden px-3 py-1.5 text-sm font-medium text-amber-800 bg-amber-50 border border-amber-300 rounded-md hover:bg-amber-100">✎ Nova negociação</button>
+      <button id="btn-orc-previa" class="hidden px-3 py-1.5 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-md hover:bg-slate-50" title="Gera um PDF de rascunho com a marca d'água EM ELABORAÇÃO (não grava proposta)">👁 Prévia</button>
       <button id="btn-orc-gerar-proposta" class="hidden px-3 py-1.5 text-sm font-medium text-white bg-amber-600 hover:bg-amber-700 rounded-md">📄 Gerar proposta</button>
       <button id="btn-cancelar-painel-orcamento" class="px-4 py-1.5 text-sm font-medium text-slate-600 border border-slate-300 rounded-md hover:bg-slate-50">Fechar</button>
       <button id="btn-salvar-orcamento" class="px-4 py-1.5 bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium rounded-md">Salvar orçamento</button>
@@ -1386,6 +1402,7 @@
       <button type="button" role="tab" data-orc-aba="1" class="orc-aba"><span class="orc-aba-n">1</span>Dados gerais</button>
       <button type="button" role="tab" data-orc-aba="2" class="orc-aba"><span class="orc-aba-n">2</span>Cálculo do orçamento <span id="orc-aba-bd-2" class="hidden orc-aba-bd bg-rose-100 text-rose-700">⚠ gestor</span></button>
       <button type="button" role="tab" data-orc-aba="3" class="orc-aba"><span class="orc-aba-n">3</span>Turmas <span id="orc-aba-bd-3" class="hidden orc-aba-bd bg-slate-100 text-slate-600"></span></button>
+      <button type="button" role="tab" data-orc-aba="4" class="orc-aba"><span class="orc-aba-n">4</span>Aprovação do gestor <span id="orc-aba-bd-4" class="hidden orc-aba-bd"></span></button>
       <div id="orc-abas-resumo" class="hidden md:flex ml-auto items-center gap-4 pb-2 pl-3 text-xs text-slate-500 whitespace-nowrap"></div>
     </div>
 
@@ -1651,6 +1668,28 @@
           <span aria-hidden="true">⚠</span><p id="orc-aviso-aprovacao-texto"></p>
         </div>
       </section>
+      </div>
+
+      <!-- ABA 4: Aprovação do gestor -->
+      <div id="orc-pg-4" data-orc-pagina="4" class="hidden space-y-3">
+        <section class="bg-white border border-slate-200 rounded-lg">
+          <div class="px-3 py-1.5 border-b border-slate-100"><h3 class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Aprovação do gestor</h3></div>
+          <div class="p-3 space-y-3">
+            <div id="orc-apr-estado" class="rounded-md border px-3 py-2 text-sm"></div>
+            <div id="orc-apr-margens" class="hidden grid grid-cols-1 sm:grid-cols-3 gap-2"></div>
+            <div id="orc-apr-form" class="hidden space-y-2">
+              <label for="orc-apr-justificativa" class="block text-xs font-medium text-slate-600">Justificativa da aprovação <span class="text-rose-500">*</span> <span class="font-normal text-slate-400">— explique por que a proposta é aprovada com a margem abaixo da desejada</span></label>
+              <textarea id="orc-apr-justificativa" rows="4" maxlength="2000" class="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"></textarea>
+              <div id="orc-apr-erro" class="hidden text-sm text-rose-600"></div>
+              <div class="text-right"><button type="button" id="btn-orc-aprovar" class="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-md">✔ Aprovar proposta</button></div>
+            </div>
+            <div id="orc-apr-feito" class="hidden rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900 space-y-1"></div>
+          </div>
+        </section>
+        <section class="bg-white border border-slate-200 rounded-lg">
+          <div class="px-3 py-1.5 border-b border-slate-100"><h3 class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Propostas deste orçamento</h3></div>
+          <div id="orc-apr-hist" class="p-3 overflow-x-auto"></div>
+        </section>
       </div>
 
       <!-- ABA 3: Turmas -->
@@ -2105,6 +2144,6 @@
 </div>
 
 <script src="config.js"></script>
-<script src="app.js?v=20261005e"></script>
+<script src="app.js?v=20261005f"></script>
 </body>
 </html>
