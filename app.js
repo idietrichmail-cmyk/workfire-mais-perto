@@ -28,7 +28,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.29 · 05/10/2026";
+const APP_VERSAO = "Prod 1.30 · 05/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -1990,13 +1990,13 @@ const CRUD_CONFIG = {
     camposExtraHtml: () => htmlSecaoItensCustoTreinamento(),
     aoMontarForm: (item) => iniciarSecaoItensCustoTreinamento(item),
     validarForm: () => {
-      for (const [id, rot] of [["perc_apoio", "% de apoio"], ["perc_margem", "% de margem"], ["perc_imposto", "% de imposto"]]) {
+      for (const [id, rot] of [["perc_apoio", "% de apoio"], ["perc_margem", "% de margem"], ["perc_imposto", "% de imposto"], ["perc_margem_minima", "% de margem mínima"]]) {
         const v = ($("crud-campo-" + id)?.value || "").trim();
         if (v !== "" && !(Number(v) >= 0 && Number(v) <= 100)) return `${rot}: informe um valor entre 0 e 100.`;
       }
       return validarItensCustoTreinamento();
     },
-    ajustarPayload: (p) => { ["perc_apoio", "perc_margem", "perc_imposto"].forEach((k) => { if (p[k] == null) p[k] = 0; }); },
+    ajustarPayload: (p) => { ["perc_apoio", "perc_margem", "perc_imposto", "perc_margem_minima", "valor_margem_minimo"].forEach((k) => { if (p[k] == null) p[k] = 0; }); },
     aoSalvar: async (linha) => { await salvarItensCustoTreinamento(linha.id); },
     campos: [
       { id: "nome", label: "Nome do treinamento", obrigatorio: true },
@@ -2016,6 +2016,8 @@ const CRUD_CONFIG = {
       { id: "perc_apoio", label: "% de apoio", tipo: "number", min: 0, max: 100, step: "0.01", padrao: 0 },
       { id: "perc_margem", label: "% de margem", tipo: "number", min: 0, max: 100, step: "0.01", padrao: 0 },
       { id: "perc_imposto", label: "% de imposto", tipo: "number", min: 0, max: 100, step: "0.01", padrao: 0 },
+      { id: "perc_margem_minima", label: "% de margem mínima (depois do desconto)", tipo: "number", min: 0, max: 100, step: "0.01", padrao: 0 },
+      { id: "valor_margem_minimo", label: "Valor mínimo de margem por turma (R$)", tipo: "number", min: 0, step: "0.01", padrao: 0 },
       { id: "descricao", label: "Descrição", tipo: "textarea" },
       { id: "status", label: "Status", tipo: "select", opcoes: ["Ativo", "Inativo"], padrao: "Ativo" },
     ],
@@ -2032,6 +2034,7 @@ const CRUD_CONFIG = {
       i.alunos_por_instrutor && `👥 até ${i.alunos_por_instrutor} aluno(s) por instrutor`,
       treinoContagemItensCusto[i.id] && `🧾 ${treinoContagemItensCusto[i.id]} item(ns) de custo`,
       (Number(i.perc_apoio) || Number(i.perc_margem) || Number(i.perc_imposto)) && `📊 Apoio ${fmtPerc(i.perc_apoio)} · Margem ${fmtPerc(i.perc_margem)} · Imposto ${fmtPerc(i.perc_imposto)}`,
+      (Number(i.perc_margem_minima) || Number(i.valor_margem_minimo)) && `🛡️ Margem mínima ${fmtPerc(i.perc_margem_minima)} · ${fmtBRL(i.valor_margem_minimo)} por turma`,
     ].filter(Boolean),
   },
   empresas_transporte: {
@@ -5431,7 +5434,7 @@ function renderizarListaOrcamentos() {
       <td class="px-3 py-2 text-slate-500">${o.qtd_alunos || 0}</td>
       <td class="px-3 py-2 text-slate-500">${o.qtd_localidades || 1}</td>
       <td class="px-3 py-2 text-slate-500">${o.data || "—"}</td>
-      <td class="px-3 py-2 text-right whitespace-nowrap text-slate-700">${o.calculado_em ? fmtBRL(o.valor_final) : '<span class="text-slate-300" title="Orçamento ainda sem cálculo">—</span>'}</td>
+      <td class="px-3 py-2 text-right whitespace-nowrap text-slate-700">${o.calculado_em ? `<span class="${o.requer_aprovacao_gestor ? "text-rose-600 font-semibold" : ""}" ${o.requer_aprovacao_gestor ? 'title="Margem abaixo do mínimo: precisa de aprovação do gestor"' : ""}>${o.requer_aprovacao_gestor ? "⚠ " : ""}${fmtBRL(o.valor_final)}</span>` : '<span class="text-slate-300" title="Orçamento ainda sem cálculo">—</span>'}</td>
       <td class="px-3 py-2 text-right whitespace-nowrap">
         ${podeAlterar ? `<button data-orc-editar="${o.id}" title="Editar orçamento" class="text-slate-500 hover:text-slate-800 px-2 py-1">✏️</button>` : ""}
         ${podeExcluir ? `<button data-orc-excluir="${o.id}" title="Excluir orçamento" class="text-rose-500 hover:text-rose-700 px-2 py-1">🗑️</button>` : ""}
@@ -5548,6 +5551,7 @@ let orcCalcOrigem = "vazio"; // "vazio" | "cadastro" | "salvo"
 let orcCalcSalvoEm = null;
 let orcCalcSeq = 0;
 let orcCalcToken = 0;
+let orcDescontoModo = "percentual"; // "percentual" (digitou o %) ou "valor" (digitou o R$; o % é derivado)
 let orcCalcPendentes = 0;    // cargas em andamento (não deixa salvar enquanto carrega)
 let orcCalcCarregandoInicial = false; // mostra "Carregando…" na tabela ao abrir um orçamento para edição
 let orcCalcErro = null;      // falha ao carregar o cálculo (bloqueia o salvamento para não apagar o que já estava gravado)
@@ -5592,15 +5596,35 @@ function calcularOrcamento() {
   const apoio = Number($("orc-perc-apoio").value) || 0;
   const margem = Number($("orc-perc-margem").value) || 0;
   const imposto = Number($("orc-perc-imposto").value) || 0;
-  const desconto = Number($("orc-perc-desconto").value) || 0;
   const pctCusto = 1 - (apoio + margem + imposto) / 100;
   const valido = pctCusto > 0.000001;
   const valorTurma = valido ? custo / pctCusto : 0;
   const total = valorTurma * q.turmas;
-  const valorDesc = total * desconto / 100;
+  // Desconto: o usuário informa o percentual OU o valor em R$ (o outro é calculado).
+  let desconto, valorDesc;
+  if (orcDescontoModo === "valor") {
+    valorDesc = Math.max(0, Number($("orc-valor-desconto").value) || 0);
+    desconto = total > 0 ? valorDesc / total * 100 : 0;
+  } else {
+    desconto = Number($("orc-perc-desconto").value) || 0;
+    valorDesc = total * desconto / 100;
+  }
   const final = total - valorDesc;
+  // Margem final, depois do desconto: o apoio e o imposto continuam sendo percentuais do valor cobrado.
+  const finalTurma = q.turmas > 0 ? final / q.turmas : 0;
+  const margemTurma = finalTurma * (1 - (apoio + imposto) / 100) - custo;
+  const margemPerc = finalTurma > 0 ? margemTurma / finalTurma * 100 : 0;
+  // Margem mínima do treinamento (percentual e/ou valor por turma): abaixo de qualquer uma, precisa de aprovação do gestor.
+  const tipo = listaTiposAtivos.find((t) => t.id === $("orc-tipo").value);
+  const minPerc = tipo ? Number(tipo.perc_margem_minima) || 0 : 0;
+  const minValor = tipo ? Number(tipo.valor_margem_minimo) || 0 : 0;
+  const abaixoPerc = minPerc > 0 && r2(margemPerc) < r2(minPerc);
+  const abaixoValor = minValor > 0 && r2(margemTurma) < r2(minValor);
+  const precisaAprovacao = itens.length > 0 && valido && (abaixoPerc || abaixoValor);
   return {
     q, itens, custo, apoio, margem, imposto, desconto, pctCusto, valido, valorTurma, total, valorDesc, final,
+    finalTurma, margemTurma, margemPerc, margemTotal: margemTurma * q.turmas, minPerc, minValor, abaixoPerc, abaixoValor, precisaAprovacao,
+    descontoInvalido: valorDesc > total + 0.005 || desconto > 100.0001,
     apoioV: valorTurma * apoio / 100, impostoV: valorTurma * imposto / 100, margemV: valorTurma * margem / 100,
     porAluno: q.alunosPorTurma ? valorTurma / q.alunosPorTurma : 0,
     finalAluno: q.alunos ? final / q.alunos : 0,
@@ -5687,6 +5711,8 @@ function limparCalculoOrcamento(carregando = false) {
   orcCalcOrigem = "vazio";
   orcCalcSalvoEm = null;
   ["apoio", "margem", "imposto", "desconto"].forEach((k) => { $("orc-perc-" + k).value = 0; });
+  orcDescontoModo = "percentual";
+  $("orc-valor-desconto").value = 0;
   $("orc-calc-detalhes").checked = false;
   $("orc-calc-tabela").classList.remove("mostrar-det");
   renderizarCalcOrcamento();
@@ -5720,7 +5746,9 @@ async function carregarCalculoDoOrcamento(o) {
     $("orc-perc-apoio").value = Number(o.perc_apoio) || 0;
     $("orc-perc-margem").value = Number(o.perc_margem) || 0;
     $("orc-perc-imposto").value = Number(o.perc_imposto) || 0;
+    orcDescontoModo = o.desconto_modo === "valor" ? "valor" : "percentual";
     $("orc-perc-desconto").value = Number(o.perc_desconto) || 0;
+    $("orc-valor-desconto").value = Number(o.valor_desconto) || 0;
     orcCalcOrigem = "salvo";
     orcCalcSalvoEm = o.calculado_em || null;
     renderizarCalcOrcamento();
@@ -5811,6 +5839,34 @@ function recalcularOrcamentoTela() {
   $("orc-r-desc").textContent = `− ${fmtBRL(c.valorDesc)}`;
   $("orc-r-final").textContent = fmtBRL(c.final);
   $("orc-r-final-aluno").textContent = fmtBRL(c.finalAluno);
+  // o campo de desconto que o usuário NÃO está digitando mostra o valor calculado
+  if (orcDescontoModo === "valor") {
+    if (document.activeElement !== $("orc-perc-desconto")) $("orc-perc-desconto").value = r2(c.desconto);
+  } else if (document.activeElement !== $("orc-valor-desconto")) {
+    $("orc-valor-desconto").value = r2(c.valorDesc);
+  }
+  // margem final (depois do desconto) e aprovação do gestor
+  const temCalc = c.itens.length > 0 && c.valido;
+  $("orc-r-margem-final").textContent = temCalc ? `${fmtBRL(c.margemTurma)} · ${fmtPercOrc(c.margemPerc)}` : "—";
+  $("orc-r-margem-total").textContent = temCalc ? fmtBRL(c.margemTotal) : "—";
+  $("orc-r-margem-minima").textContent = (c.minPerc > 0 || c.minValor > 0)
+    ? `Mínimo do treinamento: ${c.minPerc > 0 ? fmtPercOrc(c.minPerc) : "—"} · ${c.minValor > 0 ? fmtBRL(c.minValor) + " por turma" : "—"}`
+    : "Treinamento sem margem mínima definida";
+  ["orc-r-final", "orc-r-final-aluno", "orc-r-margem-final"].forEach((id) => {
+    $(id).classList.toggle("text-rose-600", c.precisaAprovacao);
+  });
+  $("orc-r-margem-final").classList.toggle("font-semibold", c.precisaAprovacao);
+  $("orc-aviso-aprovacao").classList.toggle("hidden", !c.precisaAprovacao);
+  $("orc-tag-aprovacao").classList.toggle("hidden", !c.precisaAprovacao);
+  if (c.precisaAprovacao) {
+    const motivos = [];
+    if (c.abaixoPerc) motivos.push(`${fmtPercOrc(c.margemPerc)} (mínimo ${fmtPercOrc(c.minPerc)})`);
+    if (c.abaixoValor) motivos.push(`${fmtBRL(c.margemTurma)} por turma (mínimo ${fmtBRL(c.minValor)})`);
+    $("orc-aviso-aprovacao-texto").textContent = `Este orçamento precisa de aprovação do gestor: a margem final depois do desconto está abaixo do mínimo do treinamento — ${motivos.join(" e ")}. Você pode salvar normalmente; os dados são gravados mesmo assim.`;
+  }
+  const avisoDesc = $("orc-r-aviso-desc");
+  avisoDesc.classList.toggle("hidden", !c.descontoInvalido);
+  if (c.descontoInvalido) avisoDesc.textContent = "O desconto não pode ser maior que o total do orçamento.";
 
   const origem = $("orc-calc-origem");
   origem.textContent = orcCalcOrigem === "salvo" ? "Itens e valores gravados neste orçamento"
@@ -5839,11 +5895,13 @@ $("orc-calc-tbody").addEventListener("input", (ev) => {
   l[el.getAttribute("data-orc-campo")] = el.value === "" ? 0 : Number(el.value);
   recalcularOrcamentoTela();
 });
-["apoio", "margem", "imposto", "desconto"].forEach((k) => $("orc-perc-" + k).addEventListener("input", recalcularOrcamentoTela));
+["apoio", "margem", "imposto"].forEach((k) => $("orc-perc-" + k).addEventListener("input", recalcularOrcamentoTela));
+$("orc-perc-desconto").addEventListener("input", () => { orcDescontoModo = "percentual"; recalcularOrcamentoTela(); });
+$("orc-valor-desconto").addEventListener("input", () => { orcDescontoModo = "valor"; recalcularOrcamentoTela(); });
 $("orc-calc-detalhes").addEventListener("change", () => $("orc-calc-tabela").classList.toggle("mostrar-det", $("orc-calc-detalhes").checked));
 $("btn-orc-restaurar").addEventListener("click", () => {
-  const desconto = $("orc-perc-desconto").value;
-  aplicarCadastroNoCalculo().then(() => { $("orc-perc-desconto").value = desconto; recalcularOrcamentoTela(); orcEditorSujo = true; })
+  const desconto = $("orc-perc-desconto").value, descontoValor = $("orc-valor-desconto").value;
+  aplicarCadastroNoCalculo().then(() => { $("orc-perc-desconto").value = desconto; $("orc-valor-desconto").value = descontoValor; recalcularOrcamentoTela(); orcEditorSujo = true; })
     .catch((e) => mostrarErro("orc-form-erro", "Não foi possível carregar os itens de custo do treinamento: " + (e?.message || "erro desconhecido")));
 });
 
@@ -6122,6 +6180,7 @@ async function salvarOrcamento() {
   if (orcCalcPendentes > 0) return mostrarErro("orc-form-erro", "Aguarde: os itens de custo ainda estão sendo carregados.");
   if (orcCalcErro) return mostrarErro("orc-form-erro", orcCalcErro);
   const calc = calcularOrcamento();
+  if (calc.descontoInvalido) return mostrarErro("orc-form-erro", "O desconto não pode ser maior que o total do orçamento.");
   for (const [v, rot] of [[calc.apoio, "% de apoio"], [calc.margem, "% de margem"], [calc.imposto, "% de imposto"], [calc.desconto, "% de desconto"]]) {
     if (!(v >= 0 && v <= 100)) return mostrarErro("orc-form-erro", `${rot}: informe um valor entre 0 e 100.`);
   }
@@ -6181,12 +6240,16 @@ async function salvarOrcamento() {
     perc_apoio: calc.apoio,
     perc_margem: calc.margem,
     perc_imposto: calc.imposto,
-    perc_desconto: calc.desconto,
+    perc_desconto: r2(calc.desconto),
+    desconto_modo: orcDescontoModo,
     ...(orcLinhasCalc.length ? {
       custo_turma: r2(calc.custo), valor_turma: r2(calc.valorTurma), valor_total: r2(calc.total), valor_desconto: r2(calc.valorDesc),
       valor_final: r2(calc.final), valor_por_aluno: r2(calc.porAluno), valor_final_aluno: r2(calc.finalAluno), calculado_em: new Date().toISOString(),
+      margem_final_valor: r2(calc.margemTurma), margem_final_perc: r2(calc.margemPerc),
+      margem_minima_perc: calc.minPerc, margem_minima_valor: r2(calc.minValor), requer_aprovacao_gestor: calc.precisaAprovacao,
     } : {
       custo_turma: null, valor_turma: null, valor_total: null, valor_desconto: null, valor_final: null, valor_por_aluno: null, valor_final_aluno: null, calculado_em: null,
+      margem_final_valor: null, margem_final_perc: null, margem_minima_perc: null, margem_minima_valor: null, requer_aprovacao_gestor: false,
     }),
     necessita_dois_instrutores: $("orc-dois-instrutores").checked,
     data: $("orc-data").value || null,

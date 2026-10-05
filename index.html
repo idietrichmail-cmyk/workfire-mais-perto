@@ -21,6 +21,7 @@
   body.orc-editando #app-header { padding-top: 0.25rem; padding-bottom: 0.25rem; }
   body.orc-editando #admin-areas-topo { margin-bottom: 0; }
   body.orc-editando #tela-admin main > header { display: none; }
+  body.orc-editando #tela-admin main > section { visibility: hidden; }
   @media (max-width: 767px) { body.orc-editando #app-header { display: none; } }
   #orc-calc-tabela:not(.mostrar-det) .orc-det { display: none; }
   #orc-dock.recolhido #orc-turmas-corpo { display: none; }
@@ -1356,6 +1357,7 @@
       <h2 id="painel-orcamento-titulo" class="font-serif text-lg text-slate-900">Novo orçamento</h2>
       <span id="orc-tag-numero" class="hidden text-[11px] font-mono px-2 py-0.5 rounded-full bg-sky-100 text-sky-700"></span>
       <span id="orc-tag-calculo" class="hidden text-[11px] px-2 py-0.5 rounded-full"></span>
+      <span id="orc-tag-aprovacao" class="hidden text-[11px] font-semibold px-2 py-0.5 rounded-full bg-rose-100 text-rose-700">⚠ Precisa de aprovação do gestor</span>
       <span class="flex-1"></span>
       <button id="btn-cancelar-painel-orcamento" class="px-4 py-1.5 text-sm font-medium text-slate-600 border border-slate-300 rounded-md hover:bg-slate-50">Fechar</button>
       <button id="btn-salvar-orcamento" class="px-4 py-1.5 bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium rounded-md">Salvar orçamento</button>
@@ -1544,7 +1546,7 @@
         </div>
         <div class="p-3 grid gap-3 lg:grid-cols-[minmax(0,1fr)_330px] items-start">
           <div class="min-w-0">
-            <div class="grid grid-cols-3 md:grid-cols-7 gap-2 mb-3">
+            <div class="grid grid-cols-3 md:grid-cols-4 xl:grid-cols-8 gap-2 mb-3">
               <div class="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1"><p class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Alunos/turma</p><p id="orc-p-apt" class="text-base font-semibold">—</p></div>
               <div class="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1"><p class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Turmas</p><p id="orc-p-turmas" class="text-base font-semibold">—</p></div>
               <div class="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1"><p class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Localidades</p><p id="orc-p-loc" class="text-base font-semibold">—</p></div>
@@ -1552,6 +1554,7 @@
               <div class="rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide" for="orc-perc-margem">% Margem</label><input id="orc-perc-margem" type="number" min="0" max="100" step="0.01" class="w-full rounded border border-slate-300 bg-white px-1.5 py-0.5 text-sm font-semibold" /></div>
               <div class="rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide" for="orc-perc-imposto">% Imposto</label><input id="orc-perc-imposto" type="number" min="0" max="100" step="0.01" class="w-full rounded border border-slate-300 bg-white px-1.5 py-0.5 text-sm font-semibold" /></div>
               <div class="rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide" for="orc-perc-desconto">% Desconto</label><input id="orc-perc-desconto" type="number" min="0" max="100" step="0.01" class="w-full rounded border border-slate-300 bg-white px-1.5 py-0.5 text-sm font-semibold" /></div>
+              <div class="rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1" title="Informe o percentual OU o valor do desconto: o outro é calculado"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide" for="orc-valor-desconto">Desconto (R$)</label><input id="orc-valor-desconto" type="number" min="0" step="0.01" class="w-full rounded border border-slate-300 bg-white px-1.5 py-0.5 text-sm font-semibold" /></div>
             </div>
             <div class="overflow-x-auto border border-slate-200 rounded-md">
               <table id="orc-calc-tabela" class="w-full text-xs">
@@ -1580,13 +1583,23 @@
               <div class="flex justify-between"><span class="text-slate-500">Qtde de turmas</span><span id="orc-r-qt">—</span></div>
               <div class="flex justify-between"><span class="text-slate-500">Total do orçamento</span><span id="orc-r-total">—</span></div>
               <div class="flex justify-between"><span class="text-slate-500">Desconto (<span id="orc-r-desc-pct">0</span>%)</span><span id="orc-r-desc">—</span></div>
+              <div id="orc-r-aviso-desc" class="hidden text-xs text-rose-600 bg-rose-50 rounded px-2 py-1"></div>
               <div class="rounded-md bg-teal-50 border border-teal-200 px-2.5 py-1.5 mt-1">
                 <div class="flex justify-between items-baseline"><span class="font-semibold">Valor final</span><span id="orc-r-final" class="text-base font-bold">—</span></div>
                 <div class="flex justify-between text-xs"><span class="text-slate-500">Final por aluno</span><span id="orc-r-final-aluno">—</span></div>
               </div>
+              <div class="rounded-md border border-slate-200 px-2.5 py-1.5 mt-1">
+                <p class="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">Margem final (depois do desconto)</p>
+                <div class="flex justify-between text-xs"><span class="text-slate-500">Por turma</span><span id="orc-r-margem-final">—</span></div>
+                <div class="flex justify-between text-xs"><span class="text-slate-500">Total do orçamento</span><span id="orc-r-margem-total">—</span></div>
+                <p id="orc-r-margem-minima" class="text-[10.5px] text-slate-400 pt-0.5"></p>
+              </div>
               <p class="text-[10.5px] text-slate-400 pt-1">Valor da turma = custo da turma ÷ (100% − apoio − imposto − margem). Total = valor da turma × turmas.</p>
             </div>
           </div>
+        </div>
+        <div id="orc-aviso-aprovacao" class="hidden mx-3 mb-3 flex items-start gap-2 rounded-md border border-rose-300 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+          <span aria-hidden="true">⚠</span><p id="orc-aviso-aprovacao-texto"></p>
         </div>
       </section>
     </div>
@@ -2041,6 +2054,6 @@
 </div>
 
 <script src="config.js"></script>
-<script src="app.js?v=20261005a"></script>
+<script src="app.js?v=20261005b"></script>
 </body>
 </html>

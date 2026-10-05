@@ -1105,3 +1105,8 @@ alter table instrutores
 --   tabela orcamento_itens_custo (linhas do cálculo, copiadas dos itens de custo do treinamento; on delete cascade no orçamento;
 --   RLS pode_acessar_tabela, mapa ('orcamentos','orcamento_itens_custo','own') e leitura de treinamento_itens_custo/itens_custo/unidades_medida).
 --   Regra: valor da turma = custo da turma / (1 - apoio - imposto - margem); total = valor da turma x turmas.
+-- migração orcamento_desconto_valor_margem_final_minima (aplicada em 05/10/2026):
+--   tipos_treinamento.perc_margem_minima numeric(5,2) (0..100) e valor_margem_minimo numeric(14,2) (>= 0, por turma), default 0 = sem mínimo;
+--   orcamentos: desconto_modo ('percentual'|'valor'), margem_final_valor/margem_final_perc (por turma, depois do desconto),
+--   margem_minima_perc/margem_minima_valor (parâmetros usados no cálculo) e requer_aprovacao_gestor boolean (grava mesmo abaixo do mínimo).
+--   Margem final por turma = valor final da turma x (1 - apoio - imposto) - custo da turma.
