@@ -28,7 +28,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.28 · 04/10/2026";
+const APP_VERSAO = "Prod 1.29 · 05/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -108,7 +108,10 @@ async function verificarNovaVersao(forcar = false) {
   let anterior = null;
   try { anterior = JSON.parse(sessionStorage.getItem("wf_ver_reload") || "null"); } catch (e) { /* ignora */ }
   const jaTentou = !!anterior && anterior.versao === publicada && Date.now() - anterior.em < 120000;
-  mostrarAvisoNovaVersao(publicada, !jaTentou);
+  // Com o editor de orçamento aberto não recarrega sozinho (perderia o que está sendo digitado).
+  let editorAberto = false;
+  try { editorAberto = typeof orcEditorAberto === "function" && orcEditorAberto(); } catch (e) { /* ainda não inicializado */ }
+  mostrarAvisoNovaVersao(publicada, !jaTentou && !editorAberto);
 }
 document.addEventListener("visibilitychange", () => { if (!document.hidden) verificarNovaVersao(); });
 
@@ -338,6 +341,15 @@ function podeAprovarRequisicao() {
   return !!(permissoesAtual.requisicoes_compra && permissoesAtual.requisicoes_compra.pode_aprovar_requisicao);
 }
 const fmtPerc = (v) => `${Number(v || 0).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}%`;
+// De onde vem a quantidade de um item de custo no cálculo do orçamento (unidades de medida).
+const BASES_CALCULO = [
+  { value: "turma", label: "Turma (1 por turma)" },
+  { value: "alunos_por_turma", label: "Alunos por turma" },
+  { value: "qtde_turmas", label: "Quantidade de turmas do orçamento" },
+  { value: "localidades", label: "Quantidade de localidades do orçamento" },
+  { value: "manual", label: "Digitada no orçamento (manual)" },
+];
+const rotuloBaseCalculo = (v) => (BASES_CALCULO.find((b) => b.value === v) || {}).label || "";
 const fmtBRL = (v) => (v == null || v === "" ? "R$ 0,00" : Number(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }));
 const fmtDataHoraBR = (s) => (s ? new Date(s).toLocaleString("pt-BR") : "—");
 
@@ -1221,6 +1233,7 @@ function renderizarAbasAreas() {
   }).join("");
   cont.querySelectorAll("[data-area-topo]").forEach((btn) =>
     btn.addEventListener("click", () => {
+      if (!sairEditorOrcamentoPermitido()) return;
       areaAtiva = btn.getAttribute("data-area-topo");
       voltarParaInicio();
     }));
@@ -1230,6 +1243,7 @@ function renderizarAbasAreas() {
 // recarregada, para liberar a memória e voltar com tudo atualizado. A área
 // escolhida no menu é mantida.
 function voltarParaInicio() {
+  if (!sairEditorOrcamentoPermitido()) return;
   if (moduloAtivo === "empresas") {
     try { sessionStorage.setItem("wf_area_ativa", areaAtiva); } catch (e) { /* sem storage: volta para Geral */ }
     window.location.reload();
@@ -1306,6 +1320,7 @@ function renderizarNavAdmin() {
 }
 
 function irParaModulo(id) {
+  if (!sairEditorOrcamentoPermitido()) return;
   verificarNovaVersao();
   moduloAtivo = id;
   const metaArea = MODULOS.find((m) => m.id === id);
@@ -1460,6 +1475,7 @@ function trocarSenhaAdmin() {
   mostrarTela("tela-trocar-senha");
 }
 async function sairAdmin() {
+  fecharEditorOrcamento();
   await supabase.auth.signOut();
   usuarioSistemaAtual = null;
   permissoesAtual = {};
@@ -2157,11 +2173,15 @@ const CRUD_CONFIG = {
     campos: [
       { id: "sigla", label: "Sigla", obrigatorio: true },
       { id: "descricao", label: "Descrição", obrigatorio: true },
+      {
+        id: "base_calculo", label: "Origem da quantidade no cálculo do orçamento", tipo: "select",
+        opcoes: [{ value: "", label: "— Não definida (tratada como manual) —" }].concat(BASES_CALCULO),
+      },
       { id: "status", label: "Status", tipo: "select", opcoes: ["Ativo", "Inativo"], padrao: "Ativo" },
     ],
     campoBusca: (i) => `${i.sigla || ""} ${i.descricao || ""}`,
     cardTitulo: (i) => i.sigla,
-    cardLinhas: (i) => [i.descricao].filter(Boolean),
+    cardLinhas: (i) => [i.descricao, i.base_calculo && `🧮 ${rotuloBaseCalculo(i.base_calculo)}`].filter(Boolean),
     renderTabela: (lista, { podeAlterar, podeExcluir }) => {
       const badge = (s) => `<span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${s === "Inativo" ? "bg-rose-50 text-rose-600" : "bg-teal-50 text-teal-700"}">${s || "—"}</span>`;
       return `
@@ -2170,6 +2190,7 @@ const CRUD_CONFIG = {
           <tr class="bg-slate-50 text-left text-slate-500 uppercase tracking-wide text-[10px]">
             <th class="px-3 py-2 font-medium">Sigla</th>
             <th class="px-3 py-2 font-medium">Descrição</th>
+            <th class="px-3 py-2 font-medium">Origem da quantidade</th>
             <th class="px-3 py-2 font-medium">Status</th>
             <th class="px-3 py-2"></th>
           </tr>
@@ -2179,6 +2200,7 @@ const CRUD_CONFIG = {
           <tr class="hover:bg-slate-50">
             <td class="px-3 py-2 text-slate-800 font-medium whitespace-nowrap">${i.sigla || "—"}</td>
             <td class="px-3 py-2 text-slate-600">${i.descricao || "—"}</td>
+            <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${rotuloBaseCalculo(i.base_calculo) || '<span class="text-slate-300">—</span>'}</td>
             <td class="px-3 py-2 whitespace-nowrap">${badge(i.status)}</td>
             <td class="px-3 py-2 text-right whitespace-nowrap">
               ${podeAlterar ? `<button data-crud-editar="${i.id}" class="text-slate-500 hover:text-slate-800 mr-2">✏️</button>` : ""}
@@ -5409,6 +5431,7 @@ function renderizarListaOrcamentos() {
       <td class="px-3 py-2 text-slate-500">${o.qtd_alunos || 0}</td>
       <td class="px-3 py-2 text-slate-500">${o.qtd_localidades || 1}</td>
       <td class="px-3 py-2 text-slate-500">${o.data || "—"}</td>
+      <td class="px-3 py-2 text-right whitespace-nowrap text-slate-700">${o.calculado_em ? fmtBRL(o.valor_final) : '<span class="text-slate-300" title="Orçamento ainda sem cálculo">—</span>'}</td>
       <td class="px-3 py-2 text-right whitespace-nowrap">
         ${podeAlterar ? `<button data-orc-editar="${o.id}" title="Editar orçamento" class="text-slate-500 hover:text-slate-800 px-2 py-1">✏️</button>` : ""}
         ${podeExcluir ? `<button data-orc-excluir="${o.id}" title="Excluir orçamento" class="text-rose-500 hover:text-rose-700 px-2 py-1">🗑️</button>` : ""}
@@ -5427,11 +5450,13 @@ $("orc-busca").addEventListener("input", () => {
   orcBuscaTimer = setTimeout(() => { orcPagina = 1; carregarPaginaOrcamentos(); }, 350);
 });
 
+// Alunos por turma é calculado: alunos ÷ turmas, arredondado para cima (como na planilha de cálculo).
 function atualizarQtdAlunosCalculado() {
-  const turmas = Number($("orc-qtd-turmas").value) || 0;
-  const porTurma = Number($("orc-qtd-alunos-turma").value) || 0;
-  $("orc-qtd-alunos").value = turmas * porTurma;
+  const q = orcQuantidades();
+  $("orc-qtd-alunos-turma").value = q.alunos > 0 ? q.alunosPorTurma : "";
   atualizarNecessitaDoisInstrutores();
+  recalcularOrcamentoTela();
+  atualizarResumoGeraisOrc();
 }
 
 // Marca automaticamente "Necessita dois instrutores" quando a quantidade de
@@ -5443,8 +5468,419 @@ function atualizarNecessitaDoisInstrutores() {
   $("orc-dois-instrutores").checked = capacidade > 0 && porTurma > capacidade;
 }
 $("orc-qtd-turmas").addEventListener("input", atualizarQtdAlunosCalculado);
-$("orc-qtd-alunos-turma").addEventListener("input", atualizarQtdAlunosCalculado);
-$("orc-tipo").addEventListener("change", atualizarNecessitaDoisInstrutores);
+$("orc-qtd-alunos").addEventListener("input", atualizarQtdAlunosCalculado);
+$("orc-qtd-localidades").addEventListener("input", atualizarQtdAlunosCalculado);
+$("orc-tipo").addEventListener("change", () => {
+  atualizarNecessitaDoisInstrutores();
+  atualizarResumoGeraisOrc();
+  aplicarCadastroNoCalculo().catch((e) => mostrarErro("orc-form-erro", "Não foi possível carregar os itens de custo do treinamento: " + (e?.message || "erro desconhecido")));
+});
+
+// ---------------------------------------------------------
+// Editor de orçamento em tela cheia (fica abaixo do menu superior)
+// ---------------------------------------------------------
+let orcEditorSujo = false;
+
+function orcEditorAberto() { return !$("painel-orcamento").classList.contains("hidden"); }
+
+function ajustarTopoEditorOrcamento() {
+  const painel = $("painel-orcamento");
+  if (painel.classList.contains("hidden")) return;
+  const ref = $("admin-areas-topo");
+  const r = ref ? ref.getBoundingClientRect() : { bottom: 0 };
+  painel.style.top = Math.max(0, Math.round(r.bottom + 8)) + "px";
+}
+window.addEventListener("resize", ajustarTopoEditorOrcamento);
+
+function abrirEditorOrcamento() {
+  document.body.classList.add("orc-editando");
+  window.scrollTo(0, 0);
+  $("painel-orcamento").classList.remove("hidden");
+  ajustarTopoEditorOrcamento();
+  $("orc-editor-scroll").scrollTop = 0;
+  definirGeraisRecolhido(false);
+  // No celular o rodapé de turmas começa recolhido para sobrar espaço ao cálculo.
+  const recolher = window.innerWidth < 768;
+  $("orc-dock").classList.toggle("recolhido", recolher);
+  $("btn-orc-dock-toggle").textContent = recolher ? "⌃" : "⌄";
+  orcEditorSujo = false;
+}
+
+function fecharEditorOrcamento() {
+  $("painel-orcamento").classList.add("hidden");
+  document.body.classList.remove("orc-editando");
+  orcEditorSujo = false;
+}
+
+// Usada pelos menus: se houver alterações não salvas, pergunta antes de sair do editor.
+function sairEditorOrcamentoPermitido() {
+  if (!orcEditorAberto()) return true;
+  if (orcEditorSujo && !window.confirm("Há alterações não salvas neste orçamento. Sair sem salvar?")) return false;
+  fecharEditorOrcamento();
+  return true;
+}
+
+$("orc-editor-scroll").addEventListener("input", () => { orcEditorSujo = true; });
+$("orc-editor-scroll").addEventListener("change", () => { orcEditorSujo = true; });
+
+function definirGeraisRecolhido(recolhido) {
+  $("orc-gerais-corpo").classList.toggle("hidden", recolhido);
+  $("orc-resumo-gerais").classList.toggle("hidden", !recolhido);
+  $("btn-orc-gerais-toggle").textContent = recolhido ? "▾ Expandir" : "▴ Recolher";
+  if (recolhido) atualizarResumoGeraisOrc();
+}
+function atualizarResumoGeraisOrc() {
+  const q = orcQuantidades();
+  const emp = listaEmpresasAtivas.find((e) => e.id === $("orc-empresa").value);
+  const tipo = listaTiposAtivos.find((t) => t.id === $("orc-tipo").value);
+  $("orc-resumo-gerais").textContent = [$("orc-numero").value, emp && emp.nome, tipo && tipo.nome, `${q.alunos} alunos`, `${q.turmas} turma(s)`, `${q.alunosPorTurma} por turma`, `${q.localidades} localidade(s)`].filter(Boolean).join(" · ");
+}
+$("btn-orc-gerais-toggle").addEventListener("click", () => definirGeraisRecolhido(!$("orc-gerais-corpo").classList.contains("hidden")));
+
+// ---------------------------------------------------------
+// Cálculo do orçamento (planilha "Rotina de Calculo")
+//  - itens de custo vêm do cadastro do treinamento e são copiados para o orçamento;
+//  - valor da turma = custo da turma ÷ (100% − apoio − imposto − margem);
+//  - total do orçamento = valor da turma × quantidade de turmas.
+// ---------------------------------------------------------
+let orcLinhasCalc = [];      // linhas exibidas/gravadas
+let orcCalcOrigem = "vazio"; // "vazio" | "cadastro" | "salvo"
+let orcCalcSalvoEm = null;
+let orcCalcSeq = 0;
+let orcCalcToken = 0;
+let orcCalcPendentes = 0;    // cargas em andamento (não deixa salvar enquanto carrega)
+let orcCalcCarregandoInicial = false; // mostra "Carregando…" na tabela ao abrir um orçamento para edição
+let orcCalcErro = null;      // falha ao carregar o cálculo (bloqueia o salvamento para não apagar o que já estava gravado)
+const r2 = (v) => Math.round((Number(v) + Number.EPSILON) * 100) / 100;
+const fmtQtd = (n) => Number(n || 0).toLocaleString("pt-BR", { maximumFractionDigits: 4 });
+const fmtPercOrc = (v) => `${Number(v || 0).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}%`;
+
+function orcQuantidades() {
+  const alunos = Math.max(0, Math.floor(Number($("orc-qtd-alunos").value) || 0));
+  const turmas = Math.max(1, Math.floor(Number($("orc-qtd-turmas").value)) || 1);
+  const localidades = Math.max(1, Math.floor(Number($("orc-qtd-localidades").value)) || 1);
+  return { alunos, turmas, localidades, alunosPorTurma: Math.ceil(alunos / turmas) };
+}
+
+function orcQtdDaBase(base, q) {
+  switch (base) {
+    case "turma": return 1;
+    case "alunos_por_turma": return q.alunosPorTurma;
+    case "qtde_turmas": return q.turmas;
+    case "localidades": return q.localidades;
+    default: return null; // "manual" ou sem base definida: quantidade digitada
+  }
+}
+
+function calcularLinhaOrcamento(l, q) {
+  const doItem = orcQtdDaBase(l.base_calculo, q);
+  const K = doItem == null ? (Number(l.qtd_manual) || 0) : doItem;        // quantidade primária
+  const divisor = Number(l.divisor) || 0;
+  let M = 1;                                                              // referência do divisor
+  if (divisor > 0) { const ref = orcQtdDaBase(l.base_divisor, q); M = ref == null ? 1 : ref; }
+  const N = divisor > 0 ? divisor : 1;
+  const O = Math.max(0, Math.ceil(M / N - 1e-9));                         // arredonda para cima
+  const P = Number(l.multiplo) > 0 ? Number(l.multiplo) : 1;              // multiplicador
+  const Q = K * O * P;                                                    // quantidade aplicável
+  return { K, M, N, O, P, Q, total: (Number(l.valor_unitario) || 0) * Q };
+}
+
+function calcularOrcamento() {
+  const q = orcQuantidades();
+  const itens = orcLinhasCalc.map((l) => ({ l, ...calcularLinhaOrcamento(l, q) }));
+  const custo = itens.reduce((s, i) => s + i.total, 0);
+  const apoio = Number($("orc-perc-apoio").value) || 0;
+  const margem = Number($("orc-perc-margem").value) || 0;
+  const imposto = Number($("orc-perc-imposto").value) || 0;
+  const desconto = Number($("orc-perc-desconto").value) || 0;
+  const pctCusto = 1 - (apoio + margem + imposto) / 100;
+  const valido = pctCusto > 0.000001;
+  const valorTurma = valido ? custo / pctCusto : 0;
+  const total = valorTurma * q.turmas;
+  const valorDesc = total * desconto / 100;
+  const final = total - valorDesc;
+  return {
+    q, itens, custo, apoio, margem, imposto, desconto, pctCusto, valido, valorTurma, total, valorDesc, final,
+    apoioV: valorTurma * apoio / 100, impostoV: valorTurma * imposto / 100, margemV: valorTurma * margem / 100,
+    porAluno: q.alunosPorTurma ? valorTurma / q.alunosPorTurma : 0,
+    finalAluno: q.alunos ? final / q.alunos : 0,
+  };
+}
+
+async function orcCarregarRefsCalculo() {
+  const [{ data: unidades, error: e1 }, { data: itens, error: e2 }] = await Promise.all([
+    supabase.from("unidades_medida").select("id, sigla, base_calculo"),
+    supabase.from("itens_custo").select("id, item, descricao_impressao, unidade_medida_id, valor"),
+  ]);
+  if (e1 || e2) throw (e1 || e2);
+  return { unidades: unidades || [], itens: itens || [] };
+}
+
+// Monta as linhas de cálculo a partir dos itens de custo cadastrados no treinamento.
+async function linhasDoCadastroDoTreinamento(tipoId) {
+  if (!tipoId) return [];
+  const [refs, { data: vinculos, error }] = await Promise.all([
+    orcCarregarRefsCalculo(),
+    supabase.from("treinamento_itens_custo").select("*").eq("tipo_treinamento_id", tipoId),
+  ]);
+  if (error) throw error;
+  const unid = (id) => refs.unidades.find((u) => u.id === id) || null;
+  const linhas = (vinculos || []).map((v) => {
+    const it = refs.itens.find((x) => x.id === v.item_custo_id) || {};
+    const un = unid(it.unidade_medida_id);
+    const ud = v.unidade_divisor_id ? unid(v.unidade_divisor_id) : null;
+    const valor = Number(it.valor) || 0;
+    return {
+      chave: `c${++orcCalcSeq}`,
+      item_custo_id: v.item_custo_id,
+      item: it.item || "(item removido)",
+      descricao_impressao: it.descricao_impressao || null,
+      valor_cadastro: valor,
+      valor_unitario: valor,
+      unidade_sigla: un ? un.sigla : null,
+      base_calculo: un ? un.base_calculo : null,
+      divisor: v.divisor != null ? Number(v.divisor) : null,
+      unidade_divisor_sigla: ud ? ud.sigla : null,
+      base_divisor: ud ? ud.base_calculo : null,
+      multiplo: Number(v.multiplo) > 0 ? Number(v.multiplo) : 1,
+      imprime: !!v.imprime,
+      ordem_impressao: v.ordem_impressao != null ? Number(v.ordem_impressao) : null,
+      qtd_manual: 1,
+    };
+  });
+  linhas.sort((a, b) => (a.ordem_impressao ?? 1e9) - (b.ordem_impressao ?? 1e9) || a.item.localeCompare(b.item, "pt-BR"));
+  return linhas;
+}
+
+// Traz do cadastro do treinamento os itens de custo e os percentuais (apoio, margem, imposto).
+// O desconto é só do orçamento e não é alterado aqui.
+async function aplicarCadastroNoCalculo() {
+  const token = ++orcCalcToken;
+  const tipoId = $("orc-tipo").value;
+  const tipo = listaTiposAtivos.find((t) => t.id === tipoId);
+  orcCalcPendentes++;
+  let linhas;
+  try {
+    linhas = await linhasDoCadastroDoTreinamento(tipoId);
+  } catch (e) {
+    if (token === orcCalcToken) orcCalcErro = "Os itens de custo do treinamento não foram carregados. Escolha o treinamento de novo ou feche e abra o orçamento.";
+    throw e;
+  } finally {
+    orcCalcPendentes--;
+  }
+  if (token !== orcCalcToken) return; // o usuário trocou de treinamento enquanto carregava
+  orcCalcErro = null;
+  orcLinhasCalc = linhas;
+  $("orc-perc-apoio").value = tipo ? Number(tipo.perc_apoio) || 0 : 0;
+  $("orc-perc-margem").value = tipo ? Number(tipo.perc_margem) || 0 : 0;
+  $("orc-perc-imposto").value = tipo ? Number(tipo.perc_imposto) || 0 : 0;
+  orcCalcOrigem = tipoId ? "cadastro" : "vazio";
+  orcCalcSalvoEm = null;
+  renderizarCalcOrcamento();
+}
+
+function limparCalculoOrcamento(carregando = false) {
+  orcCalcCarregandoInicial = carregando;
+  orcCalcToken++;
+  orcCalcErro = null;
+  orcLinhasCalc = [];
+  orcCalcOrigem = "vazio";
+  orcCalcSalvoEm = null;
+  ["apoio", "margem", "imposto", "desconto"].forEach((k) => { $("orc-perc-" + k).value = 0; });
+  $("orc-calc-detalhes").checked = false;
+  $("orc-calc-tabela").classList.remove("mostrar-det");
+  renderizarCalcOrcamento();
+}
+
+// Edição: usa o cálculo gravado; se ainda não houver (orçamento antigo/importado), parte do cadastro.
+async function carregarCalculoDoOrcamento(o) {
+  const token = ++orcCalcToken;
+  orcCalcPendentes++;
+  let data, error;
+  try {
+    ({ data, error } = await supabase.from("orcamento_itens_custo").select("*").eq("orcamento_id", o.id).order("ordem"));
+  } finally {
+    orcCalcPendentes--;
+  }
+  if (token !== orcCalcToken) return;
+  if (error) {
+    orcCalcErro = "Não foi possível carregar o cálculo gravado deste orçamento. Feche e abra o orçamento novamente.";
+    mostrarErro("orc-form-erro", orcCalcErro);
+    return;
+  }
+  if (data && data.length) {
+    orcLinhasCalc = data.map((r) => ({
+      chave: `s${++orcCalcSeq}`, item_custo_id: r.item_custo_id, item: r.item, descricao_impressao: r.descricao_impressao,
+      valor_cadastro: Number(r.valor_cadastro) || 0, valor_unitario: Number(r.valor_unitario) || 0,
+      unidade_sigla: r.unidade_sigla, base_calculo: r.base_calculo,
+      divisor: r.divisor != null ? Number(r.divisor) : null, unidade_divisor_sigla: r.unidade_divisor_sigla, base_divisor: r.base_divisor,
+      multiplo: Number(r.multiplo) > 0 ? Number(r.multiplo) : 1, imprime: !!r.imprime, ordem_impressao: r.ordem_impressao,
+      qtd_manual: Number(r.qtd_manual) || 0,
+    }));
+    $("orc-perc-apoio").value = Number(o.perc_apoio) || 0;
+    $("orc-perc-margem").value = Number(o.perc_margem) || 0;
+    $("orc-perc-imposto").value = Number(o.perc_imposto) || 0;
+    $("orc-perc-desconto").value = Number(o.perc_desconto) || 0;
+    orcCalcOrigem = "salvo";
+    orcCalcSalvoEm = o.calculado_em || null;
+    renderizarCalcOrcamento();
+    return;
+  }
+  try {
+    await aplicarCadastroNoCalculo();
+    $("orc-perc-desconto").value = Number(o.perc_desconto) || 0;
+    recalcularOrcamentoTela();
+  } catch (e) {
+    mostrarErro("orc-form-erro", "Não foi possível carregar os itens de custo do treinamento: " + (e?.message || "erro desconhecido"));
+  }
+}
+
+function renderizarCalcOrcamento() {
+  const th = "px-2 py-1.5 font-medium whitespace-nowrap";
+  const cinza = "orc-det bg-slate-100";
+  $("orc-calc-thead").innerHTML = `<tr class="bg-slate-50 text-left text-slate-500 uppercase tracking-wide text-[10px]">
+    <th class="${th}">Item</th><th class="${th} text-right">Valor unit.</th><th class="${th}">Unidade</th><th class="${th} text-right">Qtde</th>
+    <th class="${th} text-right">Valor do item</th><th class="${th}">Divisor</th><th class="${th}">Un. divisor</th><th class="${th} text-right">Múltiplo</th><th class="${th}">Imprime</th>
+    <th class="${th} ${cinza} text-right">Qtde primária</th><th class="${th} ${cinza} text-right">Ref. divisor</th><th class="${th} ${cinza} text-right">Divisor</th><th class="${th} ${cinza} text-right">⌈Ref÷Div⌉</th><th class="${th} ${cinza} text-right">Multiplic.</th></tr>`;
+  const corpo = $("orc-calc-tbody");
+  if (orcLinhasCalc.length === 0) {
+    const msg = (orcCalcCarregandoInicial || orcCalcPendentes > 0) ? "Carregando itens de custo…"
+      : !$("orc-tipo").value ? "Selecione o treinamento para trazer os itens de custo."
+      : "Este treinamento não tem itens de custo cadastrados (cadastre em Treinamentos → Itens de custo).";
+    corpo.innerHTML = `<tr><td colspan="14" class="px-3 py-6 text-center text-slate-400">${msg}</td></tr>`;
+    $("orc-calc-tfoot").innerHTML = "";
+  } else {
+    const campo = "w-24 rounded border border-slate-300 bg-white px-1.5 py-0.5 text-right text-xs";
+    corpo.innerHTML = orcLinhasCalc.map((l) => {
+      const manual = orcQtdDaBase(l.base_calculo, { alunosPorTurma: 0, turmas: 0, localidades: 0 }) == null;
+      return `<tr data-orc-linha="${l.chave}">
+        <td class="px-2 py-1 font-semibold text-slate-800 whitespace-nowrap" title="${(l.descricao_impressao || "").replace(/"/g, "&quot;")}">${l.item}</td>
+        <td class="px-2 py-1 text-right whitespace-nowrap bg-amber-50"><input data-orc-campo="valor_unitario" type="number" min="0" step="0.01" value="${l.valor_unitario}" class="${campo}" /><span data-c="chg" class="text-amber-600 text-[10px] ml-1"></span></td>
+        <td class="px-2 py-1 whitespace-nowrap"><span class="text-[11px] px-2 py-0.5 rounded-full ${manual ? "bg-amber-50 text-amber-800" : "bg-slate-100 text-slate-600"}">${l.unidade_sigla || "—"}</span></td>
+        <td class="px-2 py-1 text-right whitespace-nowrap ${manual ? "bg-amber-50" : ""}">${manual
+          ? `<input data-orc-campo="qtd_manual" type="number" min="0" step="any" value="${l.qtd_manual}" class="w-20 rounded border border-slate-300 bg-white px-1.5 py-0.5 text-right text-xs" /><span data-c="qtd-extra" class="text-slate-400 text-[10px] ml-1"></span>`
+          : `<span data-c="qtd"></span>`}</td>
+        <td class="px-2 py-1 text-right font-semibold whitespace-nowrap" data-c="total"></td>
+        <td class="px-2 py-1 whitespace-nowrap">${Number(l.divisor) > 0 ? fmtQtd(l.divisor) : "—"}</td>
+        <td class="px-2 py-1 whitespace-nowrap">${Number(l.divisor) > 0 ? (l.unidade_divisor_sigla || "—") : "—"}</td>
+        <td class="px-2 py-1 text-right">${Number(l.multiplo) !== 1 ? fmtQtd(l.multiplo) : "—"}</td>
+        <td class="px-2 py-1 whitespace-nowrap">${l.imprime ? `🖨️ #${l.ordem_impressao ?? "—"}` : '<span class="text-slate-300">não</span>'}</td>
+        <td class="orc-det bg-slate-100 px-2 py-1 text-right" data-c="K"></td><td class="orc-det bg-slate-100 px-2 py-1 text-right" data-c="M"></td>
+        <td class="orc-det bg-slate-100 px-2 py-1 text-right" data-c="N"></td><td class="orc-det bg-slate-100 px-2 py-1 text-right" data-c="O"></td>
+        <td class="orc-det bg-slate-100 px-2 py-1 text-right" data-c="P"></td></tr>`;
+    }).join("");
+    $("orc-calc-tfoot").innerHTML = `<tr class="bg-slate-50 font-semibold"><td colspan="4" class="px-2 py-1.5 text-right">Custo da turma</td><td id="orc-calc-custo" class="px-2 py-1.5 text-right"></td><td colspan="9"></td></tr>`;
+  }
+  recalcularOrcamentoTela();
+}
+
+// Atualiza os números na tela sem refazer a tabela (não tira o foco do campo que está sendo digitado).
+function recalcularOrcamentoTela() {
+  const c = calcularOrcamento();
+  $("orc-p-apt").textContent = c.q.alunos > 0 ? c.q.alunosPorTurma : "—";
+  $("orc-p-turmas").textContent = c.q.turmas;
+  $("orc-p-loc").textContent = c.q.localidades;
+  c.itens.forEach((i) => {
+    const tr = $("orc-calc-tbody").querySelector(`[data-orc-linha="${i.l.chave}"]`);
+    if (!tr) return;
+    const set = (k, v) => { const el = tr.querySelector(`[data-c="${k}"]`); if (el) el.textContent = v; };
+    set("qtd", fmtQtd(i.Q));
+    set("qtd-extra", i.Q !== i.K ? `→ ${fmtQtd(i.Q)}` : "");
+    set("total", fmtBRL(i.total));
+    set("K", fmtQtd(i.K)); set("M", fmtQtd(i.M)); set("N", fmtQtd(i.N)); set("O", fmtQtd(i.O)); set("P", fmtQtd(i.P));
+    const mudou = Math.abs((Number(i.l.valor_unitario) || 0) - (Number(i.l.valor_cadastro) || 0)) > 0.0049;
+    const chg = tr.querySelector('[data-c="chg"]');
+    chg.textContent = mudou ? "✎" : "";
+    chg.title = mudou ? `Valor no cadastro: ${fmtBRL(i.l.valor_cadastro)}` : "";
+  });
+  const custoEl = $("orc-calc-custo");
+  if (custoEl) custoEl.textContent = fmtBRL(c.custo);
+  const aviso = $("orc-r-aviso");
+  aviso.classList.toggle("hidden", c.valido);
+  if (!c.valido) aviso.textContent = "A soma de apoio, margem e imposto precisa ser menor que 100%.";
+  $("orc-r-custo").textContent = fmtBRL(c.custo);
+  $("orc-r-pct-custo").textContent = c.valido ? fmtPercOrc(c.pctCusto * 100) : "—";
+  $("orc-r-apoio").textContent = `${fmtBRL(c.apoioV)} · ${fmtPercOrc(c.apoio)}`;
+  $("orc-r-imposto").textContent = `${fmtBRL(c.impostoV)} · ${fmtPercOrc(c.imposto)}`;
+  $("orc-r-margem").textContent = `${fmtBRL(c.margemV)} · ${fmtPercOrc(c.margem)}`;
+  $("orc-r-turma").textContent = fmtBRL(c.valorTurma);
+  $("orc-r-por-aluno").textContent = fmtBRL(c.porAluno);
+  $("orc-r-qt").textContent = c.q.turmas;
+  $("orc-r-total").textContent = fmtBRL(c.total);
+  $("orc-r-desc-pct").textContent = Number(c.desconto).toLocaleString("pt-BR", { maximumFractionDigits: 2 });
+  $("orc-r-desc").textContent = `− ${fmtBRL(c.valorDesc)}`;
+  $("orc-r-final").textContent = fmtBRL(c.final);
+  $("orc-r-final-aluno").textContent = fmtBRL(c.finalAluno);
+
+  const origem = $("orc-calc-origem");
+  origem.textContent = orcCalcOrigem === "salvo" ? "Itens e valores gravados neste orçamento"
+    : orcCalcOrigem === "cadastro" ? "Itens e percentuais vindos do cadastro do treinamento"
+    : "";
+  const tag = $("orc-tag-calculo");
+  tag.classList.remove("hidden", "bg-emerald-100", "text-emerald-700", "bg-amber-100", "text-amber-800");
+  if (orcCalcOrigem === "salvo") {
+    tag.classList.add("bg-emerald-100", "text-emerald-700");
+    tag.textContent = orcCalcSalvoEm ? `Cálculo salvo em ${new Date(orcCalcSalvoEm).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}` : "Cálculo salvo";
+  } else if (orcCalcOrigem === "cadastro") {
+    tag.classList.add("bg-amber-100", "text-amber-800");
+    tag.textContent = "Cálculo ainda não salvo — será gravado ao salvar o orçamento";
+  } else {
+    tag.classList.add("hidden");
+  }
+  atualizarNotaDockTurmas();
+}
+
+$("orc-calc-tbody").addEventListener("input", (ev) => {
+  const el = ev.target.closest("[data-orc-campo]");
+  const tr = ev.target.closest("[data-orc-linha]");
+  if (!el || !tr) return;
+  const l = orcLinhasCalc.find((x) => x.chave === tr.getAttribute("data-orc-linha"));
+  if (!l) return;
+  l[el.getAttribute("data-orc-campo")] = el.value === "" ? 0 : Number(el.value);
+  recalcularOrcamentoTela();
+});
+["apoio", "margem", "imposto", "desconto"].forEach((k) => $("orc-perc-" + k).addEventListener("input", recalcularOrcamentoTela));
+$("orc-calc-detalhes").addEventListener("change", () => $("orc-calc-tabela").classList.toggle("mostrar-det", $("orc-calc-detalhes").checked));
+$("btn-orc-restaurar").addEventListener("click", () => {
+  const desconto = $("orc-perc-desconto").value;
+  aplicarCadastroNoCalculo().then(() => { $("orc-perc-desconto").value = desconto; recalcularOrcamentoTela(); orcEditorSujo = true; })
+    .catch((e) => mostrarErro("orc-form-erro", "Não foi possível carregar os itens de custo do treinamento: " + (e?.message || "erro desconhecido")));
+});
+
+// Grava as linhas do cálculo: insere as novas e só depois remove as antigas (nunca fica sem linhas se a gravação falhar).
+async function salvarLinhasCalculoOrcamento(orcamentoId, calc) {
+  const { data: antigas, error: e0 } = await supabase.from("orcamento_itens_custo").select("id").eq("orcamento_id", orcamentoId);
+  if (e0) throw e0;
+  const novas = calc.itens.map((i, idx) => ({
+    orcamento_id: orcamentoId,
+    item_custo_id: i.l.item_custo_id || null,
+    ordem: idx,
+    item: i.l.item,
+    descricao_impressao: i.l.descricao_impressao || null,
+    valor_cadastro: r2(i.l.valor_cadastro),
+    valor_unitario: r2(i.l.valor_unitario),
+    unidade_sigla: i.l.unidade_sigla || null,
+    base_calculo: i.l.base_calculo || null,
+    divisor: Number(i.l.divisor) > 0 ? Number(i.l.divisor) : null,
+    unidade_divisor_sigla: Number(i.l.divisor) > 0 ? (i.l.unidade_divisor_sigla || null) : null,
+    base_divisor: Number(i.l.divisor) > 0 ? (i.l.base_divisor || null) : null,
+    multiplo: i.P,
+    imprime: !!i.l.imprime,
+    ordem_impressao: i.l.ordem_impressao != null ? i.l.ordem_impressao : null,
+    qtd_manual: Number(i.l.qtd_manual) || 0,
+    qtd_aplicavel: i.Q,
+    valor_total: r2(i.total),
+  }));
+  if (novas.length) {
+    const { error } = await supabase.from("orcamento_itens_custo").insert(novas);
+    if (error) throw error;
+  }
+  const ids = (antigas || []).map((x) => x.id);
+  if (ids.length) {
+    const { error } = await supabase.from("orcamento_itens_custo").delete().in("id", ids);
+    if (error) throw error;
+  }
+}
 
 function abrirNovoOrcamento() {
   editandoOrcamentoId = null;
@@ -5461,8 +5897,7 @@ function abrirNovoOrcamento() {
   preencherSelect("orc-formato-pratica", FORMATOS_PRATICA.map((f) => ({ id: f, nome: f })), "id", (i) => i.nome, "— Selecione —");
   $("orc-qtd-turmas").value = "1";
   $("orc-qtd-localidades").value = "1";
-  $("orc-qtd-alunos-turma").value = "";
-  atualizarQtdAlunosCalculado();
+  $("orc-qtd-alunos").value = "";
   $("orc-data").value = formatarData(new Date());
   $("orc-validade").value = "";
   $("orc-status").value = "Aberto";
@@ -5474,11 +5909,13 @@ function abrirNovoOrcamento() {
   $("orc-pra-mesmo-teoria").checked = false;
   atualizarBlocosEnderecoInCompanyOrc();
   atualizarBlocoHorarioPraticaOrc();
-  $("orc-turmas-bloco").classList.add("hidden");
-  $("orc-turmas-tbody").innerHTML = "";
+  limparCalculoOrcamento();
+  atualizarQtdAlunosCalculado();
   $("painel-orcamento-titulo").textContent = "Novo orçamento";
+  $("orc-tag-numero").classList.add("hidden");
   $("btn-salvar-orcamento").textContent = "Salvar orçamento";
-  $("painel-orcamento").classList.remove("hidden");
+  abrirEditorOrcamento();
+  carregarTabelaTurmasOrcamento(null);
 }
 
 async function abrirEdicaoOrcamento(id) {
@@ -5503,8 +5940,7 @@ async function abrirEdicaoOrcamento(id) {
   $("orc-formato-pratica").value = o.formato_pratica || "";
   $("orc-qtd-turmas").value = o.qtd_turmas || "";
   $("orc-qtd-localidades").value = o.qtd_localidades || 1;
-  $("orc-qtd-alunos-turma").value = o.qtd_alunos_por_turma || "";
-  atualizarQtdAlunosCalculado();
+  $("orc-qtd-alunos").value = o.qtd_alunos || ((Number(o.qtd_turmas) || 0) * (Number(o.qtd_alunos_por_turma) || 0)) || "";
   $("orc-data").value = o.data || "";
   $("orc-validade").value = o.validade || "";
   $("orc-status").value = o.status;
@@ -5516,10 +5952,19 @@ async function abrirEdicaoOrcamento(id) {
   $("orc-pra-mesmo-teoria").checked = !!o.endereco_pratica_mesmo_teoria;
   atualizarBlocosEnderecoInCompanyOrc();
   atualizarBlocoHorarioPraticaOrc();
+  limparCalculoOrcamento(true);
+  atualizarQtdAlunosCalculado();
+  // "Necessita dois instrutores" volta ao valor gravado (a regra automática só vale ao editar os números)
+  $("orc-dois-instrutores").checked = !!o.necessita_dois_instrutores;
   $("painel-orcamento-titulo").textContent = "Editar orçamento";
+  $("orc-tag-numero").textContent = o.numero || "";
+  $("orc-tag-numero").classList.remove("hidden");
   $("btn-salvar-orcamento").textContent = "Salvar alterações";
-  $("painel-orcamento").classList.remove("hidden");
-  await carregarTabelaTurmasOrcamento(id);
+  abrirEditorOrcamento();
+  await Promise.all([
+    carregarCalculoDoOrcamento(o).finally(() => { orcCalcCarregandoInicial = false; renderizarCalcOrcamento(); }),
+    carregarTabelaTurmasOrcamento(id),
+  ]);
 }
 
 // Um dia só precisa de empresa de transporte quando o formato daquele dia
@@ -5537,54 +5982,93 @@ function transporteAplicavel(t) {
   return true;
 }
 
-// Carrega e renderiza, dentro do painel do orçamento, a tabela das turmas
-// já geradas: Data, Instrutor 1, Instrutor 2 e Empresa de Transporte (ou
-// "N/A" quando o formato do dia não exige deslocamento) são editáveis aqui.
+// Rodapé do editor: navegação pelas turmas do orçamento (A, B, C…). Cada turma mostra os seus dias;
+// Data, Instrutor 1, Instrutor 2 e Empresa de Transporte (ou "N/A" quando o formato do dia não exige
+// deslocamento) são editáveis aqui e gravam automaticamente ao alterar.
+let orcTurmasGrupos = [];   // [{ letra, linhas }]
+let orcTurmaAtiva = 0;
+let orcTurmasRef = { instrutores: [], transportadoras: [] };
+
+function agruparTurmasOrcamento(turmas) {
+  const mapa = new Map();
+  turmas.forEach((t) => {
+    const m = /^([A-Za-z]+)(\d+)$/.exec(t.identificacao || "");
+    const letra = m ? m[1].toUpperCase() : "—";
+    if (!mapa.has(letra)) mapa.set(letra, []);
+    mapa.get(letra).push({ t, n: m ? Number(m[2]) : 0 });
+  });
+  return [...mapa.entries()]
+    .sort((a, b) => a[0].length - b[0].length || a[0].localeCompare(b[0]))
+    .map(([letra, itens]) => ({ letra, linhas: itens.sort((a, b) => a.n - b.n).map((x) => x.t) }));
+}
+
 async function carregarTabelaTurmasOrcamento(orcamentoId) {
+  if (!orcamentoId) {
+    orcTurmasGrupos = [];
+    renderizarDockTurmas("As turmas são geradas automaticamente quando você salvar o orçamento.");
+    return;
+  }
   const [{ data }, { data: insts }, { data: transportadoras }] = await Promise.all([
     supabase.from("turmas").select("*").eq("orcamento_id", orcamentoId).order("identificacao"),
     supabase.from("instrutores").select("*").eq("status", "Ativo").order("nome"),
     supabase.from("empresas_transporte").select("*").eq("status", "Ativo").order("nome"),
   ]);
-  const turmas = data || [];
   listaInstrutoresAtivos = insts || [];
+  orcTurmasRef = { instrutores: insts || [], transportadoras: transportadoras || [] };
+  orcTurmasGrupos = agruparTurmasOrcamento(data || []);
+  if (orcTurmaAtiva >= orcTurmasGrupos.length) orcTurmaAtiva = 0;
+  renderizarDockTurmas("Este orçamento ainda não tem turmas geradas.");
+}
+
+function atualizarNotaDockTurmas() {
+  const nota = $("orc-turmas-nota");
+  if (!nota) return;
+  if (orcTurmasGrupos.length === 0) { nota.textContent = ""; return; }
+  const c = calcularOrcamento();
+  const g = orcTurmasGrupos[orcTurmaAtiva];
+  nota.textContent = `Turma ${g ? g.letra : "—"} de ${orcTurmasGrupos.length}` +
+    (c.q.alunos > 0 ? ` · ${c.q.alunosPorTurma} alunos` : "") +
+    (orcLinhasCalc.length && c.valido ? ` · valor da turma ${fmtBRL(c.valorTurma)}` : "");
+}
+
+function renderizarDockTurmas(msgVazio) {
   const bloco = $("orc-turmas-bloco");
   const corpo = $("orc-turmas-tbody");
-  if (turmas.length === 0) {
+  const vazio = $("orc-turmas-vazio");
+  const abas = $("orc-turmas-abas");
+  if (orcTurmasGrupos.length === 0) {
     bloco.classList.add("hidden");
     corpo.innerHTML = "";
+    abas.innerHTML = "";
+    vazio.textContent = msgVazio || "";
+    vazio.classList.remove("hidden");
+    $("btn-orc-turma-ant").classList.add("hidden");
+    $("btn-orc-turma-prox").classList.add("hidden");
+    atualizarNotaDockTurmas();
     return;
   }
+  vazio.classList.add("hidden");
   bloco.classList.remove("hidden");
-  const corTipoDia = { "Teoria": "bg-blue-50 text-blue-700", "Prática": "bg-amber-50 text-amber-700", "Teoria com Prática": "bg-purple-50 text-purple-700" };
-  const opcoesInstrutor = (val) => `<option value="">—</option>` + listaInstrutoresAtivos.map((i) => `<option value="${i.id}" ${i.id === val ? "selected" : ""}>${i.nome}</option>`).join("");
-  const opcoesTransporte = (val) => `<option value="">—</option>` + transportadoras.map((e) => `<option value="${e.id}" ${e.id === val ? "selected" : ""}>${e.nome}</option>`).join("");
+  const varias = orcTurmasGrupos.length > 1;
+  $("btn-orc-turma-ant").classList.toggle("hidden", !varias);
+  $("btn-orc-turma-prox").classList.toggle("hidden", !varias);
+  abas.innerHTML = orcTurmasGrupos.map((g, i) => `<button type="button" data-orc-turma-aba="${i}" class="rounded-md border px-3 py-0.5 text-sm font-semibold ${i === orcTurmaAtiva ? "bg-slate-900 text-white border-slate-900" : "bg-white border-slate-300 hover:bg-slate-50"}">${g.letra}</button>`).join("");
 
-  corpo.innerHTML = turmas.map((t) => {
-    const precisaTransporte = transporteAplicavel(t);
-    return `
+  const corTipoDia = { "Teoria": "bg-blue-50 text-blue-700", "Prática": "bg-amber-50 text-amber-700", "Teoria com Prática": "bg-purple-50 text-purple-700" };
+  const opcoesInstrutor = (val) => `<option value="">—</option>` + orcTurmasRef.instrutores.map((i) => `<option value="${i.id}" ${i.id === val ? "selected" : ""}>${i.nome}</option>`).join("");
+  const opcoesTransporte = (val) => `<option value="">—</option>` + orcTurmasRef.transportadoras.map((e) => `<option value="${e.id}" ${e.id === val ? "selected" : ""}>${e.nome}</option>`).join("");
+  const campoCls = "w-full text-xs rounded-md border border-slate-300 px-2 py-1";
+  corpo.innerHTML = orcTurmasGrupos[orcTurmaAtiva].linhas.map((t) => `
     <tr data-turma-linha="${t.id}">
-      <td class="px-2 py-1.5 font-mono text-slate-500">${t.identificacao || "—"}</td>
-      <td class="px-2 py-1.5">
-        ${t.tipo_dia ? `<span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${corTipoDia[t.tipo_dia] || ""}">${t.tipo_dia}</span>` : "—"}
-      </td>
-      <td class="px-2 py-1.5">
-        <input type="date" data-turma-campo="data_inicio" value="${t.data_inicio || ""}" class="w-full text-xs rounded-md border border-slate-300 px-2 py-1.5" />
-      </td>
-      <td class="px-2 py-1.5">
-        <select data-turma-campo="instrutor1_id" class="w-full text-xs rounded-md border border-slate-300 px-2 py-1.5">${opcoesInstrutor(t.instrutor1_id)}</select>
-      </td>
-      <td class="px-2 py-1.5">
-        <select data-turma-campo="instrutor2_id" class="w-full text-xs rounded-md border border-slate-300 px-2 py-1.5">${opcoesInstrutor(t.instrutor2_id)}</select>
-      </td>
-      <td class="px-2 py-1.5">
-        ${precisaTransporte
-          ? `<select data-turma-campo="empresa_transporte_id" class="w-full text-xs rounded-md border border-slate-300 px-2 py-1.5">${opcoesTransporte(t.empresa_transporte_id)}</select>`
-          : `<span class="text-slate-400">N/A</span>`}
-      </td>
-    </tr>
-  `;
-  }).join("");
+      <td class="px-2 py-1 font-mono text-slate-500">${t.identificacao || "—"}</td>
+      <td class="px-2 py-1">${t.tipo_dia ? `<span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${corTipoDia[t.tipo_dia] || ""}">${t.tipo_dia}</span>` : "—"}</td>
+      <td class="px-2 py-1"><input type="date" data-turma-campo="data_inicio" value="${t.data_inicio || ""}" class="${campoCls}" /></td>
+      <td class="px-2 py-1"><select data-turma-campo="instrutor1_id" class="${campoCls}">${opcoesInstrutor(t.instrutor1_id)}</select></td>
+      <td class="px-2 py-1"><select data-turma-campo="instrutor2_id" class="${campoCls}">${opcoesInstrutor(t.instrutor2_id)}</select></td>
+      <td class="px-2 py-1">${transporteAplicavel(t)
+        ? `<select data-turma-campo="empresa_transporte_id" class="${campoCls}">${opcoesTransporte(t.empresa_transporte_id)}</select>`
+        : `<span class="text-slate-400">N/A</span>`}</td>
+    </tr>`).join("");
 
   corpo.querySelectorAll("[data-turma-campo]").forEach((el) => {
     el.addEventListener("change", async (e) => {
@@ -5592,15 +6076,32 @@ async function carregarTabelaTurmasOrcamento(orcamentoId) {
       const turmaId = linha.getAttribute("data-turma-linha");
       const campo = e.target.getAttribute("data-turma-campo");
       const valor = e.target.value || null;
+      const t = orcTurmasGrupos.flatMap((g) => g.linhas).find((x) => x.id === turmaId);
+      if (t) t[campo] = valor;
       await supabase.from("turmas").update({ [campo]: valor }).eq("id", turmaId);
     });
   });
+  atualizarNotaDockTurmas();
 }
 
+function irParaTurmaOrc(i) {
+  if (orcTurmasGrupos.length === 0) return;
+  orcTurmaAtiva = (i + orcTurmasGrupos.length) % orcTurmasGrupos.length;
+  renderizarDockTurmas();
+}
+$("orc-turmas-abas").addEventListener("click", (ev) => {
+  const b = ev.target.closest("[data-orc-turma-aba]");
+  if (b) irParaTurmaOrc(Number(b.getAttribute("data-orc-turma-aba")));
+});
+$("btn-orc-turma-ant").addEventListener("click", () => irParaTurmaOrc(orcTurmaAtiva - 1));
+$("btn-orc-turma-prox").addEventListener("click", () => irParaTurmaOrc(orcTurmaAtiva + 1));
+$("btn-orc-dock-toggle").addEventListener("click", () => {
+  const rec = $("orc-dock").classList.toggle("recolhido");
+  $("btn-orc-dock-toggle").textContent = rec ? "⌃" : "⌄";
+});
+
 $("btn-orc-novo").addEventListener("click", abrirNovoOrcamento);
-$("btn-fechar-painel-orcamento").addEventListener("click", () => $("painel-orcamento").classList.add("hidden"));
-$("btn-cancelar-painel-orcamento").addEventListener("click", () => $("painel-orcamento").classList.add("hidden"));
-$("painel-orcamento-overlay").addEventListener("click", () => $("painel-orcamento").classList.add("hidden"));
+$("btn-cancelar-painel-orcamento").addEventListener("click", () => { sairEditorOrcamentoPermitido(); });
 
 async function salvarOrcamento() {
   esconderErro("orc-form-erro");
@@ -5616,6 +6117,15 @@ async function salvarOrcamento() {
   if (!tipoId) return mostrarErro("orc-form-erro", "Selecione o treinamento.");
   if (qtdTurmas < 1) return mostrarErro("orc-form-erro", "Informe a quantidade de turmas (mínimo 1).");
   if (qtdLocalidades < 1) return mostrarErro("orc-form-erro", "Informe a quantidade de localidades do cliente onde os alunos vão treinar (mínimo 1).");
+  const qtdAlunos = Math.floor(Number($("orc-qtd-alunos").value) || 0);
+  if (qtdAlunos < 1) return mostrarErro("orc-form-erro", "Informe a quantidade de alunos (mínimo 1).");
+  if (orcCalcPendentes > 0) return mostrarErro("orc-form-erro", "Aguarde: os itens de custo ainda estão sendo carregados.");
+  if (orcCalcErro) return mostrarErro("orc-form-erro", orcCalcErro);
+  const calc = calcularOrcamento();
+  for (const [v, rot] of [[calc.apoio, "% de apoio"], [calc.margem, "% de margem"], [calc.imposto, "% de imposto"], [calc.desconto, "% de desconto"]]) {
+    if (!(v >= 0 && v <= 100)) return mostrarErro("orc-form-erro", `${rot}: informe um valor entre 0 e 100.`);
+  }
+  if (orcLinhasCalc.length && !calc.valido) return mostrarErro("orc-form-erro", "No cálculo, a soma de apoio, margem e imposto precisa ser menor que 100%.");
 
   const teoriaInCompany = $("orc-formato-teoria").value === "InCompany";
   const praticaInCompany = $("orc-formato-pratica").value === "InCompany";
@@ -5651,7 +6161,7 @@ async function salvarOrcamento() {
   const horarioInicioTeoria = $("orc-horario-teoria").value || null;
   const horarioInicioPratica = praticaSincronizada ? horarioInicioTeoria : ($("orc-horario-pratica").value || null);
 
-  const qtdAlunosPorTurma = $("orc-qtd-alunos-turma").value ? Number($("orc-qtd-alunos-turma").value) : 0;
+  const qtdAlunosPorTurma = Math.ceil(qtdAlunos / Math.max(1, qtdTurmas));
   const contatoEmail = $("orc-contato-email").value.trim();
   // aceita mais de um e-mail no mesmo campo (separados por vírgula ou ponto e vírgula)
   if (contatoEmail && !contatoEmail.split(/[;,]/).map((x) => x.trim()).filter(Boolean).every((x) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(x))) return mostrarErro("orc-form-erro", "O e-mail do contato parece inválido. Se houver mais de um, separe por vírgula.");
@@ -5667,7 +6177,17 @@ async function salvarOrcamento() {
     qtd_turmas: qtdTurmas,
     qtd_localidades: qtdLocalidades,
     qtd_alunos_por_turma: qtdAlunosPorTurma || null,
-    qtd_alunos: qtdTurmas * qtdAlunosPorTurma,
+    qtd_alunos: qtdAlunos,
+    perc_apoio: calc.apoio,
+    perc_margem: calc.margem,
+    perc_imposto: calc.imposto,
+    perc_desconto: calc.desconto,
+    ...(orcLinhasCalc.length ? {
+      custo_turma: r2(calc.custo), valor_turma: r2(calc.valorTurma), valor_total: r2(calc.total), valor_desconto: r2(calc.valorDesc),
+      valor_final: r2(calc.final), valor_por_aluno: r2(calc.porAluno), valor_final_aluno: r2(calc.finalAluno), calculado_em: new Date().toISOString(),
+    } : {
+      custo_turma: null, valor_turma: null, valor_total: null, valor_desconto: null, valor_final: null, valor_por_aluno: null, valor_final_aluno: null, calculado_em: null,
+    }),
     necessita_dois_instrutores: $("orc-dois-instrutores").checked,
     data: $("orc-data").value || null,
     validade: $("orc-validade").value || null,
@@ -5721,19 +6241,41 @@ async function salvarOrcamento() {
 
   $("btn-salvar-orcamento").disabled = false;
 
-  if (!editandoOrcamentoId) {
+  // Grava as linhas do cálculo (itens de custo copiados do treinamento, com os valores deste orçamento).
+  const eraNovo = !editandoOrcamentoId;
+  let erroCalculo = null;
+  try {
+    await salvarLinhasCalculoOrcamento(linha.id, calc);
+    orcCalcOrigem = orcLinhasCalc.length ? "salvo" : "vazio";
+    orcCalcSalvoEm = linha.calculado_em || null;
+  } catch (e) {
+    erroCalculo = e?.message || "erro desconhecido";
+  }
+  orcEditorSujo = false;
+
+  if (eraNovo) {
     await gerarTurmasParaOrcamento(linha, qtdTurmas);
     // Mantém o painel aberto, já em modo edição, para preencher a tabela de turmas geradas.
     editandoOrcamentoId = linha.id;
     $("orc-numero").disabled = true;
     $("painel-orcamento-titulo").textContent = "Editar orçamento";
+    $("orc-tag-numero").textContent = linha.numero || "";
+    $("orc-tag-numero").classList.remove("hidden");
     $("btn-salvar-orcamento").textContent = "Salvar alterações";
+    recalcularOrcamentoTela();
     await carregarTabelaTurmasOrcamento(linha.id);
     await carregarPaginaOrcamentos();
+    if (erroCalculo) mostrarErro("orc-form-erro", `Orçamento salvo, mas o cálculo não foi gravado: ${erroCalculo}. Clique em "Salvar alterações" para tentar de novo.`);
     return;
   }
 
-  $("painel-orcamento").classList.add("hidden");
+  if (erroCalculo) {
+    $("btn-salvar-orcamento").textContent = "Salvar alterações";
+    await carregarPaginaOrcamentos();
+    return mostrarErro("orc-form-erro", `Orçamento salvo, mas o cálculo não foi gravado: ${erroCalculo}. Clique em "Salvar alterações" para tentar de novo.`);
+  }
+
+  fecharEditorOrcamento();
   await carregarPaginaOrcamentos();
 }
 

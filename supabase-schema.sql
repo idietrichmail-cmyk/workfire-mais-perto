@@ -1098,3 +1098,10 @@ alter table instrutores
 --   itens_custo.valor_adicional_in_company numeric(14,2) not null default 0 (check >= 0) — valor adicional cobrado quando o treinamento é In Company.
 -- migração tipos_treinamento_percentuais (aplicada em 04/10/2026):
 --   tipos_treinamento.perc_apoio, perc_margem, perc_imposto numeric(5,2) not null default 0, cada um com check entre 0 e 100.
+-- migração orcamento_calculo_tela_cheia (aplicada em 05/10/2026):
+--   unidades_medida.base_calculo text (turma | alunos_por_turma | qtde_turmas | localidades | manual) — de onde vem a quantidade do item;
+--   unidade "Qtde Turmas" criada; orcamentos: perc_apoio/perc_margem/perc_imposto/perc_desconto numeric(5,2) (0..100) e
+--   custo_turma, valor_turma, valor_total, valor_desconto, valor_final, valor_por_aluno, valor_final_aluno, calculado_em;
+--   tabela orcamento_itens_custo (linhas do cálculo, copiadas dos itens de custo do treinamento; on delete cascade no orçamento;
+--   RLS pode_acessar_tabela, mapa ('orcamentos','orcamento_itens_custo','own') e leitura de treinamento_itens_custo/itens_custo/unidades_medida).
+--   Regra: valor da turma = custo da turma / (1 - apoio - imposto - margem); total = valor da turma x turmas.

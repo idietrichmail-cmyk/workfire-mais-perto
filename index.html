@@ -14,6 +14,16 @@
   .font-serif { font-family: Georgia, "Times New Roman", serif; }
   .hidden { display: none !important; }
   input[type="date"]::-webkit-calendar-picker-indicator { opacity: 1; cursor: pointer; }
+  /* Editor de orçamento em tela cheia: esconde o menu lateral e trava a rolagem da página */
+  body.orc-editando { overflow: hidden; }
+  body.orc-editando #tela-admin aside { display: none !important; }
+  body.orc-editando #tela-admin main { max-width: none; padding-top: 0.5rem; padding-bottom: 0; }
+  body.orc-editando #app-header { padding-top: 0.25rem; padding-bottom: 0.25rem; }
+  body.orc-editando #admin-areas-topo { margin-bottom: 0; }
+  body.orc-editando #tela-admin main > header { display: none; }
+  @media (max-width: 767px) { body.orc-editando #app-header { display: none; } }
+  #orc-calc-tabela:not(.mostrar-det) .orc-det { display: none; }
+  #orc-dock.recolhido #orc-turmas-corpo { display: none; }
   #app-header {
     font-family: Arial, Helvetica, sans-serif;
     font-weight: 700;
@@ -533,6 +543,7 @@
                 <th class="px-3 py-2 font-medium">Alunos</th>
                 <th class="px-3 py-2 font-medium" title="Quantidade de localidades do cliente onde os alunos vão treinar">Localid.</th>
                 <th class="px-3 py-2 font-medium">Data</th>
+                <th class="px-3 py-2 font-medium text-right" title="Valor final calculado do orçamento">Valor final</th>
                 <th class="px-3 py-2 font-medium"></th>
               </tr>
             </thead>
@@ -1339,75 +1350,88 @@
   </div>
 
   <!-- Painel: Orçamento -->
-  <div id="painel-orcamento" class="hidden fixed inset-0 z-50 flex justify-end">
-    <div id="painel-orcamento-overlay" class="absolute inset-0 bg-slate-900/40"></div>
-    <div class="relative w-full max-w-lg bg-white h-full shadow-xl px-6 py-6 overflow-y-auto">
-      <div class="flex items-center justify-between mb-6">
-        <h2 id="painel-orcamento-titulo" class="font-serif text-xl text-slate-900">Novo orçamento</h2>
-        <button id="btn-fechar-painel-orcamento" class="text-slate-400 hover:text-slate-700 text-xl">×</button>
-      </div>
-      <div id="orc-form-erro" class="hidden bg-rose-50 text-rose-600 text-sm rounded-md px-3 py-2 mb-4"></div>
-      <div class="space-y-4">
-        <div>
-          <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Número do orçamento</label>
-          <input id="orc-numero" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-amber-500" placeholder="Ex: ORC-2026-001" />
-          <p class="text-[11px] text-slate-400 mt-1">Precisa ser único — escolha um número que ainda não foi usado.</p>
-        </div>
-        <div>
-          <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Empresa</label>
-          <select id="orc-empresa" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"></select>
-        </div>
-        <div class="border border-slate-200 rounded-lg p-3 space-y-3 bg-slate-50/60">
-          <p class="text-xs font-medium text-slate-500 uppercase tracking-wide">Contato do orçamento</p>
-          <p class="text-[11px] text-slate-400 -mt-2">Vem preenchido com o contato da empresa. Pode ser alterado aqui sem mudar o cadastro da empresa.</p>
-          <div>
-            <label class="text-xs font-medium text-slate-500">Contato</label>
-            <input id="orc-contato-nome" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
-          </div>
-          <div class="grid grid-cols-2 gap-3">
-            <div>
-              <label class="text-xs font-medium text-slate-500">Telefone contato</label>
-              <input id="orc-contato-telefone" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
-            </div>
-            <div>
-              <label class="text-xs font-medium text-slate-500">E-mail contato</label>
-              <input id="orc-contato-email" type="email" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
-            </div>
-          </div>
-        </div>
-        <div>
-          <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Centro de Treinamento</label>
-          <select id="orc-centro" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"></select>
-        </div>
-        <div>
-          <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Treinamento</label>
-          <select id="orc-tipo" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"></select>
-        </div>
-        <div class="grid grid-cols-2 gap-3">
-          <div>
-            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Formato Teoria</label>
-            <select id="orc-formato-teoria" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"></select>
-          </div>
-          <div>
-            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Formato Prática</label>
-            <select id="orc-formato-pratica" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"></select>
-          </div>
-        </div>
+  <div id="painel-orcamento" class="hidden fixed left-0 right-0 bottom-0 z-40 flex flex-col bg-slate-100" style="top:0">
+    <!-- Cabeçalho do orçamento -->
+    <div class="flex-none bg-white border-b border-slate-200 px-4 py-2 flex items-center gap-x-3 gap-y-1 flex-wrap">
+      <h2 id="painel-orcamento-titulo" class="font-serif text-lg text-slate-900">Novo orçamento</h2>
+      <span id="orc-tag-numero" class="hidden text-[11px] font-mono px-2 py-0.5 rounded-full bg-sky-100 text-sky-700"></span>
+      <span id="orc-tag-calculo" class="hidden text-[11px] px-2 py-0.5 rounded-full"></span>
+      <span class="flex-1"></span>
+      <button id="btn-cancelar-painel-orcamento" class="px-4 py-1.5 text-sm font-medium text-slate-600 border border-slate-300 rounded-md hover:bg-slate-50">Fechar</button>
+      <button id="btn-salvar-orcamento" class="px-4 py-1.5 bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium rounded-md">Salvar orçamento</button>
+    </div>
+    <div id="orc-form-erro" class="hidden flex-none bg-rose-50 text-rose-600 text-sm px-4 py-2 border-b border-rose-100"></div>
 
-        <!-- Horário de início da aula — padrão 7:30 em Centro de Treinamento e 7:00 em InCompany,
-             mas o usuário pode alterar. Só existem dois horários independentes quando teoria e
-             prática têm endereços distintos (ver orc-horario-pratica-bloco). -->
-        <div class="grid grid-cols-2 gap-3">
-          <div>
-            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Horário de início — Teoria</label>
-            <input id="orc-horario-teoria" type="time" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
-          </div>
-          <div id="orc-horario-pratica-bloco">
-            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Horário de início — Prática</label>
-            <input id="orc-horario-pratica" type="time" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
-          </div>
-        </div>
+    <div id="orc-editor-scroll" class="flex-1 min-h-0 overflow-y-auto px-3 md:px-4 py-3 space-y-3">
 
+      <!-- 1) Dados gerais -->
+      <section class="bg-white border border-slate-200 rounded-lg">
+        <div class="flex items-center gap-3 px-3 py-1.5 border-b border-slate-100">
+          <h3 class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">1 · Dados gerais do orçamento</h3>
+          <span class="flex-1"></span>
+          <span id="orc-resumo-gerais" class="hidden text-xs text-slate-500 truncate"></span>
+          <button type="button" id="btn-orc-gerais-toggle" class="text-xs border border-slate-300 rounded-md px-2.5 py-0.5 text-slate-600 hover:bg-slate-50">▴ Recolher</button>
+        </div>
+        <div id="orc-gerais-corpo" class="px-3 py-2.5">
+          <div class="grid grid-cols-2 md:grid-cols-12 gap-x-3 gap-y-2">
+            <div class="col-span-1 md:col-span-2"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Número</label>
+              <input id="orc-numero" class="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono" placeholder="Ex: ORC-2026-001" /></div>
+            <div class="col-span-2 md:col-span-4"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Empresa</label>
+              <select id="orc-empresa" class="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"></select></div>
+            <div class="col-span-2 md:col-span-2"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Contato</label>
+              <input id="orc-contato-nome" class="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" /></div>
+            <div class="col-span-1 md:col-span-2"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Telefone</label>
+              <input id="orc-contato-telefone" class="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" /></div>
+            <div class="col-span-1 md:col-span-2"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">E-mail</label>
+              <input id="orc-contato-email" type="email" class="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" /></div>
+
+            <div class="col-span-2 md:col-span-3"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Treinamento</label>
+              <select id="orc-tipo" class="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"></select></div>
+            <div class="col-span-2 md:col-span-3"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Centro de Treinamento</label>
+              <select id="orc-centro" class="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"></select></div>
+            <div class="col-span-1 md:col-span-1"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Teoria</label>
+              <select id="orc-formato-teoria" class="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"></select></div>
+            <div class="col-span-1 md:col-span-1"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Prática</label>
+              <select id="orc-formato-pratica" class="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"></select></div>
+            <div class="col-span-1 md:col-span-2"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Início teoria</label>
+              <input id="orc-horario-teoria" type="time" class="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" /></div>
+            <div id="orc-horario-pratica-bloco" class="col-span-1 md:col-span-2"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Início prática</label>
+              <input id="orc-horario-pratica" type="time" class="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" /></div>
+
+            <div class="col-span-1 md:col-span-1"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Alunos</label>
+              <input id="orc-qtd-alunos" type="number" min="1" step="1" class="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" /></div>
+            <div class="col-span-1 md:col-span-1"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Turmas</label>
+              <input id="orc-qtd-turmas" type="number" min="1" step="1" class="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" /></div>
+            <div class="col-span-1 md:col-span-2"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide" title="Calculado: alunos ÷ turmas, arredondado para cima">Alunos/turma</label>
+              <input id="orc-qtd-alunos-turma" type="number" readonly class="mt-0.5 w-full rounded-md border border-slate-300 bg-slate-100 text-slate-500 px-2 py-1.5 text-sm" /></div>
+            <div class="col-span-1 md:col-span-2"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide" title="Locais do cliente onde os alunos vão treinar">Localidades</label>
+              <input id="orc-qtd-localidades" type="number" min="1" step="1" class="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" /></div>
+            <div class="col-span-1 md:col-span-2"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Data</label>
+              <input id="orc-data" type="date" class="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" /></div>
+            <div class="col-span-1 md:col-span-2"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Validade</label>
+              <input id="orc-validade" type="date" class="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" /></div>
+            <div class="col-span-2 md:col-span-2"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Status</label>
+              <select id="orc-status" class="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">
+              <option>Aberto</option><option>Aprovado</option><option>Aprovado e Agendado</option><option>Aprovado e Confirmado</option><option>Aberto e Pré-Agendado</option><option>Aberto e Pré-Confirmado</option><option>Recusado</option><option>Concluído</option>
+            </select></div>
+            <div class="col-span-2 md:col-span-12">
+              <label class="flex items-center gap-2 text-xs text-slate-600">
+                <input id="orc-dois-instrutores" type="checkbox" disabled class="rounded border-slate-300" />
+                Necessita dois instrutores
+                <span class="text-[11px] text-slate-400">(automático: alunos por turma acima da capacidade por instrutor do treinamento)</span>
+              </label>
+            </div>
+          </div>
+          <details class="mt-2 border border-dashed border-slate-300 rounded-md bg-slate-50/70 px-3 py-1.5">
+            <summary class="cursor-pointer text-[11px] font-semibold uppercase tracking-wide text-slate-500">Observações e endereço in-company</summary>
+            <div class="space-y-3 mt-3 pb-2">
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Observações</label>
+                  <textarea id="orc-observacoes" rows="2" class="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"></textarea></div>
+                <div><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Observação para o Centro de Treinamento</label>
+                  <textarea id="orc-observacao-ct" rows="2" placeholder="Ex.: material especial, sala com projetor, aluno com restrição de acesso…" class="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"></textarea>
+                  <p class="mt-0.5 text-[11px] text-slate-400">Aparece em todas as turmas deste orçamento na Agenda por Centro de Treinamento.</p></div>
+              </div>
         <!-- Endereço do treinamento in-company — Teoria (só aparece quando o formato da teoria é InCompany) -->
         <div id="orc-endereco-teoria-bloco" class="hidden border border-slate-200 rounded-lg p-3 space-y-3 bg-slate-50/60">
           <p class="text-xs font-medium text-slate-500 uppercase tracking-wide">Endereço do treinamento in-company — Teoria</p>
@@ -1504,80 +1528,96 @@
           <p id="orc-pra-geo-status" class="text-[11px] text-slate-400"></p>
         </div>
 
-        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <div>
-            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Qtde de turmas</label>
-            <input id="orc-qtd-turmas" type="number" min="1" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
-          </div>
-          <div>
-            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Alunos por turma</label>
-            <input id="orc-qtd-alunos-turma" type="number" min="0" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
-          </div>
-          <div>
-            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Qtde de alunos</label>
-            <input id="orc-qtd-alunos" type="number" readonly class="mt-1 w-full rounded-md border border-slate-300 bg-slate-100 text-slate-500 px-3 py-2 text-sm" />
-            <p class="text-[11px] text-slate-400 mt-1">Calculado: turmas × alunos por turma</p>
-          </div>
-          <div>
-            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Localidades</label>
-            <input id="orc-qtd-localidades" type="number" min="1" step="1" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
-            <p class="text-[11px] text-slate-400 mt-1">Locais do cliente onde os alunos vão treinar</p>
-          </div>
+            </div>
+          </details>
         </div>
-        <label class="flex items-center gap-2 text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-md px-3 py-2">
-          <input id="orc-dois-instrutores" type="checkbox" disabled class="rounded border-slate-300" />
-          Necessita dois instrutores
-          <span class="text-[11px] text-slate-400">(automático: alunos por turma acima da capacidade por instrutor do treinamento)</span>
-        </label>
-        <div class="grid grid-cols-3 gap-3">
-          <div>
-            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Data</label>
-            <input id="orc-data" type="date" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
-          </div>
-          <div>
-            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Validade</label>
-            <input id="orc-validade" type="date" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
-          </div>
-          <div>
-            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Status</label>
-            <select id="orc-status" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">
-              <option>Aberto</option><option>Aprovado</option><option>Aprovado e Agendado</option><option>Aprovado e Confirmado</option><option>Aberto e Pré-Agendado</option><option>Aberto e Pré-Confirmado</option><option>Recusado</option><option>Concluído</option>
-            </select>
-          </div>
-        </div>
-        <div>
-          <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Observações</label>
-          <textarea id="orc-observacoes" rows="3" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"></textarea>
-        </div>
-        <div>
-          <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Observação para o Centro de Treinamento</label>
-          <textarea id="orc-observacao-ct" rows="3" placeholder="Ex.: material especial, sala com projetor, aluno com restrição de acesso…" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"></textarea>
-          <p class="mt-1 text-[11px] text-slate-400">Aparece em todas as turmas deste orçamento na Agenda por Centro de Treinamento.</p>
-        </div>
+      </section>
 
-        <div id="orc-turmas-bloco" class="hidden">
-          <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Turmas geradas</label>
-          <p class="text-[11px] text-slate-400 mt-0.5 mb-2">Preencha a data e o formato de cada turma. Salva automaticamente ao alterar.</p>
-          <div class="border border-slate-200 rounded-lg overflow-x-auto">
-            <table class="w-full text-xs">
-              <thead>
-                <tr class="bg-slate-50 text-slate-500 text-left">
-                  <th class="px-2 py-2 font-medium">Turma</th>
-                  <th class="px-2 py-2 font-medium">Tipo do dia</th>
-                  <th class="px-2 py-2 font-medium">Data</th>
-                  <th class="px-2 py-2 font-medium">Instrutor 1</th>
-                  <th class="px-2 py-2 font-medium">Instrutor 2</th>
-                  <th class="px-2 py-2 font-medium">Transporte</th>
-                </tr>
-              </thead>
-              <tbody id="orc-turmas-tbody" class="divide-y divide-slate-100"></tbody>
-            </table>
+      <!-- 2) Cálculo do orçamento -->
+      <section class="bg-white border border-slate-200 rounded-lg">
+        <div class="flex items-center gap-3 px-3 py-1.5 border-b border-slate-100 flex-wrap">
+          <h3 class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">2 · Cálculo do orçamento</h3>
+          <span id="orc-calc-origem" class="text-[11px] text-slate-400"></span>
+          <span class="flex-1"></span>
+          <label class="flex items-center gap-1.5 text-[11px] text-slate-500 cursor-pointer"><input type="checkbox" id="orc-calc-detalhes" /> Mostrar detalhes do cálculo da quantidade</label>
+          <button type="button" id="btn-orc-restaurar" class="text-xs border border-slate-300 rounded-md px-2.5 py-0.5 text-slate-600 hover:bg-slate-50">↺ Restaurar valores do cadastro</button>
+        </div>
+        <div class="p-3 grid gap-3 lg:grid-cols-[minmax(0,1fr)_330px] items-start">
+          <div class="min-w-0">
+            <div class="grid grid-cols-3 md:grid-cols-7 gap-2 mb-3">
+              <div class="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1"><p class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Alunos/turma</p><p id="orc-p-apt" class="text-base font-semibold">—</p></div>
+              <div class="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1"><p class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Turmas</p><p id="orc-p-turmas" class="text-base font-semibold">—</p></div>
+              <div class="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1"><p class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Localidades</p><p id="orc-p-loc" class="text-base font-semibold">—</p></div>
+              <div class="rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide" for="orc-perc-apoio">% Apoio</label><input id="orc-perc-apoio" type="number" min="0" max="100" step="0.01" class="w-full rounded border border-slate-300 bg-white px-1.5 py-0.5 text-sm font-semibold" /></div>
+              <div class="rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide" for="orc-perc-margem">% Margem</label><input id="orc-perc-margem" type="number" min="0" max="100" step="0.01" class="w-full rounded border border-slate-300 bg-white px-1.5 py-0.5 text-sm font-semibold" /></div>
+              <div class="rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide" for="orc-perc-imposto">% Imposto</label><input id="orc-perc-imposto" type="number" min="0" max="100" step="0.01" class="w-full rounded border border-slate-300 bg-white px-1.5 py-0.5 text-sm font-semibold" /></div>
+              <div class="rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide" for="orc-perc-desconto">% Desconto</label><input id="orc-perc-desconto" type="number" min="0" max="100" step="0.01" class="w-full rounded border border-slate-300 bg-white px-1.5 py-0.5 text-sm font-semibold" /></div>
+            </div>
+            <div class="overflow-x-auto border border-slate-200 rounded-md">
+              <table id="orc-calc-tabela" class="w-full text-xs">
+                <thead id="orc-calc-thead"></thead>
+                <tbody id="orc-calc-tbody" class="divide-y divide-slate-100"></tbody>
+                <tfoot id="orc-calc-tfoot"></tfoot>
+              </table>
+            </div>
+            <p class="text-[11px] text-slate-400 mt-2">Valor do item = valor unitário × quantidade aplicável. Quantidade aplicável = quantidade da unidade do item × ⌈referência do divisor ÷ divisor⌉ × múltiplo. Campos com fundo amarelo podem ser alterados neste orçamento sem mexer no cadastro.</p>
+          </div>
+
+          <div class="border border-slate-200 rounded-lg lg:sticky lg:top-0">
+            <div class="px-3 py-1.5 border-b border-slate-100"><h4 class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Resultado</h4></div>
+            <div class="px-3 py-2 text-sm space-y-1">
+              <div id="orc-r-aviso" class="hidden text-xs text-rose-600 bg-rose-50 rounded px-2 py-1"></div>
+              <div class="flex justify-between"><span class="text-slate-500">Custo da turma</span><span id="orc-r-custo">—</span></div>
+              <div class="flex justify-between pl-3 text-xs"><span class="text-slate-500">Representatividade do custo</span><span id="orc-r-pct-custo">—</span></div>
+              <p class="pt-1 text-[10px] uppercase tracking-wide text-slate-400 font-semibold">Composição do valor da turma</p>
+              <div class="flex justify-between pl-3 text-xs"><span class="text-slate-500">Apoio</span><span id="orc-r-apoio">—</span></div>
+              <div class="flex justify-between pl-3 text-xs"><span class="text-slate-500">Imposto</span><span id="orc-r-imposto">—</span></div>
+              <div class="flex justify-between pl-3 text-xs"><span class="text-slate-500">Margem</span><span id="orc-r-margem">—</span></div>
+              <div class="rounded-md bg-teal-50 border border-teal-200 px-2.5 py-1.5 my-1">
+                <div class="flex justify-between items-baseline"><span class="font-semibold">Valor da turma</span><span id="orc-r-turma" class="text-base font-bold">—</span></div>
+                <div class="flex justify-between text-xs"><span class="text-slate-500">Valor por aluno</span><span id="orc-r-por-aluno">—</span></div>
+              </div>
+              <div class="flex justify-between"><span class="text-slate-500">Qtde de turmas</span><span id="orc-r-qt">—</span></div>
+              <div class="flex justify-between"><span class="text-slate-500">Total do orçamento</span><span id="orc-r-total">—</span></div>
+              <div class="flex justify-between"><span class="text-slate-500">Desconto (<span id="orc-r-desc-pct">0</span>%)</span><span id="orc-r-desc">—</span></div>
+              <div class="rounded-md bg-teal-50 border border-teal-200 px-2.5 py-1.5 mt-1">
+                <div class="flex justify-between items-baseline"><span class="font-semibold">Valor final</span><span id="orc-r-final" class="text-base font-bold">—</span></div>
+                <div class="flex justify-between text-xs"><span class="text-slate-500">Final por aluno</span><span id="orc-r-final-aluno">—</span></div>
+              </div>
+              <p class="text-[10.5px] text-slate-400 pt-1">Valor da turma = custo da turma ÷ (100% − apoio − imposto − margem). Total = valor da turma × turmas.</p>
+            </div>
           </div>
         </div>
+      </section>
+    </div>
+
+    <!-- 3) Turmas (fixo no rodapé da tela) -->
+    <div id="orc-dock" class="flex-none bg-white border-t-2 border-slate-900 shadow-[0_-4px_14px_rgba(15,23,42,0.08)]">
+      <div class="flex items-center gap-2 px-4 py-1.5 border-b border-slate-100 flex-wrap">
+        <h3 class="text-[11px] font-semibold uppercase tracking-wide text-slate-500 mr-1">3 · Turmas</h3>
+        <button type="button" id="btn-orc-turma-ant" class="border border-slate-300 rounded-md px-2.5 py-0.5 text-sm hover:bg-slate-50">◀</button>
+        <span id="orc-turmas-abas" class="flex flex-wrap gap-1"></span>
+        <button type="button" id="btn-orc-turma-prox" class="border border-slate-300 rounded-md px-2.5 py-0.5 text-sm hover:bg-slate-50">▶</button>
+        <span id="orc-turmas-nota" class="ml-auto text-[11px] text-slate-500"></span>
+        <button type="button" id="btn-orc-dock-toggle" title="Recolher / expandir" class="border border-slate-300 rounded-md px-2.5 py-0.5 text-sm hover:bg-slate-50">⌄</button>
       </div>
-      <div class="flex gap-3 mt-6">
-        <button id="btn-salvar-orcamento" class="flex-1 bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium py-2.5 rounded-md">Salvar orçamento</button>
-        <button id="btn-cancelar-painel-orcamento" class="px-4 text-sm font-medium text-slate-500 hover:text-slate-800">Cancelar</button>
+      <div id="orc-turmas-corpo" class="px-4 py-1 max-h-[140px] overflow-y-auto">
+        <p id="orc-turmas-vazio" class="hidden text-xs text-slate-400 py-3"></p>
+        <div id="orc-turmas-bloco" class="hidden overflow-x-auto">
+          <table class="w-full text-xs">
+            <thead>
+              <tr class="text-slate-500 text-left">
+                <th class="px-2 py-1 font-medium">Dia</th>
+                <th class="px-2 py-1 font-medium">Tipo do dia</th>
+                <th class="px-2 py-1 font-medium">Data</th>
+                <th class="px-2 py-1 font-medium">Instrutor 1</th>
+                <th class="px-2 py-1 font-medium">Instrutor 2</th>
+                <th class="px-2 py-1 font-medium">Transporte</th>
+              </tr>
+            </thead>
+            <tbody id="orc-turmas-tbody" class="divide-y divide-slate-100"></tbody>
+          </table>
+        </div>
       </div>
     </div>
   </div>
@@ -2001,6 +2041,6 @@
 </div>
 
 <script src="config.js"></script>
-<script src="app.js?v=20261004r"></script>
+<script src="app.js?v=20261005a"></script>
 </body>
 </html>
