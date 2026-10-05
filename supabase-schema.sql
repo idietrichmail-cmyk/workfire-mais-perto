@@ -1125,3 +1125,5 @@ alter table instrutores
 -- ============================================================
 
 -- Prod 1.32 · Editor do orçamento em 3 abas (Dados gerais · Cálculo do orçamento · Turmas). Sem alterações no banco.
+
+-- Prod 1.33 · Cliente do orçamento sempre alocado na edição (busca a empresa gravada mesmo se a lista de ativas vier incompleta ou o cliente estiver inativo). Sem alterações no banco.

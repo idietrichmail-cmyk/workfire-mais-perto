@@ -17,7 +17,13 @@ async function buscarTodos(montarConsulta) {
   const tam = 1000;
   let todos = [];
   for (let de = 0; ; de += tam) {
-    const { data, error } = await montarConsulta().range(de, de + tam - 1);
+    // Uma falha momentânea de rede em uma das páginas não pode deixar a lista incompleta: tenta de novo antes de desistir.
+    let data, error;
+    for (let tentativa = 1; tentativa <= 3; tentativa++) {
+      ({ data, error } = await montarConsulta().range(de, de + tam - 1));
+      if (!error) break;
+      if (tentativa < 3) await new Promise((r) => setTimeout(r, 500 * tentativa));
+    }
     if (error) return { data: todos.length ? todos : null, error };
     todos = todos.concat(data || []);
     if (!data || data.length < tam) break;
@@ -28,7 +34,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.32 · 05/10/2026";
+const APP_VERSAO = "Prod 1.33 · 05/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -4867,6 +4873,24 @@ function preencherSelect(id, itens, valueKey, labelFn, opcaoVazia) {
 
 // Seletor de empresa com filtro por texto (nome, fantasia ou CNPJ): com
 // milhares de empresas, a caixa acima do select reduz as opções.
+let orcEmpresasIncompleta = false;
+let orcEmpresaDoOrcamento = null; // empresa gravada no orçamento aberto: fica alocada durante toda a edição
+
+// Garante que a empresa gravada no orçamento esteja na lista do seletor, mesmo que a lista de
+// clientes ativos tenha vindo incompleta (falha de rede) ou que o cliente tenha sido inativado.
+async function garantirEmpresaDoOrcamento(o) {
+  if (!o || !o.empresa_id) return;
+  if (listaEmpresasAtivas.some((e) => e.id === o.empresa_id)) return;
+  let emp = null;
+  for (let t = 1; t <= 3 && !emp; t++) {
+    const { data } = await supabase.from("empresas").select("*").eq("id", o.empresa_id).maybeSingle();
+    if (data) emp = data; else if (t < 3) await new Promise((r) => setTimeout(r, 400 * t));
+  }
+  // Último recurso: o nome que já veio na listagem de orçamentos.
+  if (!emp) emp = { id: o.empresa_id, nome: (o.empresas && o.empresas.nome) || "(cliente do orçamento)", nome_fantasia: null, cnpj: null };
+  listaEmpresasAtivas = [emp, ...listaEmpresasAtivas];
+}
+
 function rotuloEmpresa(e) {
   return e.nome_fantasia ? `${e.nome} — ${e.nome_fantasia}` : e.nome;
 }
@@ -5427,7 +5451,7 @@ let orcBuscaTimer = null;
 
 async function carregarOrcamentos() {
   $("admin-descricao-pagina").textContent = "Registre orçamentos de treinamento por empresa. Ao criar um novo orçamento, as turmas já são geradas automaticamente.";
-  const [{ data: empresas }, { data: tipos }, { data: centros }, { data: prazos }] = await Promise.all([
+  const [{ data: empresas, error: erroEmpresas }, { data: tipos }, { data: centros }, { data: prazos }] = await Promise.all([
     buscarTodos(() => supabase.from("empresas").select("*").eq("status", "Ativo").order("nome").order("id")),
     supabase.from("tipos_treinamento").select("*").eq("status", "Ativo").order("nome"),
     supabase.from("centros_treinamento").select("*").eq("status", "Ativo").order("nome"),
@@ -5435,6 +5459,8 @@ async function carregarOrcamentos() {
   ]);
   orcPrazosPagamento = prazos || [];
   listaEmpresasAtivas = empresas || [];
+  orcEmpresasIncompleta = !!erroEmpresas;
+  if (erroEmpresas) $("admin-descricao-pagina").textContent += " ⚠ A lista de clientes não carregou por completo; recarregue a página. (O cliente de um orçamento já gravado continua sendo exibido.)";
   listaTiposAtivos = tipos || [];
   listaCentrosAtivos = centros || [];
   $("btn-orc-novo").classList.toggle("hidden", !podeFazer("orcamentos", "incluir"));
@@ -6153,6 +6179,7 @@ async function salvarLinhasCalculoOrcamento(orcamentoId, calc) {
 
 function abrirNovoOrcamento() {
   editandoOrcamentoId = null;
+  orcEmpresaDoOrcamento = null;
   esconderErro("orc-form-erro");
   $("orc-numero").value = "";
   $("orc-numero").disabled = false;
@@ -6197,6 +6224,8 @@ async function abrirEdicaoOrcamento(id) {
   if (!o) return;
   editandoOrcamentoId = id;
   esconderErro("orc-form-erro");
+  await garantirEmpresaDoOrcamento(o);
+  orcEmpresaDoOrcamento = o.empresa_id || null;
   $("orc-numero").value = o.numero || "";
   $("orc-numero").disabled = true; // número já definido não muda mais, evita conflito de unicidade
   preencherSelectEmpresa("orc-empresa", listaEmpresasAtivas, "— Selecione —");
@@ -6395,6 +6424,11 @@ async function salvarOrcamento(opts = {}) {
   if (opts instanceof Event) opts = {};
   esconderErro("orc-form-erro");
   const numero = $("orc-numero").value.trim();
+  // Em edição o cliente do orçamento não pode ficar em branco: se o seletor perdeu o valor, restaura o gravado.
+  if (editandoOrcamentoId && orcEmpresaDoOrcamento && !$("orc-empresa").value) {
+    await garantirEmpresaDoOrcamento({ empresa_id: orcEmpresaDoOrcamento });
+    definirEmpresaSelect("orc-empresa", orcEmpresaDoOrcamento);
+  }
   const empresaId = $("orc-empresa").value;
   const centroId = $("orc-centro").value;
   const tipoId = $("orc-tipo").value;
