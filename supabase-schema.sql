@@ -1149,3 +1149,5 @@ alter table instrutores
 -- Prod 1.35 · Tela "Turmas por Orçamento": filtro por número do orçamento ou nome da empresa (sem diferenciar maiúsculas/acentos). Sem alterações no banco.
 
 -- Prod 1.36 · Turmas por Orçamento e Agendamento de Turmas passam a buscar TODOS os orçamentos em páginas (o servidor limita cada consulta a 1000 linhas; orçamentos mais antigos, como o 23367, não apareciam). Sem alterações no banco.
+
+-- Prod 1.37 · Turmas por Orçamento: a atualização automática (a cada 5 s) reaplicava a ordem alfabética do banco (A1, AA1, AB1...); agora mantém A1..Z1, AA1, AB1... Sem alterações no banco.

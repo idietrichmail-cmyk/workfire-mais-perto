@@ -34,7 +34,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.36 · 05/10/2026";
+const APP_VERSAO = "Prod 1.37 · 05/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -10291,7 +10291,7 @@ async function refreshTurmas() {
     .eq("orcamento_id", turmaOrcamentoSelecionadoId)
     .order("identificacao", { ascending: true });
   if (error || !dadosMudaram("turmas:" + turmaOrcamentoSelecionadoId, data)) return;
-  turmasDoOrcamento = data || [];
+  turmasDoOrcamento = (data || []).sort(compararIdentificacaoTurma); // a atualização automática também mantém A1…Z1, AA1, AB1…
   renderizarListaTurmas();
 }
 
