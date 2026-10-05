@@ -28,7 +28,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.30 · 05/10/2026";
+const APP_VERSAO = "Prod 1.31 · 05/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -428,6 +428,7 @@ const MODULOS = [
   { id: "tipos_despesas", label: "Tipos de Despesas", icone: "💸", grupo: "Cadastros Básicos" },
   { id: "unidades_medida", label: "Unidades de Medida", icone: "📏", grupo: "Cadastros Básicos" },
   { id: "itens_custo", label: "Itens de Custo", icone: "🧾", grupo: "Cadastros Básicos" },
+  { id: "prazos_pagamento", label: "Prazos de Pagamento", icone: "🗓️", grupo: "Cadastros Básicos" },
   { id: "treinamentos_capacitacao", label: "Treinamentos de Capacitação", icone: "📚", grupo: "Cadastros Básicos" },
   // Comercial
   { id: "empresas", label: "Empresas", icone: "🏢", grupo: "Comercial" },
@@ -1882,6 +1883,7 @@ const CRUD_CONFIG = {
       { id: "nome", label: "Nome do centro", obrigatorio: true },
       { id: "cep", label: "CEP", mascara: "cep", botaoAcao: { id: "btn-buscar-cep-centro", label: "🔎 Buscar endereço", onClick: buscarCepCentro } },
       { id: "endereco", label: "Endereço", botaoAcao: { id: "btn-geocodificar-centro", label: "📍 Obter coordenadas", onClick: geocodificarCentro } },
+      { id: "cidade", label: "Cidade (impressa na proposta)" },
       { id: "latitude", label: "Latitude", tipo: "number" },
       { id: "longitude", label: "Longitude", tipo: "number" },
       { id: "capacidade_diaria", label: "Capacidade diária (pessoas/dia)", tipo: "number" },
@@ -1891,6 +1893,9 @@ const CRUD_CONFIG = {
       { id: "qtd_espaco_confinado", label: "Qtd. Espaço Confinado", tipo: "number" },
       { id: "qtd_petrolifera", label: "Qtd. Petrolífera", tipo: "number" },
       { id: "qtd_uti", label: "Qtd. UTI", tipo: "number" },
+      { id: "logotipo_esquerdo", label: "Logotipo esquerdo (proposta)", tipo: "imagem" },
+      { id: "logotipo_direito", label: "Logotipo direito (proposta)", tipo: "imagem" },
+      { id: "texto_rodape_pagina", label: "Rodapé das páginas da proposta (razão social, CNPJ, endereços, telefones… — se vazio, usa nome e endereço)", tipo: "textarea" },
       { id: "observacoes", label: "Observações", tipo: "textarea" },
       { id: "status", label: "Status", tipo: "select", opcoes: ["Ativo", "Inativo"], padrao: "Ativo" },
     ],
@@ -1994,9 +1999,15 @@ const CRUD_CONFIG = {
         const v = ($("crud-campo-" + id)?.value || "").trim();
         if (v !== "" && !(Number(v) >= 0 && Number(v) <= 100)) return `${rot}: informe um valor entre 0 e 100.`;
       }
+      const vd = ($("crud-campo-validade_padrao_dias")?.value || "").trim();
+      if (vd !== "" && !(Number(vd) >= 1 && Number(vd) <= 3650)) return "Validade padrão da proposta: informe de 1 a 3650 dias.";
       return validarItensCustoTreinamento();
     },
-    ajustarPayload: (p) => { ["perc_apoio", "perc_margem", "perc_imposto", "perc_margem_minima", "valor_margem_minimo"].forEach((k) => { if (p[k] == null) p[k] = 0; }); },
+    ajustarPayload: (p) => {
+      ["perc_apoio", "perc_margem", "perc_imposto", "perc_margem_minima", "valor_margem_minimo"].forEach((k) => { if (p[k] == null) p[k] = 0; });
+      if (p.validade_padrao_dias == null || !(p.validade_padrao_dias >= 1)) p.validade_padrao_dias = 30;
+      p.validade_padrao_dias = Math.round(p.validade_padrao_dias);
+    },
     aoSalvar: async (linha) => { await salvarItensCustoTreinamento(linha.id); },
     campos: [
       { id: "nome", label: "Nome do treinamento", obrigatorio: true },
@@ -2018,7 +2029,10 @@ const CRUD_CONFIG = {
       { id: "perc_imposto", label: "% de imposto", tipo: "number", min: 0, max: 100, step: "0.01", padrao: 0 },
       { id: "perc_margem_minima", label: "% de margem mínima (depois do desconto)", tipo: "number", min: 0, max: 100, step: "0.01", padrao: 0 },
       { id: "valor_margem_minimo", label: "Valor mínimo de margem por turma (R$)", tipo: "number", min: 0, step: "0.01", padrao: 0 },
+      { id: "validade_padrao_dias", label: "Validade padrão da proposta (dias)", tipo: "number", min: 1, max: 3650, step: "1", padrao: 30 },
       { id: "descricao", label: "Descrição", tipo: "textarea" },
+      { id: "descricao_impressao", label: "Descrição para impressão (parágrafo de abertura da proposta, após \"Apresentamos nossa proposta…\")", tipo: "textarea" },
+      { id: "rodape", label: "Rodapé da proposta (Esclarecimento … Atenciosamente)", tipo: "textarea" },
       { id: "status", label: "Status", tipo: "select", opcoes: ["Ativo", "Inativo"], padrao: "Ativo" },
     ],
     campoBusca: (i) => `${i.nome} ${i.categoria || ""}`,
@@ -2213,6 +2227,20 @@ const CRUD_CONFIG = {
         </tbody>
       </table>`;
     },
+  },
+  prazos_pagamento: {
+    tabela: "prazos_pagamento",
+    titulo: "Prazo de Pagamento",
+    descricao: "Condições de pagamento usadas nas propostas dos orçamentos (ex.: À VISTA, 30 DIAS, 30/60/90 DIAS).",
+    buscaPlaceholder: "Buscar por descrição",
+    ordenarPor: "descricao",
+    campos: [
+      { id: "descricao", label: "Descrição (como será impressa na proposta)", obrigatorio: true },
+      { id: "status", label: "Status", tipo: "select", opcoes: ["Ativo", "Inativo"], padrao: "Ativo" },
+    ],
+    campoBusca: (i) => i.descricao || "",
+    cardTitulo: (i) => i.descricao,
+    cardLinhas: (i) => [i.status === "Inativo" && "🚫 Inativo"].filter(Boolean),
   },
   tipos_despesas: {
     tabela: "tipos_despesas",
@@ -2966,6 +2994,26 @@ function renderCampoHtml(campo, valor, item) {
       <textarea id="crud-campo-${campo.id}" rows="3" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">${val}</textarea>
     </div>`;
   }
+  if (campo.tipo === "imagem") {
+    const tem = !!val;
+    return `<div data-imagem-campo="${campo.id}">
+      <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">${campo.label}</label>
+      <input type="hidden" id="crud-campo-${campo.id}" value="${String(val).replace(/"/g, "&quot;")}" />
+      <div class="mt-1 flex items-center gap-3">
+        <div class="h-16 w-32 rounded-md border border-dashed border-slate-300 bg-slate-50 flex items-center justify-center overflow-hidden">
+          <img data-imagem-prev class="max-h-full max-w-full object-contain ${tem ? "" : "hidden"}" ${tem ? `src="${String(val).replace(/"/g, "&quot;")}"` : ""} alt="" />
+          <span data-imagem-vazio class="text-[11px] text-slate-400 ${tem ? "hidden" : ""}">sem imagem</span>
+        </div>
+        <div class="flex flex-col gap-1">
+          <label class="text-xs font-medium text-white bg-slate-900 hover:bg-slate-800 rounded-md px-3 py-1.5 cursor-pointer text-center">Escolher imagem
+            <input type="file" accept="image/png,image/jpeg,image/webp" data-imagem-arquivo class="hidden" />
+          </label>
+          <button type="button" data-imagem-remover class="text-xs text-rose-600 hover:text-rose-800 ${tem ? "" : "hidden"}">Remover</button>
+        </div>
+      </div>
+      <p data-imagem-msg class="text-[11px] mt-1 text-slate-400">PNG ou JPG; é reduzida automaticamente.</p>
+    </div>`;
+  }
   if (campo.tipo === "checkbox") {
     return `<label class="flex items-center gap-2 text-sm text-slate-700">
       <input type="checkbox" id="crud-campo-${campo.id}" ${val ? "checked" : ""} class="rounded border-slate-300" />
@@ -3337,6 +3385,60 @@ function cpfValido(valor) {
   if (resto !== Number(d[10])) return false;
   return true;
 }
+
+// Campo de imagem (logotipos): reduz no navegador e guarda como data URL no próprio registro.
+function reduzirImagemArquivo(arquivo, maxLado) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(arquivo);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const esc = Math.min(1, maxLado / Math.max(img.width, img.height));
+      const w = Math.max(1, Math.round(img.width * esc));
+      const h = Math.max(1, Math.round(img.height * esc));
+      const cv = document.createElement("canvas");
+      cv.width = w; cv.height = h;
+      const ctx = cv.getContext("2d");
+      const png = /png|webp/i.test(arquivo.type);
+      if (!png) { ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, w, h); }
+      ctx.drawImage(img, 0, 0, w, h);
+      resolve({ dataUrl: png ? cv.toDataURL("image/png") : cv.toDataURL("image/jpeg", 0.88), w, h });
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("imagem inválida")); };
+    img.src = url;
+  });
+}
+document.addEventListener("change", async (e) => {
+  const inp = e.target.closest ? e.target.closest("[data-imagem-arquivo]") : null;
+  if (!inp) return;
+  const caixa = inp.closest("[data-imagem-campo]");
+  const msg = caixa.querySelector("[data-imagem-msg]");
+  const arquivo = inp.files && inp.files[0];
+  if (!arquivo) return;
+  if (arquivo.size > 8 * 1024 * 1024) { msg.textContent = "Arquivo muito grande (máx. 8 MB)."; msg.className = "text-[11px] mt-1 text-rose-600"; return; }
+  try {
+    const r = await reduzirImagemArquivo(arquivo, 480);
+    caixa.querySelector("input[type=hidden]").value = r.dataUrl;
+    const prev = caixa.querySelector("[data-imagem-prev]");
+    prev.src = r.dataUrl; prev.classList.remove("hidden");
+    caixa.querySelector("[data-imagem-vazio]").classList.add("hidden");
+    caixa.querySelector("[data-imagem-remover]").classList.remove("hidden");
+    msg.textContent = `Imagem pronta (${r.w}×${r.h}px). Salve o cadastro para gravar.`; msg.className = "text-[11px] mt-1 text-emerald-600";
+  } catch (err) {
+    msg.textContent = "Não foi possível ler essa imagem."; msg.className = "text-[11px] mt-1 text-rose-600";
+  }
+  inp.value = "";
+});
+document.addEventListener("click", (e) => {
+  const b = e.target.closest ? e.target.closest("[data-imagem-remover]") : null;
+  if (!b) return;
+  const caixa = b.closest("[data-imagem-campo]");
+  caixa.querySelector("input[type=hidden]").value = "";
+  const prev = caixa.querySelector("[data-imagem-prev]");
+  prev.removeAttribute("src"); prev.classList.add("hidden");
+  caixa.querySelector("[data-imagem-vazio]").classList.remove("hidden");
+  b.classList.add("hidden");
+});
 
 function ligarMascaras(cfg) {
   cfg.campos.forEach((c) => {
@@ -4497,6 +4599,7 @@ async function salvarCrud() {
     if (campo.tipo === "number") valor = valor === "" ? null : Number(valor);
     else if (campo.tipo === "date") valor = valor === "" ? null : valor;
     else if (campo.tipo === "select" && valor === "") valor = null;
+    else if (campo.tipo === "imagem" && valor === "") valor = null;
     payload[campo.id] = valor;
   }
 
@@ -5324,11 +5427,13 @@ let orcBuscaTimer = null;
 
 async function carregarOrcamentos() {
   $("admin-descricao-pagina").textContent = "Registre orçamentos de treinamento por empresa. Ao criar um novo orçamento, as turmas já são geradas automaticamente.";
-  const [{ data: empresas }, { data: tipos }, { data: centros }] = await Promise.all([
+  const [{ data: empresas }, { data: tipos }, { data: centros }, { data: prazos }] = await Promise.all([
     buscarTodos(() => supabase.from("empresas").select("*").eq("status", "Ativo").order("nome").order("id")),
     supabase.from("tipos_treinamento").select("*").eq("status", "Ativo").order("nome"),
     supabase.from("centros_treinamento").select("*").eq("status", "Ativo").order("nome"),
+    supabase.from("prazos_pagamento").select("id, descricao, status").order("descricao"),
   ]);
+  orcPrazosPagamento = prazos || [];
   listaEmpresasAtivas = empresas || [];
   listaTiposAtivos = tipos || [];
   listaCentrosAtivos = centros || [];
@@ -5473,7 +5578,13 @@ function atualizarNecessitaDoisInstrutores() {
 $("orc-qtd-turmas").addEventListener("input", atualizarQtdAlunosCalculado);
 $("orc-qtd-alunos").addEventListener("input", atualizarQtdAlunosCalculado);
 $("orc-qtd-localidades").addEventListener("input", atualizarQtdAlunosCalculado);
+$("orc-validade-dias").addEventListener("input", () => { orcValidadeManual = true; });
 $("orc-tipo").addEventListener("change", () => {
+  if (!orcValidadeManual || !$("orc-validade-dias").value) {
+    const t = listaTiposAtivos.find((x) => x.id === $("orc-tipo").value);
+    $("orc-validade-dias").value = t ? (Number(t.validade_padrao_dias) || 30) : "";
+    orcValidadeManual = false;
+  }
   atualizarNecessitaDoisInstrutores();
   atualizarResumoGeraisOrc();
   aplicarCadastroNoCalculo().catch((e) => mostrarErro("orc-form-erro", "Não foi possível carregar os itens de custo do treinamento: " + (e?.message || "erro desconhecido")));
@@ -5554,6 +5665,11 @@ let orcCalcToken = 0;
 let orcDescontoModo = "percentual"; // "percentual" (digitou o %) ou "valor" (digitou o R$; o % é derivado)
 let orcCalcPendentes = 0;    // cargas em andamento (não deixa salvar enquanto carrega)
 let orcCalcCarregandoInicial = false; // mostra "Carregando…" na tabela ao abrir um orçamento para edição
+let orcPropostas = [];       // histórico de propostas do orçamento aberto (mais recente primeiro, sem o snapshot)
+let orcPropostaTravada = false; // há proposta gerada e o cálculo está bloqueado até acionar "Nova proposta"
+let orcPrazosPagamento = []; // cadastro de prazos de pagamento (ativos)
+let orcValidadeManual = false; // usuário digitou a validade; não sobrescreve com o padrão do treinamento
+let orcGerandoProposta = false;
 let orcCalcErro = null;      // falha ao carregar o cálculo (bloqueia o salvamento para não apagar o que já estava gravado)
 const r2 = (v) => Math.round((Number(v) + Number.EPSILON) * 100) / 100;
 const fmtQtd = (n) => Number(n || 0).toLocaleString("pt-BR", { maximumFractionDigits: 4 });
@@ -5634,7 +5750,7 @@ function calcularOrcamento() {
 async function orcCarregarRefsCalculo() {
   const [{ data: unidades, error: e1 }, { data: itens, error: e2 }] = await Promise.all([
     supabase.from("unidades_medida").select("id, sigla, base_calculo"),
-    supabase.from("itens_custo").select("id, item, descricao_impressao, unidade_medida_id, valor"),
+    supabase.from("itens_custo").select("id, item, descricao_impressao, unidade_medida_id, valor, opcional, status"),
   ]);
   if (e1 || e2) throw (e1 || e2);
   return { unidades: unidades || [], itens: itens || [] };
@@ -5649,7 +5765,8 @@ async function linhasDoCadastroDoTreinamento(tipoId) {
   ]);
   if (error) throw error;
   const unid = (id) => refs.unidades.find((u) => u.id === id) || null;
-  const linhas = (vinculos || []).map((v) => {
+  // Itens marcados como opcionais no cadastro não entram sozinhos: o usuário os acrescenta no orçamento.
+  const linhas = (vinculos || []).filter((v) => !(refs.itens.find((x) => x.id === v.item_custo_id) || {}).opcional).map((v) => {
     const it = refs.itens.find((x) => x.id === v.item_custo_id) || {};
     const un = unid(it.unidade_medida_id);
     const ud = v.unidade_divisor_id ? unid(v.unidade_divisor_id) : null;
@@ -5670,6 +5787,7 @@ async function linhasDoCadastroDoTreinamento(tipoId) {
       imprime: !!v.imprime,
       ordem_impressao: v.ordem_impressao != null ? Number(v.ordem_impressao) : null,
       qtd_manual: 1,
+      opcional: false,
     };
   });
   linhas.sort((a, b) => (a.ordem_impressao ?? 1e9) - (b.ordem_impressao ?? 1e9) || a.item.localeCompare(b.item, "pt-BR"));
@@ -5741,7 +5859,7 @@ async function carregarCalculoDoOrcamento(o) {
       unidade_sigla: r.unidade_sigla, base_calculo: r.base_calculo,
       divisor: r.divisor != null ? Number(r.divisor) : null, unidade_divisor_sigla: r.unidade_divisor_sigla, base_divisor: r.base_divisor,
       multiplo: Number(r.multiplo) > 0 ? Number(r.multiplo) : 1, imprime: !!r.imprime, ordem_impressao: r.ordem_impressao,
-      qtd_manual: Number(r.qtd_manual) || 0,
+      qtd_manual: Number(r.qtd_manual) || 0, opcional: !!r.opcional,
     }));
     $("orc-perc-apoio").value = Number(o.perc_apoio) || 0;
     $("orc-perc-margem").value = Number(o.perc_margem) || 0;
@@ -5768,7 +5886,7 @@ function renderizarCalcOrcamento() {
   const cinza = "orc-det bg-slate-100";
   $("orc-calc-thead").innerHTML = `<tr class="bg-slate-50 text-left text-slate-500 uppercase tracking-wide text-[10px]">
     <th class="${th}">Item</th><th class="${th} text-right">Valor unit.</th><th class="${th}">Unidade</th><th class="${th} text-right">Qtde</th>
-    <th class="${th} text-right">Valor do item</th><th class="${th}">Divisor</th><th class="${th}">Un. divisor</th><th class="${th} text-right">Múltiplo</th><th class="${th}">Imprime</th>
+    <th class="${th} text-right">Valor do item</th><th class="${th}">Divisor</th><th class="${th}">Un. divisor</th><th class="${th} text-right">Múltiplo</th><th class="${th}">Imprime · ordem</th>
     <th class="${th} ${cinza} text-right">Qtde primária</th><th class="${th} ${cinza} text-right">Ref. divisor</th><th class="${th} ${cinza} text-right">Divisor</th><th class="${th} ${cinza} text-right">⌈Ref÷Div⌉</th><th class="${th} ${cinza} text-right">Multiplic.</th></tr>`;
   const corpo = $("orc-calc-tbody");
   if (orcLinhasCalc.length === 0) {
@@ -5781,18 +5899,20 @@ function renderizarCalcOrcamento() {
     const campo = "w-24 rounded border border-slate-300 bg-white px-1.5 py-0.5 text-right text-xs";
     corpo.innerHTML = orcLinhasCalc.map((l) => {
       const manual = orcQtdDaBase(l.base_calculo, { alunosPorTurma: 0, turmas: 0, localidades: 0 }) == null;
+      const trava = orcPropostaTravada ? " disabled" : "";
       return `<tr data-orc-linha="${l.chave}">
-        <td class="px-2 py-1 font-semibold text-slate-800 whitespace-nowrap" title="${(l.descricao_impressao || "").replace(/"/g, "&quot;")}">${l.item}</td>
-        <td class="px-2 py-1 text-right whitespace-nowrap bg-amber-50"><input data-orc-campo="valor_unitario" type="number" min="0" step="0.01" value="${l.valor_unitario}" class="${campo}" /><span data-c="chg" class="text-amber-600 text-[10px] ml-1"></span></td>
+        <td class="px-2 py-1 font-semibold text-slate-800 whitespace-nowrap" title="${(l.descricao_impressao || "").replace(/"/g, "&quot;")}">${l.item}${l.opcional ? ` <span class="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800">opcional</span>${orcPropostaTravada ? "" : ` <button type="button" data-orc-remover="${l.chave}" class="text-rose-500 hover:text-rose-700 text-xs" title="Tirar este item opcional do cálculo">✕</button>`}` : ""}</td>
+        <td class="px-2 py-1 text-right whitespace-nowrap bg-amber-50"><input data-orc-campo="valor_unitario" type="number" min="0" step="0.01" value="${l.valor_unitario}" class="${campo}"${trava} /><span data-c="chg" class="text-amber-600 text-[10px] ml-1"></span></td>
         <td class="px-2 py-1 whitespace-nowrap"><span class="text-[11px] px-2 py-0.5 rounded-full ${manual ? "bg-amber-50 text-amber-800" : "bg-slate-100 text-slate-600"}">${l.unidade_sigla || "—"}</span></td>
         <td class="px-2 py-1 text-right whitespace-nowrap ${manual ? "bg-amber-50" : ""}">${manual
-          ? `<input data-orc-campo="qtd_manual" type="number" min="0" step="any" value="${l.qtd_manual}" class="w-20 rounded border border-slate-300 bg-white px-1.5 py-0.5 text-right text-xs" /><span data-c="qtd-extra" class="text-slate-400 text-[10px] ml-1"></span>`
+          ? `<input data-orc-campo="qtd_manual" type="number" min="0" step="any" value="${l.qtd_manual}" class="w-20 rounded border border-slate-300 bg-white px-1.5 py-0.5 text-right text-xs"${trava} /><span data-c="qtd-extra" class="text-slate-400 text-[10px] ml-1"></span>`
           : `<span data-c="qtd"></span>`}</td>
         <td class="px-2 py-1 text-right font-semibold whitespace-nowrap" data-c="total"></td>
         <td class="px-2 py-1 whitespace-nowrap">${Number(l.divisor) > 0 ? fmtQtd(l.divisor) : "—"}</td>
         <td class="px-2 py-1 whitespace-nowrap">${Number(l.divisor) > 0 ? (l.unidade_divisor_sigla || "—") : "—"}</td>
         <td class="px-2 py-1 text-right">${Number(l.multiplo) !== 1 ? fmtQtd(l.multiplo) : "—"}</td>
-        <td class="px-2 py-1 whitespace-nowrap">${l.imprime ? `🖨️ #${l.ordem_impressao ?? "—"}` : '<span class="text-slate-300">não</span>'}</td>
+        <td class="px-2 py-1 whitespace-nowrap bg-amber-50"><label class="inline-flex items-center gap-1 cursor-pointer"><input data-orc-campo="imprime" type="checkbox" ${l.imprime ? "checked" : ""}${trava} /> <span class="text-[11px] text-slate-600">imprime</span></label>
+          <input data-orc-campo="ordem_impressao" type="number" min="0" step="1" value="${l.ordem_impressao ?? ""}" placeholder="ordem" title="Ordem de impressão na proposta" class="ml-1 w-16 rounded border border-slate-300 bg-white px-1.5 py-0.5 text-right text-xs"${trava} /></td>
         <td class="orc-det bg-slate-100 px-2 py-1 text-right" data-c="K"></td><td class="orc-det bg-slate-100 px-2 py-1 text-right" data-c="M"></td>
         <td class="orc-det bg-slate-100 px-2 py-1 text-right" data-c="N"></td><td class="orc-det bg-slate-100 px-2 py-1 text-right" data-c="O"></td>
         <td class="orc-det bg-slate-100 px-2 py-1 text-right" data-c="P"></td></tr>`;
@@ -5884,6 +6004,7 @@ function recalcularOrcamentoTela() {
     tag.classList.add("hidden");
   }
   atualizarNotaDockTurmas();
+  orcAtualizarAvisoProposta();
 }
 
 $("orc-calc-tbody").addEventListener("input", (ev) => {
@@ -5892,9 +6013,80 @@ $("orc-calc-tbody").addEventListener("input", (ev) => {
   if (!el || !tr) return;
   const l = orcLinhasCalc.find((x) => x.chave === tr.getAttribute("data-orc-linha"));
   if (!l) return;
-  l[el.getAttribute("data-orc-campo")] = el.value === "" ? 0 : Number(el.value);
+  const nome = el.getAttribute("data-orc-campo");
+  if (nome === "imprime") l.imprime = el.checked;
+  else if (nome === "ordem_impressao") l.ordem_impressao = el.value === "" ? null : Math.max(0, Math.floor(Number(el.value) || 0));
+  else l[nome] = el.value === "" ? 0 : Number(el.value);
   recalcularOrcamentoTela();
 });
+$("orc-calc-tbody").addEventListener("click", (ev) => {
+  const b = ev.target.closest("[data-orc-remover]");
+  if (!b || orcPropostaTravada) return;
+  orcLinhasCalc = orcLinhasCalc.filter((x) => x.chave !== b.getAttribute("data-orc-remover"));
+  orcEditorSujo = true;
+  renderizarCalcOrcamento();
+});
+
+// ---- Itens opcionais: itens de custo marcados como "opcional" que o usuário acrescenta neste orçamento ----
+async function orcAbrirPainelOpcional() {
+  if (orcPropostaTravada) return;
+  const painel = $("orc-opcional-painel");
+  const sel = $("orc-opcional-select");
+  const msg = $("orc-opcional-msg");
+  painel.classList.remove("hidden");
+  msg.textContent = "Carregando…";
+  sel.innerHTML = "";
+  try {
+    const refs = await orcCarregarRefsCalculo();
+    const usados = new Set(orcLinhasCalc.map((l) => l.item_custo_id).filter(Boolean));
+    const disp = refs.itens.filter((i) => i.opcional && i.status !== "Inativo" && !usados.has(i.id)).sort((a, b) => (a.item || "").localeCompare(b.item || "", "pt-BR"));
+    sel.innerHTML = disp.map((i) => `<option value="${i.id}">${i.item} — ${fmtBRL(i.valor)}</option>`).join("");
+    msg.textContent = disp.length ? "" : "Não há itens opcionais disponíveis (cadastre em Itens de Custo, marcando “Opcional”).";
+    $("btn-orc-opcional-add").disabled = disp.length === 0;
+  } catch (e) {
+    msg.textContent = "Não foi possível carregar os itens opcionais.";
+  }
+}
+async function orcAdicionarOpcional() {
+  const itemId = $("orc-opcional-select").value;
+  if (!itemId || orcPropostaTravada) return;
+  const tipoId = $("orc-tipo").value;
+  $("btn-orc-opcional-add").disabled = true;
+  try {
+    const [refs, vinc] = await Promise.all([
+      orcCarregarRefsCalculo(),
+      tipoId ? supabase.from("treinamento_itens_custo").select("*").eq("tipo_treinamento_id", tipoId).eq("item_custo_id", itemId).limit(1) : Promise.resolve({ data: [] }),
+    ]);
+    if (vinc.error) throw vinc.error;
+    const it = refs.itens.find((x) => x.id === itemId);
+    if (!it) throw new Error("item não encontrado");
+    const v = (vinc.data || [])[0] || null; // se o treinamento já tem parâmetros para o item, usa os dele
+    const unid = (id) => refs.unidades.find((u) => u.id === id) || null;
+    const un = unid(it.unidade_medida_id);
+    const ud = v && v.unidade_divisor_id ? unid(v.unidade_divisor_id) : null;
+    const valor = Number(it.valor) || 0;
+    const maiorOrdem = orcLinhasCalc.reduce((m, l) => Math.max(m, l.ordem_impressao != null ? Number(l.ordem_impressao) : 0), 0);
+    orcLinhasCalc.push({
+      chave: `c${++orcCalcSeq}`, item_custo_id: it.id, item: it.item, descricao_impressao: it.descricao_impressao || null,
+      valor_cadastro: valor, valor_unitario: valor,
+      unidade_sigla: un ? un.sigla : null, base_calculo: un ? un.base_calculo : null,
+      divisor: v && v.divisor != null ? Number(v.divisor) : null, unidade_divisor_sigla: ud ? ud.sigla : null, base_divisor: ud ? ud.base_calculo : null,
+      multiplo: v && Number(v.multiplo) > 0 ? Number(v.multiplo) : 1,
+      imprime: v ? !!v.imprime : true,
+      ordem_impressao: v && v.ordem_impressao != null ? Number(v.ordem_impressao) : maiorOrdem + 1,
+      qtd_manual: 1, opcional: true,
+    });
+    orcEditorSujo = true;
+    $("orc-opcional-painel").classList.add("hidden");
+    renderizarCalcOrcamento();
+  } catch (e) {
+    $("orc-opcional-msg").textContent = "Não foi possível acrescentar o item: " + (e?.message || "erro desconhecido");
+    $("btn-orc-opcional-add").disabled = false;
+  }
+}
+$("btn-orc-opcional").addEventListener("click", orcAbrirPainelOpcional);
+$("btn-orc-opcional-add").addEventListener("click", orcAdicionarOpcional);
+$("btn-orc-opcional-fechar").addEventListener("click", () => $("orc-opcional-painel").classList.add("hidden"));
 ["apoio", "margem", "imposto"].forEach((k) => $("orc-perc-" + k).addEventListener("input", recalcularOrcamentoTela));
 $("orc-perc-desconto").addEventListener("input", () => { orcDescontoModo = "percentual"; recalcularOrcamentoTela(); });
 $("orc-valor-desconto").addEventListener("input", () => { orcDescontoModo = "valor"; recalcularOrcamentoTela(); });
@@ -5925,6 +6117,7 @@ async function salvarLinhasCalculoOrcamento(orcamentoId, calc) {
     multiplo: i.P,
     imprime: !!i.l.imprime,
     ordem_impressao: i.l.ordem_impressao != null ? i.l.ordem_impressao : null,
+    opcional: !!i.l.opcional,
     qtd_manual: Number(i.l.qtd_manual) || 0,
     qtd_aplicavel: i.Q,
     valor_total: r2(i.total),
@@ -5957,7 +6150,9 @@ function abrirNovoOrcamento() {
   $("orc-qtd-localidades").value = "1";
   $("orc-qtd-alunos").value = "";
   $("orc-data").value = formatarData(new Date());
-  $("orc-validade").value = "";
+  $("orc-validade-dias").value = "";
+  orcValidadeManual = false;
+  orcPreencherPrazos(null);
   $("orc-status").value = "Aberto";
   $("orc-observacoes").value = "";
   $("orc-observacao-ct").value = "";
@@ -5967,8 +6162,11 @@ function abrirNovoOrcamento() {
   $("orc-pra-mesmo-teoria").checked = false;
   atualizarBlocosEnderecoInCompanyOrc();
   atualizarBlocoHorarioPraticaOrc();
+  orcPropostas = [];
+  orcPropostaTravada = false;
   limparCalculoOrcamento();
   atualizarQtdAlunosCalculado();
+  orcAtualizarModoProposta();
   $("painel-orcamento-titulo").textContent = "Novo orçamento";
   $("orc-tag-numero").classList.add("hidden");
   $("btn-salvar-orcamento").textContent = "Salvar orçamento";
@@ -6000,7 +6198,13 @@ async function abrirEdicaoOrcamento(id) {
   $("orc-qtd-localidades").value = o.qtd_localidades || 1;
   $("orc-qtd-alunos").value = o.qtd_alunos || ((Number(o.qtd_turmas) || 0) * (Number(o.qtd_alunos_por_turma) || 0)) || "";
   $("orc-data").value = o.data || "";
-  $("orc-validade").value = o.validade || "";
+  {
+    let dias = Number(o.validade_dias) || 0;
+    if (!dias && o.validade && o.data) dias = Math.round((new Date(o.validade + "T00:00:00") - new Date(o.data + "T00:00:00")) / 86400000); // orçamentos antigos só tinham a data
+    $("orc-validade-dias").value = dias > 0 ? dias : "";
+    orcValidadeManual = dias > 0;
+  }
+  orcPreencherPrazos(o.prazo_pagamento_id);
   $("orc-status").value = o.status;
   $("orc-observacoes").value = o.observacoes || "";
   $("orc-observacao-ct").value = o.observacao_ct || "";
@@ -6010,8 +6214,11 @@ async function abrirEdicaoOrcamento(id) {
   $("orc-pra-mesmo-teoria").checked = !!o.endereco_pratica_mesmo_teoria;
   atualizarBlocosEnderecoInCompanyOrc();
   atualizarBlocoHorarioPraticaOrc();
+  orcPropostas = [];
+  orcPropostaTravada = false;
   limparCalculoOrcamento(true);
   atualizarQtdAlunosCalculado();
+  orcAtualizarModoProposta();
   // "Necessita dois instrutores" volta ao valor gravado (a regra automática só vale ao editar os números)
   $("orc-dois-instrutores").checked = !!o.necessita_dois_instrutores;
   $("painel-orcamento-titulo").textContent = "Editar orçamento";
@@ -6022,6 +6229,7 @@ async function abrirEdicaoOrcamento(id) {
   await Promise.all([
     carregarCalculoDoOrcamento(o).finally(() => { orcCalcCarregandoInicial = false; renderizarCalcOrcamento(); }),
     carregarTabelaTurmasOrcamento(id),
+    carregarPropostasDoOrcamento(o),
   ]);
 }
 
@@ -6161,7 +6369,9 @@ $("btn-orc-dock-toggle").addEventListener("click", () => {
 $("btn-orc-novo").addEventListener("click", abrirNovoOrcamento);
 $("btn-cancelar-painel-orcamento").addEventListener("click", () => { sairEditorOrcamentoPermitido(); });
 
-async function salvarOrcamento() {
+// opts.gerandoProposta: salva para em seguida gerar a proposta (mantém o editor aberto e devolve { linha, calc }).
+async function salvarOrcamento(opts = {}) {
+  if (opts instanceof Event) opts = {};
   esconderErro("orc-form-erro");
   const numero = $("orc-numero").value.trim();
   const empresaId = $("orc-empresa").value;
@@ -6221,6 +6431,15 @@ async function salvarOrcamento() {
   const horarioInicioPratica = praticaSincronizada ? horarioInicioTeoria : ($("orc-horario-pratica").value || null);
 
   const qtdAlunosPorTurma = Math.ceil(qtdAlunos / Math.max(1, qtdTurmas));
+  const validadeTxt = $("orc-validade-dias").value.trim();
+  const validadeDias = validadeTxt === "" ? null : Math.floor(Number(validadeTxt));
+  if (validadeDias != null && !(validadeDias >= 1 && validadeDias <= 3650)) return mostrarErro("orc-form-erro", "Validade: informe de 1 a 3650 dias.");
+  let validadeData = null;
+  if (validadeDias != null && $("orc-data").value) {
+    const dv = new Date($("orc-data").value + "T00:00:00");
+    dv.setDate(dv.getDate() + validadeDias);
+    validadeData = formatarData(dv);
+  }
   const contatoEmail = $("orc-contato-email").value.trim();
   // aceita mais de um e-mail no mesmo campo (separados por vírgula ou ponto e vírgula)
   if (contatoEmail && !contatoEmail.split(/[;,]/).map((x) => x.trim()).filter(Boolean).every((x) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(x))) return mostrarErro("orc-form-erro", "O e-mail do contato parece inválido. Se houver mais de um, separe por vírgula.");
@@ -6253,7 +6472,10 @@ async function salvarOrcamento() {
     }),
     necessita_dois_instrutores: $("orc-dois-instrutores").checked,
     data: $("orc-data").value || null,
-    validade: $("orc-validade").value || null,
+    validade: validadeData,
+    validade_dias: validadeDias,
+    prazo_pagamento_id: $("orc-prazo").value || null,
+    proposta_em_elaboracao: opts.gerandoProposta ? false : (orcPropostas.length > 0 && !orcPropostaTravada),
     status: $("orc-status").value,
     observacoes: $("orc-observacoes").value.trim(),
     observacao_ct: $("orc-observacao-ct").value.trim() || null,
@@ -6328,21 +6550,420 @@ async function salvarOrcamento() {
     recalcularOrcamentoTela();
     await carregarTabelaTurmasOrcamento(linha.id);
     await carregarPaginaOrcamentos();
-    if (erroCalculo) mostrarErro("orc-form-erro", `Orçamento salvo, mas o cálculo não foi gravado: ${erroCalculo}. Clique em "Salvar alterações" para tentar de novo.`);
-    return;
+    orcAtualizarModoProposta();
+    if (erroCalculo) { mostrarErro("orc-form-erro", `Orçamento salvo, mas o cálculo não foi gravado: ${erroCalculo}. Clique em "Salvar alterações" para tentar de novo.`); return null; }
+    return { linha, calc };
   }
 
   if (erroCalculo) {
     $("btn-salvar-orcamento").textContent = "Salvar alterações";
     await carregarPaginaOrcamentos();
-    return mostrarErro("orc-form-erro", `Orçamento salvo, mas o cálculo não foi gravado: ${erroCalculo}. Clique em "Salvar alterações" para tentar de novo.`);
+    mostrarErro("orc-form-erro", `Orçamento salvo, mas o cálculo não foi gravado: ${erroCalculo}. Clique em "Salvar alterações" para tentar de novo.`);
+    return null;
   }
 
+  if (opts.gerandoProposta) {
+    $("btn-salvar-orcamento").textContent = "Salvar alterações";
+    await carregarPaginaOrcamentos();
+    return { linha, calc };
+  }
   fecharEditorOrcamento();
   await carregarPaginaOrcamentos();
+  return { linha, calc };
 }
 
-$("btn-salvar-orcamento").addEventListener("click", salvarOrcamento);
+$("btn-salvar-orcamento").addEventListener("click", () => salvarOrcamento());
+
+// =====================================================================
+// PROPOSTA COMERCIAL do orçamento
+//  - cada "Gerar proposta" grava um instantâneo (orcamento_propostas.dados) e gera o PDF;
+//  - nº da proposta = nº do orçamento + data + hora (ex.: 4080-20261005-1432);
+//  - com proposta gerada o cálculo fica bloqueado; "Nova proposta" libera para alterar e gerar outra versão.
+// =====================================================================
+const CAMPOS_TRAVA_PROPOSTA = ["orc-tipo", "orc-qtd-alunos", "orc-qtd-turmas", "orc-qtd-localidades", "orc-perc-apoio", "orc-perc-margem", "orc-perc-imposto", "orc-perc-desconto", "orc-valor-desconto", "orc-prazo", "orc-validade-dias", "btn-orc-restaurar", "btn-orc-opcional"];
+
+function orcPreencherPrazos(selecionado) {
+  const sel = $("orc-prazo");
+  const lista = orcPrazosPagamento.filter((p) => p.status !== "Inativo" || p.id === selecionado);
+  sel.innerHTML = `<option value="">— Selecione —</option>` + lista.map((p) => `<option value="${p.id}">${p.descricao}${p.status === "Inativo" ? " (inativo)" : ""}</option>`).join("");
+  sel.value = selecionado || "";
+}
+
+async function carregarPropostasDoOrcamento(o) {
+  const { data, error } = await supabase.from("orcamento_propostas")
+    .select("id, numero, versao, valor_final, gerado_por, created_at")
+    .eq("orcamento_id", o.id).order("created_at", { ascending: false });
+  if (error) {
+    orcPropostas = [];
+    orcPropostaTravada = false;
+    mostrarErro("orc-form-erro", "Não foi possível carregar as propostas deste orçamento: " + (error.message || "erro desconhecido"));
+  } else {
+    orcPropostas = data || [];
+    orcPropostaTravada = orcPropostas.length > 0 && !o.proposta_em_elaboracao;
+  }
+  orcAtualizarModoProposta();
+  renderizarCalcOrcamento();
+}
+
+function orcAtualizarModoProposta() {
+  const tem = orcPropostas.length > 0;
+  const trav = orcPropostaTravada;
+  $("btn-orc-nova-proposta").classList.toggle("hidden", !(editandoOrcamentoId && trav));
+  $("btn-orc-gerar-proposta").classList.toggle("hidden", trav);
+  $("btn-orc-gerar-proposta").disabled = orcGerandoProposta;
+  CAMPOS_TRAVA_PROPOSTA.forEach((id) => {
+    const el = $(id);
+    el.disabled = trav;
+    el.classList.toggle("opacity-50", trav);
+    el.classList.toggle("cursor-not-allowed", trav);
+  });
+  if (trav) $("orc-opcional-painel").classList.add("hidden");
+  $("orc-proposta-faixa").classList.toggle("hidden", !tem);
+  if (!tem) return;
+  const u = orcPropostas[0];
+  $("orc-proposta-texto").textContent = `Última proposta: nº ${u.numero} · versão ${u.versao} · gerada em ${formatarDataHoraBr(u.created_at)}${u.gerado_por ? " por " + u.gerado_por : ""} · ${fmtBRL(u.valor_final)}`
+    + (trav ? " · cálculo bloqueado (use “Nova proposta” para alterar)" : "");
+  const hist = $("orc-proposta-hist");
+  hist.innerHTML = orcPropostas.map((p) => `<div class="flex items-center gap-3 py-0.5"><span class="font-mono">${p.numero}</span><span>v${p.versao}</span><span>${formatarDataHoraBr(p.created_at)}</span><span>${p.gerado_por || ""}</span><span class="font-semibold">${fmtBRL(p.valor_final)}</span><button type="button" data-prop-pdf="${p.id}" class="underline hover:text-amber-700">⬇ PDF</button></div>`).join("");
+  orcAtualizarAvisoProposta();
+}
+
+function orcAtualizarAvisoProposta() {
+  const av = $("orc-proposta-aviso");
+  if (!orcPropostas.length) { av.classList.add("hidden"); return; }
+  let msg = "";
+  if (!orcPropostaTravada) msg = "Nova proposta em elaboração — as alterações valem para a próxima proposta.";
+  else if (orcLinhasCalc.length && Math.abs(calcularOrcamento().final - Number(orcPropostas[0].valor_final || 0)) > 0.01) msg = "O valor deste orçamento difere da última proposta.";
+  av.textContent = msg;
+  av.classList.toggle("hidden", !msg);
+}
+
+$("btn-orc-nova-proposta").addEventListener("click", () => {
+  if (!orcPropostas.length) return;
+  orcPropostaTravada = false;
+  orcEditorSujo = true;
+  orcAtualizarModoProposta();
+  renderizarCalcOrcamento();
+});
+$("btn-orc-proposta-hist").addEventListener("click", () => $("orc-proposta-hist").classList.toggle("hidden"));
+$("btn-orc-proposta-pdf").addEventListener("click", () => { if (orcPropostas[0]) baixarPropostaPdf(orcPropostas[0].id); });
+$("orc-proposta-hist").addEventListener("click", (ev) => {
+  const b = ev.target.closest("[data-prop-pdf]");
+  if (b) baixarPropostaPdf(b.getAttribute("data-prop-pdf"));
+});
+
+function baixarBlobArquivo(blob, nome) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = nome;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+async function baixarPropostaPdf(id) {
+  esconderErro("orc-form-erro");
+  try {
+    const { data, error } = await supabase.from("orcamento_propostas").select("numero, dados").eq("id", id).single();
+    if (error || !data) throw error || new Error("proposta não encontrada");
+    const blob = await gerarPdfProposta(data.dados);
+    baixarBlobArquivo(blob, `Proposta ${data.numero}.pdf`);
+  } catch (e) {
+    mostrarErro("orc-form-erro", "Não foi possível gerar o PDF: " + (e?.message || "erro desconhecido"));
+  }
+}
+
+// Itens que vão impressos: marcados em "Imprime", na ordem de impressão deste orçamento, sem descrição "N/A".
+function itensParaImpressaoProposta(itens) {
+  return itens
+    .map((i, idx) => ({ i, idx }))
+    .filter(({ i }) => i.imprime)
+    .sort((a, b) => (a.i.ordem_impressao ?? 1e9) - (b.i.ordem_impressao ?? 1e9) || a.idx - b.idx)
+    .map(({ i }) => String(i.descricao_impressao || i.item || "").trim())
+    .filter((t) => t && !/^(n\/?a|-|—)$/i.test(t));
+}
+
+function numeroDaProposta(numeroOrc, agora, comSegundos) {
+  const p = pad2;
+  return `${numeroOrc}-${agora.getFullYear()}${p(agora.getMonth() + 1)}${p(agora.getDate())}-${p(agora.getHours())}${p(agora.getMinutes())}${comSegundos ? p(agora.getSeconds()) : ""}`;
+}
+
+function montarDadosProposta(linha, calc, agora, numero, versao) {
+  const emp = listaEmpresasAtivas.find((e) => e.id === linha.empresa_id) || {};
+  const ct = listaCentrosAtivos.find((c) => c.id === linha.centro_treinamento_id) || {};
+  const tipo = listaTiposAtivos.find((t) => t.id === linha.tipo_treinamento_id) || {};
+  const prazo = orcPrazosPagamento.find((p) => p.id === linha.prazo_pagamento_id) || null;
+  const dias = Number(linha.validade_dias) || 0;
+  const ate = new Date(agora.getTime());
+  ate.setDate(ate.getDate() + dias);
+  const itens = calc.itens.map((i) => ({
+    item: i.l.item, descricao_impressao: i.l.descricao_impressao || null, imprime: !!i.l.imprime, ordem_impressao: i.l.ordem_impressao ?? null,
+    opcional: !!i.l.opcional, valor_unitario: r2(i.l.valor_unitario), qtd_aplicavel: i.Q, valor_total: r2(i.total),
+  }));
+  return {
+    proposta_numero: numero, versao, orcamento_numero: linha.numero,
+    gerada_em: agora.toISOString(), gerado_por: usuarioSistemaAtual ? usuarioSistemaAtual.nome : null,
+    empresa: { id: emp.id || null, nome: emp.nome || "" },
+    contato: { nome: linha.contato_nome || "", telefone: linha.contato_telefone || "", email: linha.contato_email || "" },
+    centro: { id: ct.id || null, nome: ct.nome || "", cidade: ct.cidade || "", endereco: ct.endereco || "", rodape_pagina: ct.texto_rodape_pagina || "", logotipo_esquerdo: ct.logotipo_esquerdo || null, logotipo_direito: ct.logotipo_direito || null },
+    treinamento: { id: tipo.id || null, nome: tipo.nome || "", descricao_impressao: tipo.descricao_impressao || "", rodape: tipo.rodape || "" },
+    quantidades: { alunos: calc.q.alunos, turmas: calc.q.turmas, alunos_por_turma: calc.q.alunosPorTurma, localidades: calc.q.localidades },
+    percentuais: { apoio: calc.apoio, margem: calc.margem, imposto: calc.imposto, desconto: r2(calc.desconto), desconto_modo: orcDescontoModo },
+    calculo: {
+      custo_turma: r2(calc.custo), valor_turma: r2(calc.valorTurma), valor_total: r2(calc.total), valor_desconto: r2(calc.valorDesc),
+      valor_final: r2(calc.final), valor_final_turma: r2(calc.finalTurma), valor_final_aluno: r2(calc.finalAluno),
+      margem_final_valor: r2(calc.margemTurma), margem_final_perc: r2(calc.margemPerc), requer_aprovacao_gestor: calc.precisaAprovacao,
+    },
+    itens,
+    itens_impressao: itensParaImpressaoProposta(itens),
+    prazo_pagamento: prazo ? prazo.descricao : "",
+    validade_dias: dias, validade_ate: formatarData(ate),
+    data_impressao: formatarData(agora),
+  };
+}
+
+async function gerarPropostaOrcamento() {
+  if (orcGerandoProposta || orcPropostaTravada) return;
+  esconderErro("orc-form-erro");
+  if (!$("orc-prazo").value) return mostrarErro("orc-form-erro", "Selecione o prazo de pagamento da proposta.");
+  const dias = Math.floor(Number($("orc-validade-dias").value) || 0);
+  if (!(dias >= 1)) return mostrarErro("orc-form-erro", "Informe a validade da proposta em dias.");
+  const previa = calcularOrcamento();
+  if (!previa.itens.length) return mostrarErro("orc-form-erro", "Não há itens de custo no cálculo para gerar a proposta.");
+  if (itensParaImpressaoProposta(previa.itens.map((i) => i.l)).length === 0) return mostrarErro("orc-form-erro", "Marque ao menos um item do cálculo para imprimir (coluna “Imprime”), com descrição para impressão.");
+  orcGerandoProposta = true;
+  const btn = $("btn-orc-gerar-proposta");
+  btn.disabled = true; btn.textContent = "Gerando…";
+  try {
+    const r = await salvarOrcamento({ gerandoProposta: true });
+    if (!r) return; // erro já exibido
+    const { linha, calc } = r;
+    const agora = new Date();
+    const versao = orcPropostas.reduce((m, p) => Math.max(m, p.versao || 0), 0) + 1;
+    let gravada = null, blob = null, dados = null;
+    for (let tent = 0; tent < 2 && !gravada; tent++) {
+      const numero = numeroDaProposta(linha.numero, agora, tent > 0);
+      dados = montarDadosProposta(linha, calc, agora, numero, versao);
+      blob = await gerarPdfProposta(dados); // se o PDF falhar, nada é gravado
+      const { data, error } = await supabase.from("orcamento_propostas").insert({
+        orcamento_id: linha.id, numero, versao, valor_final: dados.calculo.valor_final,
+        gerado_por: dados.gerado_por, dados,
+      }).select("id, numero, versao, valor_final, gerado_por, created_at").single();
+      if (!error) { gravada = data; break; }
+      if (!(error.code === "23505" || /duplicate/i.test(error.message || ""))) throw error;
+    }
+    if (!gravada) throw new Error("não foi possível numerar a proposta");
+    orcPropostas = [gravada, ...orcPropostas];
+    orcPropostaTravada = true;
+    orcEditorSujo = false;
+    orcAtualizarModoProposta();
+    renderizarCalcOrcamento();
+    baixarBlobArquivo(blob, `Proposta ${gravada.numero}.pdf`);
+  } catch (e) {
+    mostrarErro("orc-form-erro", "Não foi possível gerar a proposta: " + (e?.message || "erro desconhecido"));
+  } finally {
+    orcGerandoProposta = false;
+    btn.textContent = "📄 Gerar proposta";
+    orcAtualizarModoProposta();
+  }
+}
+$("btn-orc-gerar-proposta").addEventListener("click", gerarPropostaOrcamento);
+
+// ---------------------------------------------------------------------
+// PDF da proposta (jsPDF carregado sob demanda)
+// ---------------------------------------------------------------------
+let jsPdfPromise = null;
+function carregarJsPdf() {
+  if (window.jspdf && window.jspdf.jsPDF) return Promise.resolve(window.jspdf.jsPDF);
+  if (!jsPdfPromise) {
+    jsPdfPromise = new Promise((resolve, reject) => {
+      const sc = document.createElement("script");
+      sc.src = "https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js";
+      sc.onload = () => (window.jspdf && window.jspdf.jsPDF ? resolve(window.jspdf.jsPDF) : reject(new Error("gerador de PDF indisponível")));
+      sc.onerror = () => { jsPdfPromise = null; reject(new Error("não foi possível carregar o gerador de PDF (verifique a conexão)")); };
+      document.head.appendChild(sc);
+    });
+  }
+  return jsPdfPromise;
+}
+function infoImagemPdf(dataUrl) {
+  return new Promise((resolve) => {
+    if (!dataUrl) return resolve(null);
+    const im = new Image();
+    im.onload = () => resolve({ w: im.naturalWidth, h: im.naturalHeight });
+    im.onerror = () => resolve(null);
+    im.src = dataUrl;
+  });
+}
+// A fonte padrão do PDF cobre o alfabeto latino (acentos do português); o resto vira um equivalente simples.
+const pdfTxt = (t) => String(t == null ? "" : t).replace(/\r\n?/g, "\n").replace(/→/g, "->").replace(/[✓✔]/g, "v").replace(/[^\n\x20-\x7E\xA0-\xFF–—‘-„•…€]/g, "");
+const dataBrDeIso = (s) => (s ? String(s).slice(0, 10).split("-").reverse().join("/") : "");
+
+async function gerarPdfProposta(d) {
+  const JsPDF = await carregarJsPdf();
+  const doc = new JsPDF({ unit: "mm", format: "a4", compress: true });
+  const W = 210, H = 297, M = 17, CW = W - 2 * M, BASE = H - 26;
+  const INK = [31, 41, 55], ACC = [194, 65, 12], MUT = [107, 114, 128], LINE = [226, 228, 232], SOFT = [248, 247, 244], BRANCO = [255, 255, 255];
+  const cor = (c) => doc.setTextColor(c[0], c[1], c[2]);
+  const preenche = (c) => doc.setFillColor(c[0], c[1], c[2]);
+  const traco = (c, w) => { doc.setDrawColor(c[0], c[1], c[2]); doc.setLineWidth(w || 0.2); };
+  let y = M;
+  const novaPagina = () => { doc.addPage(); y = 26; };
+  const garantir = (h) => { if (y + h > BASE) novaPagina(); };
+  const fonte = (estilo, tam) => { doc.setFont("helvetica", estilo); doc.setFontSize(tam); };
+  const quebra = (txt, larg) => doc.splitTextToSize(pdfTxt(txt), larg);
+
+  // Cabeçalho: logotipos do Centro de Treinamento (esquerdo e direito)
+  const ct = d.centro || {};
+  const [infoE, infoD] = await Promise.all([infoImagemPdf(ct.logotipo_esquerdo), infoImagemPdf(ct.logotipo_direito)]);
+  const caixaLogo = (dataUrl, info, x, alinharDireita) => {
+    const maxW = 58, maxH = 20;
+    if (!dataUrl || !info) return;
+    const esc = Math.min(maxW / info.w, maxH / info.h);
+    const w = info.w * esc, h = info.h * esc;
+    const fmt = /^data:image\/jpe?g/i.test(dataUrl) ? "JPEG" : "PNG";
+    doc.addImage(dataUrl, fmt, alinharDireita ? x + maxW - w : x, y + (maxH - h) / 2, w, h);
+  };
+  caixaLogo(ct.logotipo_esquerdo, infoE, M, false);
+  caixaLogo(ct.logotipo_direito, infoD, W - M - 58, true);
+  if (!infoE && !infoD && ct.nome) { fonte("bold", 13); cor(INK); doc.text(pdfTxt(ct.nome).toUpperCase(), M, y + 9); }
+  y += 23;
+  traco(LINE, 0.3); doc.line(M, y, W - M, y);
+  traco(ACC, 1); doc.line(M, y, M + 26, y);
+  y += 9;
+
+  // Título e local/data
+  fonte("bold", 19); cor(INK);
+  doc.text("PROPOSTA COMERCIAL", M, y, { charSpace: 0.9 });
+  const cidadeData = [pdfTxt(ct.cidade), dataBrDeIso(d.data_impressao)].filter(Boolean).join(", ");
+  fonte("normal", 9.5); cor(MUT);
+  doc.text(cidadeData, W - M, y, { align: "right" });
+  y += 7;
+
+  // Painel do cliente (esquerda) + identificação da proposta (direita)
+  const hPainel = 33, wDir = 56, wEsq = CW - wDir - 5;
+  preenche(SOFT); doc.roundedRect(M, y, wEsq, hPainel, 2, 2, "F");
+  const rotulo = (txt, x, yy) => { fonte("bold", 6.8); cor(MUT); doc.text(txt, x, yy, { charSpace: 0.4 }); };
+  const valor = (txt, x, yy, larg, tam) => { fonte("normal", tam || 9.5); cor(INK); const l = quebra(txt || "—", larg)[0] || "—"; doc.text(l, x, yy); };
+  rotulo("EMPRESA", M + 5, y + 6);
+  fonte("bold", 11); cor(INK); doc.text(quebra(d.empresa.nome || "—", wEsq - 10)[0], M + 5, y + 11.5);
+  rotulo("CONTATO", M + 5, y + 18); valor(d.contato.nome, M + 5, y + 23, wEsq / 2 - 8);
+  rotulo("FONE", M + wEsq / 2 + 2, y + 18); valor(d.contato.telefone, M + wEsq / 2 + 2, y + 23, wEsq / 2 - 8);
+  rotulo("E-MAIL", M + 5, y + 28.5); valor(d.contato.email, M + 5, y + 32, wEsq - 10, 9);
+  const xd = W - M - wDir;
+  preenche(BRANCO); traco(ACC, 0.5); doc.roundedRect(xd, y, wDir, hPainel, 2, 2, "S");
+  rotulo("PROPOSTA Nº", xd + 5, y + 6); fonte("bold", 11); cor(ACC); doc.text(pdfTxt(d.proposta_numero), xd + 5, y + 12);
+  rotulo("ORÇAMENTO Nº", xd + 5, y + 19); fonte("bold", 11); cor(INK); doc.text(pdfTxt(d.orcamento_numero), xd + 5, y + 25);
+  fonte("normal", 8); cor(MUT); doc.text(`Versão ${d.versao}`, xd + 5, y + 30.5);
+  y += hPainel + 7;
+
+  // Parágrafo de abertura (cadastro do treinamento)
+  const paragrafo = (txt, tam, justificar, corTxt, lead) => {
+    fonte("normal", tam); cor(corTxt || INK);
+    const entrelinha = lead || tam * 0.5;
+    String(txt).split(/\n/).forEach((par) => {
+      if (!par.trim()) { y += entrelinha * 0.6; return; }
+      const rotuloSozinho = /^[A-ZÀ-Ý][A-ZÀ-Ý \/-]{3,}:\s*$/.test(par.trim());
+      if (rotuloSozinho) { fonte("bold", tam); cor(ACC); } else { fonte("normal", tam); cor(corTxt || INK); }
+      const linhas = quebra(par, CW);
+      linhas.forEach((ln, idx) => {
+        garantir(entrelinha);
+        const ultima = idx === linhas.length - 1;
+        if (justificar && !ultima && ln.includes(" ")) doc.text(ln, M, y, { align: "justify", maxWidth: CW });
+        else doc.text(ln, M, y);
+        y += entrelinha;
+      });
+    });
+  };
+  const abertura = (d.treinamento.descricao_impressao || "").trim() || `Apresentamos nossa proposta para ${d.treinamento.nome}, conforme segue:`;
+  paragrafo(abertura, 10, true, INK, 5);
+  y += 4;
+
+  // Escopo: itens numerados (sem valores de custo)
+  garantir(20);
+  fonte("bold", 8); cor(ACC); doc.text("ESCOPO DA PROPOSTA", M, y, { charSpace: 0.8 });
+  traco(LINE, 0.3); doc.line(M + 50, y - 1, W - M, y - 1);
+  y += 6;
+  (d.itens_impressao || []).forEach((txt, idx) => {
+    fonte("normal", 9.5);
+    const linhas = quebra(txt, CW - 10);
+    const hItem = Math.max(7, linhas.length * 4.6 + 2.2);
+    garantir(hItem);
+    preenche(ACC); doc.circle(M + 3, y + 0.4, 3, "F");
+    fonte("bold", 8); cor(BRANCO); doc.text(String(idx + 1), M + 3, y + 1.8, { align: "center" });
+    fonte("normal", 9.5); cor(INK);
+    linhas.forEach((ln, k) => doc.text(ln, M + 10, y + 1.3 + k * 4.6));
+    y += hItem;
+    if (idx < d.itens_impressao.length - 1) { traco(LINE, 0.2); doc.line(M + 10, y - 2.9, W - M, y - 2.9); }
+  });
+  y += 4;
+
+  // Valores
+  garantir(50);
+  const hVal = 31;
+  preenche(INK); doc.roundedRect(M, y, CW, hVal, 2.5, 2.5, "F");
+  fonte("normal", 9.5); cor([209, 213, 219]); doc.text("TOTAL POR GRUPO", M + 7, y + 10, { charSpace: 0.5 });
+  fonte("bold", 13); cor(BRANCO); doc.text(pdfTxt(fmtBRL(d.calculo.valor_final_turma)), W - M - 7, y + 10.5, { align: "right" });
+  traco([75, 85, 99], 0.3); doc.line(M + 7, y + 15, W - M - 7, y + 15);
+  fonte("bold", 10); cor([251, 146, 60]); doc.text("TOTAL GERAL", M + 7, y + 25, { charSpace: 0.5 });
+  fonte("bold", 19); cor(BRANCO); doc.text(pdfTxt(fmtBRL(d.calculo.valor_final)), W - M - 7, y + 26, { align: "right" });
+  y += hVal + 4;
+
+  const cel = [
+    ["QUANTIDADE DE GRUPOS", String(d.quantidades.turmas)],
+    ["PARTICIPANTES POR GRUPO", String(d.quantidades.alunos_por_turma)],
+    ["TOTAL DE PARTICIPANTES", String(d.quantidades.alunos)],
+  ];
+  const wc = (CW - 6) / 3;
+  cel.forEach(([rot, v], k) => {
+    const x = M + k * (wc + 3);
+    preenche(SOFT); doc.roundedRect(x, y, wc, 14, 2, 2, "F");
+    rotulo(rot, x + 4, y + 5.5); fonte("bold", 12); cor(INK); doc.text(v, x + 4, y + 11.5);
+  });
+  y += 20;
+
+  // Condições comerciais
+  garantir(22);
+  const wm = (CW - 3) / 2;
+  [["PRAZO DE PAGAMENTO", d.prazo_pagamento || "—"], ["VALIDADE DA PROPOSTA", `${d.validade_dias} dias${d.validade_ate ? " (até " + dataBrDeIso(d.validade_ate) + ")" : ""}`]].forEach(([rot, v], k) => {
+    const x = M + k * (wm + 3);
+    traco(LINE, 0.3); doc.roundedRect(x, y, wm, 15, 2, 2, "S");
+    rotulo(rot, x + 4, y + 5.5); fonte("bold", 10.5); cor(INK); doc.text(quebra(v, wm - 8)[0], x + 4, y + 11.5);
+  });
+  y += 22;
+
+  // Esclarecimento / rodapé do treinamento + assinatura
+  const rodape = (d.treinamento.rodape || "").trim();
+  if (rodape) paragrafo(rodape, 9, true, [55, 65, 81], 4.4);
+  garantir(34);
+  y += 4;
+  if (!/atenciosamente/i.test(rodape)) { fonte("normal", 10); cor(INK); doc.text("Atenciosamente,", M, y); y += 4; }
+  y += 12;
+  traco(INK, 0.3); doc.line(M, y, M + 62, y);
+  y += 5;
+  fonte("bold", 10); cor(INK); doc.text(pdfTxt(d.gerado_por || "").toUpperCase(), M, y);
+  y += 4.6;
+  fonte("normal", 8.5); cor(MUT); doc.text(pdfTxt(ct.nome || ""), M, y);
+
+  // Rodapé e cabeçalho de continuação em todas as páginas
+  const total = doc.getNumberOfPages();
+  const textoRodape = (ct.rodape_pagina || "").trim() || [ct.nome, ct.endereco].filter(Boolean).join(" - ");
+  for (let p = 1; p <= total; p++) {
+    doc.setPage(p);
+    if (p > 1) {
+      fonte("bold", 8); cor(MUT); doc.text(`PROPOSTA ${pdfTxt(d.proposta_numero)}`, M, 14, { charSpace: 0.4 });
+      fonte("normal", 8); doc.text(pdfTxt(d.empresa.nome || ""), W - M, 14, { align: "right" });
+      traco(LINE, 0.3); doc.line(M, 17, W - M, 17);
+    }
+    traco(LINE, 0.3); doc.line(M, H - 19, W - M, H - 19);
+    fonte("normal", 7); cor(MUT);
+    const linhasRod = quebra(textoRodape, CW).slice(0, 3);
+    linhasRod.forEach((ln, k) => doc.text(ln, W / 2, H - 15 + k * 3.1, { align: "center" }));
+    fonte("normal", 7);
+    doc.text(`Proposta ${pdfTxt(d.proposta_numero)}`, M, H - 5);
+    doc.text(`Página ${p} de ${total}`, W - M, H - 5, { align: "right" });
+  }
+  return doc.output("blob");
+}
 
 // Cria automaticamente as linhas de turma do orçamento: uma linha por DIA
 // de treinamento de cada turma, marcada com o tipo do dia (Teoria, Prática

@@ -1110,3 +1110,16 @@ alter table instrutores
 --   orcamentos: desconto_modo ('percentual'|'valor'), margem_final_valor/margem_final_perc (por turma, depois do desconto),
 --   margem_minima_perc/margem_minima_valor (parâmetros usados no cálculo) e requer_aprovacao_gestor boolean (grava mesmo abaixo do mínimo).
 --   Margem final por turma = valor final da turma x (1 - apoio - imposto) - custo da turma.
+
+-- ============================================================
+-- Prod 1.31 · Proposta comercial do orçamento (já aplicado via migration "proposta_comercial_orcamentos")
+--  centros_treinamento: cidade, logotipo_esquerdo, logotipo_direito (data URL reduzida no navegador), texto_rodape_pagina
+--  tipos_treinamento: descricao_impressao, rodape, validade_padrao_dias (default 30, 1..3650)
+--  prazos_pagamento (descricao, status) + RLS pode_acessar_tabela; mapa ('prazos_pagamento','prazos_pagamento','own'),
+--    ('orcamentos','prazos_pagamento','leitura'), ('orcamentos','orcamento_propostas','own')
+--  orcamentos: prazo_pagamento_id, validade_dias, proposta_em_elaboracao
+--  orcamento_itens_custo: opcional (item opcional acrescentado no orçamento)
+--  orcamento_propostas (orcamento_id cascade, numero único por orçamento = nº do orçamento + AAAAMMDD-HHMM, versao, valor_final,
+--    gerado_por, created_at, dados jsonb = instantâneo do cálculo/textos/itens impressos) + RLS
+--  Permissão: o novo módulo "prazos_pagamento" precisa ser liberado em Usuários do Sistema para quem não é admin.
+-- ============================================================

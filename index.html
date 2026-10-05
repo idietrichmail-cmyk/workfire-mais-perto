@@ -1359,10 +1359,22 @@
       <span id="orc-tag-calculo" class="hidden text-[11px] px-2 py-0.5 rounded-full"></span>
       <span id="orc-tag-aprovacao" class="hidden text-[11px] font-semibold px-2 py-0.5 rounded-full bg-rose-100 text-rose-700">⚠ Precisa de aprovação do gestor</span>
       <span class="flex-1"></span>
+      <button id="btn-orc-nova-proposta" class="hidden px-3 py-1.5 text-sm font-medium text-amber-800 bg-amber-50 border border-amber-300 rounded-md hover:bg-amber-100">✎ Nova proposta</button>
+      <button id="btn-orc-gerar-proposta" class="hidden px-3 py-1.5 text-sm font-medium text-white bg-amber-600 hover:bg-amber-700 rounded-md">📄 Gerar proposta</button>
       <button id="btn-cancelar-painel-orcamento" class="px-4 py-1.5 text-sm font-medium text-slate-600 border border-slate-300 rounded-md hover:bg-slate-50">Fechar</button>
       <button id="btn-salvar-orcamento" class="px-4 py-1.5 bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium rounded-md">Salvar orçamento</button>
     </div>
     <div id="orc-form-erro" class="hidden flex-none bg-rose-50 text-rose-600 text-sm px-4 py-2 border-b border-rose-100"></div>
+    <div id="orc-proposta-faixa" class="hidden flex-none bg-amber-50 border-b border-amber-200 px-4 py-1.5 text-xs text-amber-900">
+      <div class="flex items-center gap-x-3 gap-y-1 flex-wrap">
+        <span id="orc-proposta-texto" class="font-medium"></span>
+        <span id="orc-proposta-aviso" class="hidden text-rose-600 font-semibold"></span>
+        <span class="flex-1"></span>
+        <button type="button" id="btn-orc-proposta-pdf" class="underline hover:text-amber-700">⬇ Baixar PDF</button>
+        <button type="button" id="btn-orc-proposta-hist" class="underline hover:text-amber-700">Histórico de propostas</button>
+      </div>
+      <div id="orc-proposta-hist" class="hidden mt-1.5 max-h-40 overflow-y-auto border-t border-amber-200 pt-1.5"></div>
+    </div>
 
     <div id="orc-editor-scroll" class="flex-1 min-h-0 overflow-y-auto px-3 md:px-4 py-3 space-y-3">
 
@@ -1410,8 +1422,10 @@
               <input id="orc-qtd-localidades" type="number" min="1" step="1" class="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" /></div>
             <div class="col-span-1 md:col-span-2"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Data</label>
               <input id="orc-data" type="date" class="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" /></div>
-            <div class="col-span-1 md:col-span-2"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Validade</label>
-              <input id="orc-validade" type="date" class="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" /></div>
+            <div class="col-span-1 md:col-span-2"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide" title="Validade da proposta em dias (padrão vem do cadastro do treinamento)">Validade (dias)</label>
+              <input id="orc-validade-dias" type="number" min="1" max="3650" step="1" class="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" /></div>
+            <div class="col-span-1 md:col-span-2"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Prazo de pagamento</label>
+              <select id="orc-prazo" class="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"></select></div>
             <div class="col-span-2 md:col-span-2"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Status</label>
               <select id="orc-status" class="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">
               <option>Aberto</option><option>Aprovado</option><option>Aprovado e Agendado</option><option>Aprovado e Confirmado</option><option>Aberto e Pré-Agendado</option><option>Aberto e Pré-Confirmado</option><option>Recusado</option><option>Concluído</option>
@@ -1542,7 +1556,15 @@
           <span id="orc-calc-origem" class="text-[11px] text-slate-400"></span>
           <span class="flex-1"></span>
           <label class="flex items-center gap-1.5 text-[11px] text-slate-500 cursor-pointer"><input type="checkbox" id="orc-calc-detalhes" /> Mostrar detalhes do cálculo da quantidade</label>
+          <button type="button" id="btn-orc-opcional" class="text-xs border border-amber-300 bg-amber-50 rounded-md px-2.5 py-0.5 text-amber-800 hover:bg-amber-100">＋ Item opcional</button>
           <button type="button" id="btn-orc-restaurar" class="text-xs border border-slate-300 rounded-md px-2.5 py-0.5 text-slate-600 hover:bg-slate-50">↺ Restaurar valores do cadastro</button>
+        </div>
+        <div id="orc-opcional-painel" class="hidden px-3 py-2 border-b border-amber-200 bg-amber-50 flex items-center gap-2 flex-wrap text-xs">
+          <span class="font-medium text-amber-900">Acrescentar item opcional ao cálculo:</span>
+          <select id="orc-opcional-select" class="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs min-w-[14rem]"></select>
+          <button type="button" id="btn-orc-opcional-add" class="px-3 py-1 bg-slate-900 text-white rounded-md hover:bg-slate-800">Adicionar</button>
+          <button type="button" id="btn-orc-opcional-fechar" class="text-slate-500 hover:text-slate-800">Cancelar</button>
+          <span id="orc-opcional-msg" class="text-slate-500"></span>
         </div>
         <div class="p-3 grid gap-3 lg:grid-cols-[minmax(0,1fr)_330px] items-start">
           <div class="min-w-0">
@@ -2054,6 +2076,6 @@
 </div>
 
 <script src="config.js"></script>
-<script src="app.js?v=20261005b"></script>
+<script src="app.js?v=20261005c"></script>
 </body>
 </html>
