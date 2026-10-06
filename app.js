@@ -34,7 +34,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.39 · 06/10/2026";
+const APP_VERSAO = "Prod 1.40 · 06/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -5683,21 +5683,80 @@ let orcPagina = 1;
 let orcTotal = 0;
 let orcBuscaTimer = null;
 
+// Tabelas auxiliares do orçamento (Treinamento, Centro de Treinamento, Prazo de Pagamento e suas parcelas).
+// São consultadas no banco a cada abertura do orçamento (e quando o seletor é usado depois de um tempo ou
+// está vazio), com novas tentativas — assim uma falha momentânea de rede não deixa a lista vazia.
+let orcRefsCarregadoEm = 0;
+async function carregarReferenciasOrcamento() {
+  const tentar = async (fn) => {
+    let r;
+    for (let t = 1; t <= 3; t++) {
+      r = await fn();
+      if (!r.error) return r;
+      if (t < 3) await new Promise((res) => setTimeout(res, 400 * t));
+    }
+    return r;
+  };
+  const [rt, rc, rp, rpp] = await Promise.all([
+    tentar(() => supabase.from("tipos_treinamento").select("*").eq("status", "Ativo").order("nome")),
+    tentar(() => supabase.from("centros_treinamento").select("*").eq("status", "Ativo").order("nome")),
+    tentar(() => supabase.from("prazos_pagamento").select("id, descricao, status").order("descricao")),
+    tentar(() => supabase.from("prazos_pagamento_parcelas").select("prazo_pagamento_id, numero, dias, percentual").order("numero")),
+  ]);
+  const falhas = [];
+  if (rt.error) falhas.push("treinamentos"); else listaTiposAtivos = rt.data || [];
+  if (rc.error) falhas.push("centros de treinamento"); else listaCentrosAtivos = rc.data || [];
+  if (rp.error || rpp.error) falhas.push("prazos de pagamento");
+  else orcPrazosPagamento = (rp.data || []).map((p) => ({ ...p, parcelas: (rpp.data || []).filter((x) => x.prazo_pagamento_id === p.id).sort((a, b) => a.numero - b.numero) }));
+  if (!falhas.length) orcRefsCarregadoEm = Date.now();
+  return falhas;
+}
+
+// Garante que o treinamento e o centro gravados no orçamento apareçam no seletor mesmo se estiverem inativos.
+async function garantirReferenciasDoOrcamento(o) {
+  const incluir = async (tabela, id, lista) => {
+    if (!id || lista.some((x) => x.id === id)) return lista;
+    const { data } = await supabase.from(tabela).select("*").eq("id", id).maybeSingle();
+    return data ? [...lista, { ...data, nome: data.status && data.status !== "Ativo" ? `${data.nome} (inativo)` : data.nome }] : lista;
+  };
+  listaTiposAtivos = await incluir("tipos_treinamento", o.tipo_treinamento_id, listaTiposAtivos);
+  listaCentrosAtivos = await incluir("centros_treinamento", o.centro_treinamento_id, listaCentrosAtivos);
+}
+
+// Ao usar um seletor auxiliar com a lista vazia ou antiga (> 45 s), consulta o banco de novo e repovoa o seletor.
+async function atualizarSeletorAuxiliarOrcamento(selectId) {
+  const lista = selectId === "orc-tipo" ? listaTiposAtivos : selectId === "orc-centro" ? listaCentrosAtivos : orcPrazosPagamento;
+  if (lista.length > 0 && Date.now() - orcRefsCarregadoEm < 45000) return;
+  const sel = $(selectId);
+  if (sel.disabled) return;
+  const atual = sel.value;
+  const assinatura = () => (selectId === "orc-tipo" ? listaTiposAtivos : selectId === "orc-centro" ? listaCentrosAtivos : orcPrazosPagamento).map((x) => x.id).join(",");
+  const antes = assinatura();
+  const falhas = await carregarReferenciasOrcamento();
+  if (assinatura() === antes) { /* nada mudou: não mexe no seletor (evita fechar a lista aberta) */ }
+  else if (selectId === "orc-prazo") orcPreencherPrazos(atual);
+  else {
+    const nova = selectId === "orc-tipo" ? listaTiposAtivos : listaCentrosAtivos;
+    preencherSelect(selectId, nova, "id", (i) => i.nome, "— Selecione —");
+    sel.value = nova.some((x) => x.id === atual) ? atual : "";
+  }
+  if (falhas.length) mostrarErro("orc-form-erro", `Não foi possível carregar: ${falhas.join(", ")}. Verifique a conexão e tente novamente.`);
+}
+["orc-tipo", "orc-centro", "orc-prazo"].forEach((id) => {
+  $(id).addEventListener("mousedown", () => atualizarSeletorAuxiliarOrcamento(id));
+  $(id).addEventListener("focus", () => atualizarSeletorAuxiliarOrcamento(id));
+});
+
 async function carregarOrcamentos() {
   $("admin-descricao-pagina").textContent = "Registre orçamentos de treinamento por empresa. Ao criar um novo orçamento, as turmas já são geradas automaticamente.";
-  const [{ data: empresas, error: erroEmpresas }, { data: tipos }, { data: centros }, { data: prazos }] = await Promise.all([
+  const [{ data: empresas, error: erroEmpresas }, falhasRefs] = await Promise.all([
     buscarTodos(() => supabase.from("empresas").select("*").eq("status", "Ativo").order("nome").order("id")),
-    supabase.from("tipos_treinamento").select("*").eq("status", "Ativo").order("nome"),
-    supabase.from("centros_treinamento").select("*").eq("status", "Ativo").order("nome"),
-    supabase.from("prazos_pagamento").select("id, descricao, status").order("descricao"),
+    carregarReferenciasOrcamento(),
   ]);
-  const { data: parcelasPrazos } = await supabase.from("prazos_pagamento_parcelas").select("prazo_pagamento_id, numero, dias, percentual").order("numero");
-  orcPrazosPagamento = (prazos || []).map((p) => ({ ...p, parcelas: (parcelasPrazos || []).filter((x) => x.prazo_pagamento_id === p.id).sort((a, b) => a.numero - b.numero) }));
   listaEmpresasAtivas = empresas || [];
   orcEmpresasIncompleta = !!erroEmpresas;
   if (erroEmpresas) $("admin-descricao-pagina").textContent += " ⚠ A lista de clientes não carregou por completo; recarregue a página. (O cliente de um orçamento já gravado continua sendo exibido.)";
-  listaTiposAtivos = tipos || [];
-  listaCentrosAtivos = centros || [];
+  if (falhasRefs.length) $("admin-descricao-pagina").textContent += ` ⚠ Não foi possível carregar: ${falhasRefs.join(", ")}. Ao abrir o orçamento a lista será consultada de novo.`;
   $("btn-orc-novo").classList.toggle("hidden", !podeFazer("orcamentos", "incluir"));
   $("btn-orc-importar").classList.toggle("hidden", !podeFazer("orcamentos", "incluir"));
   $("btn-orc-historico").classList.toggle("hidden", !podeFazer("orcamentos", "incluir"));
@@ -6405,7 +6464,12 @@ async function salvarLinhasCalculoOrcamento(orcamentoId, calc) {
   }
 }
 
-function abrirNovoOrcamento() {
+async function abrirNovoOrcamento() {
+  const btn = $("btn-orc-novo");
+  if (btn.disabled) return;
+  btn.disabled = true;
+  let falhasRefs = [];
+  try { falhasRefs = await carregarReferenciasOrcamento(); } finally { btn.disabled = false; } // sempre busca as listas atuais no banco
   editandoOrcamentoId = null;
   orcEmpresaDoOrcamento = null;
   esconderErro("orc-form-erro");
@@ -6444,6 +6508,7 @@ function abrirNovoOrcamento() {
   $("orc-tag-numero").classList.add("hidden");
   $("btn-salvar-orcamento").textContent = "Salvar orçamento";
   abrirEditorOrcamento();
+  if (falhasRefs.length) mostrarErro("orc-form-erro", `Não foi possível carregar: ${falhasRefs.join(", ")}. Clique no campo para tentar de novo ou verifique a conexão.`);
   carregarTabelaTurmasOrcamento(null);
 }
 
@@ -6452,6 +6517,8 @@ async function abrirEdicaoOrcamento(id) {
   if (!o) return;
   editandoOrcamentoId = id;
   esconderErro("orc-form-erro");
+  const falhasRefs = await carregarReferenciasOrcamento(); // sempre busca as listas atuais no banco
+  await garantirReferenciasDoOrcamento(o);
   await garantirEmpresaDoOrcamento(o);
   orcEmpresaDoOrcamento = o.empresa_id || null;
   $("orc-numero").value = o.numero || "";
@@ -6501,6 +6568,7 @@ async function abrirEdicaoOrcamento(id) {
   $("orc-tag-numero").classList.remove("hidden");
   $("btn-salvar-orcamento").textContent = "Salvar alterações";
   abrirEditorOrcamento();
+  if (falhasRefs.length) mostrarErro("orc-form-erro", `Não foi possível carregar: ${falhasRefs.join(", ")}. Clique no campo para tentar de novo ou verifique a conexão.`);
   await Promise.all([
     carregarCalculoDoOrcamento(o).finally(() => { orcCalcCarregandoInicial = false; renderizarCalcOrcamento(); }),
     carregarTabelaTurmasOrcamento(id),

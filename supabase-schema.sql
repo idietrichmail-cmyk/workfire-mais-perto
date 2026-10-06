@@ -1155,3 +1155,5 @@ alter table instrutores
 -- Prod 1.38 · Documentos de Turmas: filtro "Turmas com documento" (alunos, fotos da turma ou lista de presença), marcado por padrão; a busca agora percorre todas as turmas (antes ficava limitada a 1000 de 7315). Sem alterações no banco.
 
 -- Prod 1.39 · Seletor de empresa do orçamento (e do agendamento): a busca por nome/fantasia/CNPJ também consulta o cadastro no servidor (3+ caracteres), cobrindo lista carregada desatualizada ou incompleta; mostra contagem de resultados. Sem alterações no banco.
+
+-- Prod 1.40 · Orçamento: Treinamento, Centro de Treinamento e Prazo de Pagamento (com parcelas) são consultados no banco a cada abertura do orçamento, com 3 tentativas e aviso em caso de falha; seletor vazio/antigo recarrega ao ser usado; treinamento/centro inativos do orçamento continuam aparecendo. Sem alterações no banco (permissões conferidas: quem consulta Orçamentos já lê essas tabelas).
