@@ -34,7 +34,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.40 · 06/10/2026";
+const APP_VERSAO = "Prod 1.41 · 06/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -8863,30 +8863,79 @@ $("agend-centro-select").addEventListener("change", async () => {
 
   const { data: orcs } = await buscarTodos(() => supabase
     .from("orcamentos")
-    .select("*, empresas(nome, cnpj, cnpj_grupo_economico), tipos_treinamento(nome)")
+    .select(SELECT_ORCAMENTO_AGEND_TURMA)
     .eq("centro_treinamento_id", agendTurmaCentroId)
     .order("created_at", { ascending: false })
     .order("id"));
   agendTurmaListaOrcamentos = orcs || [];
+  agendTurmaCentroOrcamentosQtd = agendTurmaListaOrcamentos.length;
   $("agend-orcamento-busca").value = "";
   $("agend-orcamento-busca").disabled = false;
   preencherSelectOrcamentosAgendTurma();
   $("agend-orcamento-select").disabled = false;
 });
 
+// O Centro de Treinamento escolhido na tela é onde o treinamento será REALIZADO: a lista
+// inicial traz os orçamentos cadastrados nesse CT, mas a busca (a partir de 3 letras) procura
+// em TODOS os orçamentos — o cliente pode ser de uma unidade e a turma agendada em outra.
+const SELECT_ORCAMENTO_AGEND_TURMA = "*, empresas(nome, nome_fantasia, cnpj, cnpj_grupo_economico), tipos_treinamento(nome)";
+let agendTurmaCentroOrcamentosQtd = 0;
+let agendOrcamentoBuscaTimer = null;
+
 // Filtra agendTurmaListaOrcamentos pelo texto digitado em "agend-orcamento-busca"
-// (número do orçamento ou nome da empresa) e repopula o select, preservando a
-// seleção atual quando ela continua presente no resultado filtrado.
+// (número do orçamento, razão social ou nome fantasia, sem diferenciar maiúsculas/acentos)
+// e repopula o select, preservando a seleção atual (mesmo que o filtro novo não a inclua).
 function preencherSelectOrcamentosAgendTurma() {
-  const filtro = ($("agend-orcamento-busca").value || "").trim().toLowerCase();
-  const filtrados = !filtro ? agendTurmaListaOrcamentos : agendTurmaListaOrcamentos.filter((o) =>
-    (o.numero || "").toLowerCase().includes(filtro) || (o.empresas?.nome || "").toLowerCase().includes(filtro)
+  const termo = textoBuscaTurma(($("agend-orcamento-busca").value || "").trim());
+  const filtrados = !termo ? agendTurmaListaOrcamentos : agendTurmaListaOrcamentos.filter((o) =>
+    textoBuscaTurma(o.numero).includes(termo) ||
+    textoBuscaTurma(o.empresas?.nome).includes(termo) ||
+    textoBuscaTurma(o.empresas?.nome_fantasia).includes(termo)
   );
   const valorAtual = $("agend-orcamento-select").value;
-  preencherSelect("agend-orcamento-select", filtrados, "id", (o) => `${o.numero} — ${o.empresas?.nome || "—"}`, "— Selecione —");
-  if (filtrados.some((o) => o.id === valorAtual)) $("agend-orcamento-select").value = valorAtual;
+  const opcoes = valorAtual && !filtrados.some((o) => o.id === valorAtual)
+    ? [agendTurmaListaOrcamentos.find((o) => o.id === valorAtual), ...filtrados].filter(Boolean) : filtrados;
+  preencherSelect("agend-orcamento-select", opcoes, "id", (o) => `${o.numero} — ${o.empresas?.nome || "—"}${o.empresas?.nome_fantasia ? ` (${o.empresas.nome_fantasia})` : ""}`, "— Selecione —");
+  if (opcoes.some((o) => o.id === valorAtual)) $("agend-orcamento-select").value = valorAtual;
+  const info = $("agend-orcamento-busca-info");
+  if (info) {
+    info.textContent = termo
+      ? (filtrados.length ? `${filtrados.length} orçamento(s) encontrado(s)` : (termo.length < 3 ? "Digite ao menos 3 letras para procurar em todos os orçamentos." : "Nenhum orçamento encontrado."))
+      : `${agendTurmaCentroOrcamentosQtd} orçamento(s) cadastrado(s) neste CT — digite para procurar em todos os orçamentos`;
+  }
 }
-$("agend-orcamento-busca").addEventListener("input", preencherSelectOrcamentosAgendTurma);
+
+// Busca no servidor (todos os orçamentos, de qualquer CT) e junta o resultado à lista da tela.
+function buscarOrcamentosAgendNoServidor() {
+  clearTimeout(agendOrcamentoBuscaTimer);
+  const termo = ($("agend-orcamento-busca").value || "").trim();
+  const t = termo.replace(/[,()*%\\"]/g, " ").replace(/\s+/g, " ").trim();
+  if (t.length < 3) return;
+  agendOrcamentoBuscaTimer = setTimeout(async () => {
+    const info = $("agend-orcamento-busca-info");
+    if (info) info.textContent = "Procurando em todos os orçamentos…";
+    const [{ data: porNumero, error: e1 }, { data: empresas, error: e2 }] = await Promise.all([
+      supabase.from("orcamentos").select(SELECT_ORCAMENTO_AGEND_TURMA).ilike("numero", `%${t}%`).order("created_at", { ascending: false }).limit(100),
+      supabase.from("empresas").select("id").or(`nome.ilike.%${t}%,nome_fantasia.ilike.%${t}%`).limit(300),
+    ]);
+    let porEmpresa = [];
+    let e3 = null;
+    const idsEmpresas = (empresas || []).map((e) => e.id);
+    if (idsEmpresas.length) {
+      ({ data: porEmpresa, error: e3 } = await supabase.from("orcamentos").select(SELECT_ORCAMENTO_AGEND_TURMA)
+        .in("empresa_id", idsEmpresas).order("created_at", { ascending: false }).limit(300));
+    }
+    if (($("agend-orcamento-busca").value || "").trim() !== termo) return; // o texto já mudou
+    if ((e1 || e2 || e3) && info) { info.textContent = "Não foi possível procurar em todos os orçamentos agora. Mostrando só a lista carregada."; }
+    const ja = new Set(agendTurmaListaOrcamentos.map((o) => o.id));
+    const novos = [...(porNumero || []), ...(porEmpresa || [])].filter((o, i, arr) => !ja.has(o.id) && arr.findIndex((x) => x.id === o.id) === i);
+    if (novos.length) agendTurmaListaOrcamentos = [...agendTurmaListaOrcamentos, ...novos];
+    const valorAtual = $("agend-orcamento-select").value;
+    preencherSelectOrcamentosAgendTurma();
+    if (valorAtual) $("agend-orcamento-select").value = valorAtual;
+  }, 400);
+}
+$("agend-orcamento-busca").addEventListener("input", () => { preencherSelectOrcamentosAgendTurma(); buscarOrcamentosAgendNoServidor(); });
 
 $("agend-orcamento-select").addEventListener("change", async () => {
   agendTurmaOrcamentoId = $("agend-orcamento-select").value || null;
@@ -8908,6 +8957,9 @@ $("agend-orcamento-select").addEventListener("change", async () => {
     <p><strong>Empresa:</strong> ${o?.empresas?.nome || "—"}</p>
     <p><strong>Treinamento:</strong> ${o?.tipos_treinamento?.nome || "—"}</p>
     <p><strong>Status do orçamento:</strong> ${o?.status || "—"}</p>
+    ${o && o.centro_treinamento_id && o.centro_treinamento_id !== agendTurmaCentroId
+      ? `<p class="text-amber-700"><strong>CT do cadastro:</strong> ${listaCentrosAtivos.find((c) => c.id === o.centro_treinamento_id)?.nome || "—"} — as turmas serão realizadas em ${listaCentrosAtivos.find((c) => c.id === agendTurmaCentroId)?.nome || "—"} (CT escolhido acima).</p>`
+      : ""}
     ${blocoObservacoesOrcamento(o)}
   `;
 
@@ -8943,6 +8995,19 @@ async function recarregarTurmasAgendTurma() {
     .eq("orcamento_id", agendTurmaOrcamentoId)
     .order("identificacao", { ascending: true });
   agendTurmasLista = (data || []).sort(compararIdentificacaoTurma);
+  // O CT escolhido na tela é onde o treinamento será realizado. Se a turma está cadastrada em
+  // outro CT, ela passa a ser tratada no CT da tela (a gravação só acontece ao solicitar a
+  // confirmação). Turmas com CT já aguardando/confirmado em outro centro não são trocadas.
+  agendTurmasLista.forEach((t) => {
+    t._centroMudara = false;
+    t._centroBloqueado = false;
+    if (!agendTurmaCentroId || t.centro_treinamento_id === agendTurmaCentroId) return;
+    if (["Cancelada", "Concluída"].includes(t.status)) return;
+    if (["Aguardando confirmação", "Agendado"].includes(t.agenda_ct)) { t._centroBloqueado = true; return; }
+    t._centroMudara = true;
+    t._centroOriginalId = t.centro_treinamento_id;
+    t.centro_treinamento_id = agendTurmaCentroId;
+  });
   agendTurmaAgendamentos.clear();
   const ids = agendTurmasLista.map((t) => t.id);
   if (ids.length) {
@@ -9159,6 +9224,18 @@ function celulaInstrutorSomenteLeitura(t, campo) {
     <div class="mt-0.5">${iconeRespostaInstrutor(resp) || textoAgendaItem(t[campo === "instrutor1" ? "agenda_instrutor1" : "agenda_instrutor2"])}</div>`;
 }
 
+// Aviso por turma quando o CT onde ela será realizada difere do CT do cadastro.
+function rotuloCentroAgendTurma(t) {
+  const nomeCentro = (id) => listaCentrosAtivos.find((c) => c.id === id)?.nome || "—";
+  if (t._centroMudara) {
+    return `<span class="text-[11px] text-amber-700" title="O CT da turma será gravado como ${nomeCentro(t.centro_treinamento_id)} ao solicitar a confirmação.">🏢 Realizada em ${nomeCentro(t.centro_treinamento_id)} (cadastro: ${t.centros_treinamento?.nome || nomeCentro(t._centroOriginalId)}) — será gravado ao solicitar confirmação</span>`;
+  }
+  if (t._centroBloqueado) {
+    return `<span class="text-[11px] text-rose-700" title="Desfaça a confirmação do CT atual antes de mudar de unidade.">⚠ CT em ${t.centros_treinamento?.nome || nomeCentro(t.centro_treinamento_id)} já aguardando/confirmado — não será trocado</span>`;
+  }
+  return "";
+}
+
 function renderizarListaAgendTurmas() {
   const cont = $("agend-turma-lista");
   if (agendTurmasLista.length === 0) {
@@ -9199,6 +9276,7 @@ function renderizarListaAgendTurmas() {
             Horário aula
             <input type="time" data-agend-turma-horario="${t.id}" value="${t.horario || ""}" title="Horário de início da aula — alterar aqui não afeta as demais turmas. Se algum instrutor já confirmou, ele recebe um aviso do novo horário." class="text-xs rounded-md border border-slate-300 px-2 py-1 w-[6.5rem]" />
           </label>
+          ${rotuloCentroAgendTurma(t)}
           ${turmaSomenteLocacao(t) ? "" : `<label class="flex items-center gap-1.5 text-[11px] text-slate-500">
             Horário deslocamento
             ${algumInstrutorConfirmouAgendTurma(t)
@@ -9430,6 +9508,10 @@ async function solicitarConfirmacaoAgendTurma() {
   const problemas = [];
   const prontas = [];
   selecionadas.forEach((t) => {
+    if (t._centroBloqueado) {
+      problemas.push(`Turma ${t.identificacao}: o CT ${t.centros_treinamento?.nome || ""} já está aguardando/confirmado e difere do CT escolhido na tela. Desfaça a confirmação do CT antes de mudar de unidade.`);
+      return;
+    }
     // Somente locação de espaço: não precisa de instrutor; só o CT confirma.
     if (turmaSomenteLocacao(t)) {
       if (!t.data_inicio) problemas.push(`Turma ${t.identificacao}: sem data definida.`);
@@ -9454,7 +9536,12 @@ async function solicitarConfirmacaoAgendTurma() {
   };
   const resumo = prontas.map(({ t, inst1, inst2, locacao }) =>
     `• Turma ${t.identificacao} (${formatarDataBr(t.data_inicio)}): ${locacao ? "locação de espaço — só confirmação do Centro de Treinamento" : [rotulo(t, inst1), rotulo(t, inst2)].filter(Boolean).join(" e ")}`).join("\n");
-  if (!confirm(`Enviar solicitação de confirmação para ${prontas.length} turma(s)?\n\n${resumo}\n\nO Centro de Treinamento também ficará "Aguardando confirmação".`)) return;
+  const mudancasCt = prontas.filter((p) => p.t._centroMudara).map((p) => p.t.identificacao);
+  const nomeCtTela = listaCentrosAtivos.find((c) => c.id === agendTurmaCentroId)?.nome || "";
+  const avisoCt = mudancasCt.length
+    ? `\n\nAtenção: o Centro de Treinamento da(s) turma(s) ${mudancasCt.join(", ")} será alterado para ${nomeCtTela} (o cadastro do orçamento é de outra unidade).`
+    : "";
+  if (!confirm(`Enviar solicitação de confirmação para ${prontas.length} turma(s)?\n\n${resumo}${avisoCt}\n\nO Centro de Treinamento também ficará "Aguardando confirmação".`)) return;
 
   const btn = $("btn-agend-solicitar-confirmacao");
   btn.disabled = true;
@@ -9465,6 +9552,11 @@ async function solicitarConfirmacaoAgendTurma() {
   const erros = [...problemas];
   const avisos = [];
   for (const { t, inst1, inst2, locacao } of prontas) {
+    if (t._centroMudara) {
+      const { error: eCt } = await supabase.from("turmas").update({ centro_treinamento_id: t.centro_treinamento_id }).eq("id", t.id);
+      if (eCt) { erros.push(`Turma ${t.identificacao}: não foi possível gravar o Centro de Treinamento (${eCt.message}).`); continue; }
+      t._centroMudara = false;
+    }
     if (!locacao) {
       const payload = {
         instrutor1_id: inst1,

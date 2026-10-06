@@ -1157,3 +1157,8 @@ alter table instrutores
 -- Prod 1.39 · Seletor de empresa do orçamento (e do agendamento): a busca por nome/fantasia/CNPJ também consulta o cadastro no servidor (3+ caracteres), cobrindo lista carregada desatualizada ou incompleta; mostra contagem de resultados. Sem alterações no banco.
 
 -- Prod 1.40 · Orçamento: Treinamento, Centro de Treinamento e Prazo de Pagamento (com parcelas) são consultados no banco a cada abertura do orçamento, com 3 tentativas e aviso em caso de falha; seletor vazio/antigo recarrega ao ser usado; treinamento/centro inativos do orçamento continuam aparecendo. Sem alterações no banco (permissões conferidas: quem consulta Orçamentos já lê essas tabelas).
+
+-- Prod 1.41 (06/10/2026): Agendamento de Turmas — o CT escolhido na tela é onde o treinamento será realizado
+-- (independe do CT do cadastro do orçamento). Busca de orçamentos em todos os CTs (número, razão social, nome
+-- fantasia). Ao solicitar a confirmação, o centro_treinamento_id das turmas selecionadas passa a ser o CT da tela
+-- (turmas com agenda_ct "Aguardando confirmação"/"Agendado" em outro CT ficam bloqueadas). Sem alteração de schema.

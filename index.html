@@ -633,7 +633,7 @@
         </div>
         <div class="mb-5 bg-white border border-slate-200 rounded-xl p-4">
           <div class="flex items-center justify-between gap-3 mb-1">
-            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Selecione o Centro de Treinamento</label>
+            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Centro de Treinamento onde o treinamento será realizado</label>
             <span id="auto-refresh-indicador" class="text-[11px] text-slate-400"></span>
           </div>
           <select id="agend-centro-select" class="mt-1 w-full max-w-md rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">
@@ -641,7 +641,8 @@
           </select>
 
           <label class="text-xs font-medium text-slate-500 uppercase tracking-wide mt-4 block">Selecione o orçamento</label>
-          <input id="agend-orcamento-busca" disabled placeholder="Buscar por número do orçamento ou nome da empresa" class="mt-1 w-full max-w-md rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 disabled:bg-slate-100" />
+          <input id="agend-orcamento-busca" disabled placeholder="Buscar em todos os orçamentos: número, empresa ou nome fantasia" class="mt-1 w-full max-w-md rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 disabled:bg-slate-100" />
+          <p id="agend-orcamento-busca-info" class="mt-1 text-[11px] text-slate-400"></p>
           <select id="agend-orcamento-select" disabled class="mt-2 w-full max-w-md rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 disabled:bg-slate-100">
             <option value="">— Selecione —</option>
           </select>
@@ -2146,6 +2147,6 @@
 </div>
 
 <script src="config.js"></script>
-<script src="app.js?v=20261006b"></script>
+<script src="app.js?v=20261006c"></script>
 </body>
 </html>
