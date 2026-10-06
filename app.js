@@ -34,7 +34,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.38 · 05/10/2026";
+const APP_VERSAO = "Prod 1.39 · 06/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -5082,9 +5082,14 @@ function preencherSelectEmpresa(selectId, lista, opcaoVazia) {
     busca.placeholder = "🔎 Digite nome, fantasia ou CNPJ para filtrar…";
     busca.className = "mt-1 w-full rounded-md border border-slate-300 px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500";
     sel.parentNode.insertBefore(busca, sel);
-    busca.addEventListener("input", () => filtrarSelectEmpresa(selectId));
+    const info = document.createElement("p");
+    info.id = `${selectId}-busca-info`;
+    info.className = "mt-0.5 text-[11px] text-slate-400";
+    sel.parentNode.insertBefore(info, sel);
+    busca.addEventListener("input", () => { filtrarSelectEmpresa(selectId); buscarEmpresasNoServidor(selectId); });
   }
   busca.value = "";
+  if ($(`${selectId}-busca-info`)) $(`${selectId}-busca-info`).textContent = "";
   preencherSelect(selectId, lista, "id", rotuloEmpresa, opcaoVazia);
 }
 function filtrarSelectEmpresa(selectId) {
@@ -5093,12 +5098,15 @@ function filtrarSelectEmpresa(selectId) {
   const termoDigitos = termo.replace(/\D/g, "");
   const atual = sel.value;
   const todas = sel._empresasLista || [];
+  const casa = (e) =>
+    (e.nome || "").toLowerCase().includes(termo) ||
+    (e.nome_fantasia || "").toLowerCase().includes(termo) ||
+    (termoDigitos.length >= 3 && (e.cnpj || "").replace(/\D/g, "").includes(termoDigitos));
   let lista = todas;
+  let achadas = 0;
   if (termo) {
-    lista = todas.filter((e) =>
-      (e.nome || "").toLowerCase().includes(termo) ||
-      (e.nome_fantasia || "").toLowerCase().includes(termo) ||
-      (termoDigitos.length >= 3 && (e.cnpj || "").replace(/\D/g, "").includes(termoDigitos)));
+    lista = todas.filter(casa);
+    achadas = lista.length;
     lista = lista.slice(0, 200);
     if (atual && !lista.some((e) => e.id === atual)) {
       const sel0 = todas.find((e) => e.id === atual);
@@ -5107,6 +5115,41 @@ function filtrarSelectEmpresa(selectId) {
   }
   preencherSelect(selectId, lista, "id", rotuloEmpresa, sel._empresasVazia);
   sel.value = atual && lista.some((e) => e.id === atual) ? atual : "";
+  const info = $(`${selectId}-busca-info`);
+  if (info) info.textContent = termo ? (achadas ? `${achadas} empresa(s) encontrada(s)${achadas > 200 ? " — mostrando as 200 primeiras, refine a busca" : ""}` : "Nenhuma empresa encontrada na lista carregada…") : "";
+}
+
+// A lista carregada no navegador pode estar desatualizada ou incompleta (empresa cadastrada depois, falha de rede
+// em alguma página). Por isso, ao digitar 3+ caracteres, a busca também consulta o cadastro no servidor
+// (nome, fantasia ou CNPJ) e acrescenta ao seletor o que ainda não estava na lista.
+const empresaBuscaTimers = {};
+function buscarEmpresasNoServidor(selectId) {
+  clearTimeout(empresaBuscaTimers[selectId]);
+  const busca = $(`${selectId}-busca`);
+  if (!busca || busca.value.trim().length < 3) return;
+  empresaBuscaTimers[selectId] = setTimeout(async () => {
+    const termo = busca.value.trim();
+    const t = termo.replace(/[,()*%\\]/g, " ").replace(/\s+/g, " ").trim();
+    if (t.length < 3) return;
+    const filtros = [`nome.ilike.%${t}%`, `nome_fantasia.ilike.%${t}%`];
+    const dig = termo.replace(/\D/g, "");
+    if (dig.length >= 3 && /^[\d.\/\-\s]+$/.test(termo)) filtros.push(`cnpj_digitos.like.%${dig}%`);
+    const { data, error } = await supabase.from("empresas").select("*").eq("status", "Ativo").or(filtros.join(",")).order("nome").limit(50);
+    if (error || !data || busca.value.trim() !== termo) return; // falhou ou o texto já mudou
+    const sel = $(selectId);
+    const todas = sel._empresasLista || [];
+    const ja = new Set(todas.map((e) => e.id));
+    const novas = data.filter((e) => !ja.has(e.id));
+    if (novas.length) {
+      sel._empresasLista = [...novas, ...todas];
+      const jaGlobal = new Set(listaEmpresasAtivas.map((e) => e.id));
+      const novasGlobal = novas.filter((e) => !jaGlobal.has(e.id));
+      if (novasGlobal.length) listaEmpresasAtivas = [...novasGlobal, ...listaEmpresasAtivas]; // preenchimento de contato/endereço usa esta lista
+    }
+    filtrarSelectEmpresa(selectId);
+    const info = $(`${selectId}-busca-info`);
+    if (info && !data.length && !novas.length && /^Nenhuma/.test(info.textContent)) info.textContent = "Nenhuma empresa encontrada.";
+  }, 400);
 }
 // Define a empresa escolhida mesmo que o filtro esteja escondendo-a.
 function definirEmpresaSelect(selectId, id) {

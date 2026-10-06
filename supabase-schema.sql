@@ -1153,3 +1153,5 @@ alter table instrutores
 -- Prod 1.37 · Turmas por Orçamento: a atualização automática (a cada 5 s) reaplicava a ordem alfabética do banco (A1, AA1, AB1...); agora mantém A1..Z1, AA1, AB1... Sem alterações no banco.
 
 -- Prod 1.38 · Documentos de Turmas: filtro "Turmas com documento" (alunos, fotos da turma ou lista de presença), marcado por padrão; a busca agora percorre todas as turmas (antes ficava limitada a 1000 de 7315). Sem alterações no banco.
+
+-- Prod 1.39 · Seletor de empresa do orçamento (e do agendamento): a busca por nome/fantasia/CNPJ também consulta o cadastro no servidor (3+ caracteres), cobrindo lista carregada desatualizada ou incompleta; mostra contagem de resultados. Sem alterações no banco.
