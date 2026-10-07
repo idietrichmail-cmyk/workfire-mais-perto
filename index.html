@@ -669,6 +669,7 @@
             <div class="flex flex-wrap items-center gap-2">
               <button id="btn-agend-verificar-disponibilidade" class="inline-flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium px-4 py-2 rounded-md">Verificar disponibilidade</button>
               <button id="btn-agend-solicitar-confirmacao" class="inline-flex items-center gap-2 bg-amber-600 hover:bg-amber-700 text-white text-sm font-medium px-4 py-2 rounded-md disabled:opacity-50">✉️ Solicitar confirmação</button>
+              <button id="btn-agend-cancelar" class="inline-flex items-center gap-2 bg-white hover:bg-rose-50 text-rose-700 border border-rose-300 text-sm font-medium px-4 py-2 rounded-md disabled:opacity-50">🚫 Cancelar agendamento</button>
             </div>
           </div>
           <div id="agend-solicitacao-resultado" class="hidden mb-3 text-sm rounded-md px-3 py-2"></div>
@@ -921,6 +922,18 @@
             <button id="btn-cct-definitivos-limpar" type="button" class="text-xs text-sky-700 hover:underline">marcar tudo como visto</button>
           </div>
           <div id="cct-definitivos-lista" class="space-y-1.5"></div>
+        </div>
+
+        <!-- Turmas cujo agendamento foi cancelado (instrutores também são avisados) -->
+        <div id="cct-cancelados-bloco" class="hidden mb-5 bg-rose-50 border border-rose-200 rounded-xl p-4">
+          <div class="flex items-center justify-between gap-3 mb-3">
+            <h3 class="text-sm font-semibold text-rose-800 flex items-center gap-2">
+              🚫 Agendamentos cancelados
+              <span id="cct-cancelados-badge" class="text-[11px] font-medium bg-rose-600 text-white px-2 py-0.5 rounded-full">0</span>
+            </h3>
+            <button id="btn-cct-cancelados-limpar" type="button" class="text-xs text-rose-700 hover:underline">marcar tudo como visto</button>
+          </div>
+          <div id="cct-cancelados-lista" class="space-y-1.5"></div>
         </div>
 
         <div class="mb-5 bg-white border border-slate-200 rounded-xl p-4 flex flex-wrap items-end gap-4">
@@ -1355,6 +1368,22 @@
         </thead>
         <tbody id="anexo-atividade-lista"></tbody>
       </table>
+    </div>
+  </div>
+
+  <!-- Modal: Cancelar agendamento de turmas -->
+  <div id="modal-cancelar-agend" class="hidden fixed inset-0 z-[60] bg-slate-900/60 flex items-center justify-center p-4">
+    <div class="bg-white rounded-lg shadow-xl w-full max-w-lg p-5">
+      <h3 class="font-serif text-lg text-slate-900">Cancelar agendamento</h3>
+      <p class="text-sm text-slate-600 mt-1">A data e o horário das turmas são mantidos; elas voltam para <b>Não agendado</b>, os instrutores são removidos (e avisados) e o Centro de Treinamento é informado.</p>
+      <div id="cancagend-resumo" class="mt-3 max-h-40 overflow-y-auto text-xs text-slate-700 bg-slate-50 border border-slate-200 rounded-md p-2 space-y-1"></div>
+      <label for="cancagend-motivo" class="block text-xs font-medium text-slate-600 mt-3">Motivo do cancelamento <span class="text-rose-500">*</span></label>
+      <textarea id="cancagend-motivo" rows="3" maxlength="500" class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-rose-500"></textarea>
+      <p id="cancagend-erro" class="hidden text-sm text-rose-600 mt-1"></p>
+      <div class="flex justify-end gap-2 mt-4">
+        <button type="button" id="btn-cancagend-voltar" class="px-4 py-1.5 text-sm font-medium text-slate-600 border border-slate-300 rounded-md hover:bg-slate-50">Voltar</button>
+        <button type="button" id="btn-cancagend-confirmar" class="px-4 py-1.5 text-sm font-medium text-white bg-rose-600 hover:bg-rose-700 rounded-md disabled:opacity-50">Cancelar agendamento</button>
+      </div>
     </div>
   </div>
 
@@ -2147,6 +2176,6 @@
 </div>
 
 <script src="config.js"></script>
-<script src="app.js?v=20261006c"></script>
+<script src="app.js?v=20261006d"></script>
 </body>
 </html>

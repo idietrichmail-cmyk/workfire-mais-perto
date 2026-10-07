@@ -1162,3 +1162,35 @@ alter table instrutores
 -- (independe do CT do cadastro do orçamento). Busca de orçamentos em todos os CTs (número, razão social, nome
 -- fantasia). Ao solicitar a confirmação, o centro_treinamento_id das turmas selecionadas passa a ser o CT da tela
 -- (turmas com agenda_ct "Aguardando confirmação"/"Agendado" em outro CT ficam bloqueadas). Sem alteração de schema.
+
+-- Rotina diária do 3S (Relatório Treinamentos): tabela de controle com o último dia de criação de orçamentos
+-- já exportado. RLS ligada e sem policies (só service role/MCP acessa; o app não lê nem grava aqui).
+create table if not exists public.rotina_controle (
+  rotina text primary key,
+  ultimo_dia_ok date,
+  atualizado_em timestamptz not null default now(),
+  observacao text
+);
+alter table public.rotina_controle enable row level security;
+-- insert into public.rotina_controle (rotina, ultimo_dia_ok) values ('relatorio-3s-criacao', '2026-10-05');
+
+-- ===========================================================
+-- Prod 1.42 — Cancelar agendamento de turmas (06/10/2026)
+-- Botão "Cancelar agendamento" em Agendamento de Turmas (motivo obrigatório).
+-- A turma mantém data/horário, volta a "Não agendado" (agenda_ct / agenda_instrutorN = 'A agendar',
+-- instrutor1_id/instrutor2_id = null), os dias dos instrutores são liberados e eles recebem push
+-- (edge function notificar-agenda). O CT é avisado no bloco "Agendamentos cancelados" da
+-- Confirmação do CT (tabela abaixo; visto_ct = false até "marcar como visto").
+-- Obs.: a função NÃO toca em eh_pre_agendamento (evita disparar trg_notificar_pre_agendamento_definitivo).
+-- Tabela sem FKs de propósito (histórico preservado mesmo se a turma for excluída).
+-- ===========================================================
+-- create table public.turma_agendamento_cancelamentos (
+--   id uuid primary key default gen_random_uuid(),
+--   turma_id uuid not null, centro_treinamento_id uuid, data_inicio date,
+--   motivo text not null, instrutores text[] not null default '{}',
+--   ct_situacao_anterior text, usuario_sistema_id uuid,
+--   criado_em timestamptz not null default now(),
+--   visto_ct boolean not null default false, visto_em timestamptz);
+-- RLS ativa, com policies de select/update (pode_acessar_tabela / admin).
+-- function public.cancelar_agendamento_turmas(p_turma_ids uuid[], p_motivo text) returns jsonb
+--   (security definer; retorna {canceladas, instrutores_avisados, ignoradas[]}); definição completa no banco.

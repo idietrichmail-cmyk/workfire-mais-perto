@@ -34,7 +34,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.41 · 06/10/2026";
+const APP_VERSAO = "Prod 1.42 · 06/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -9605,6 +9605,74 @@ async function solicitarConfirmacaoAgendTurma() {
 }
 $("btn-agend-solicitar-confirmacao").addEventListener("click", solicitarConfirmacaoAgendTurma);
 
+// -----------------------------------------------------------
+// Cancelar agendamento das turmas selecionadas (RPC cancelar_agendamento_turmas):
+// mantém data/horário, volta a "Não agendado", remove os instrutores (que recebem
+// push), libera os dias e deixa um aviso para o Centro de Treinamento.
+// -----------------------------------------------------------
+function turmaTemAgendamentoParaCancelar(t) {
+  return ["Aguardando confirmação", "Agendado"].includes(t.agenda_ct) || !!t.instrutor1_id || !!t.instrutor2_id ||
+    (t.status_agendamento && t.status_agendamento !== "Não agendado");
+}
+
+function abrirModalCancelarAgend() {
+  const selecionadas = agendTurmasLista.filter((t) => agendTurmaSelecionadas.has(t.id));
+  if (selecionadas.length === 0) return alert("Selecione ao menos uma turma para cancelar o agendamento.");
+  const comAgend = selecionadas.filter(turmaTemAgendamentoParaCancelar);
+  if (comAgend.length === 0) return mostrarResultadoSolicitacao("As turmas selecionadas não têm agendamento a cancelar.", false);
+  const nomeInst = (id) => listaInstrutoresAtivos.find((i) => i.id === id)?.nome || "";
+  $("cancagend-resumo").innerHTML = comAgend.map((t) => {
+    const insts = [t.instrutor1_id, t.instrutor2_id].filter(Boolean).map(nomeInst).filter(Boolean);
+    return `<div><span class="font-mono">${t.identificacao || "—"}</span>${t.data_inicio ? ` · ${formatarDataBr(t.data_inicio)}` : ""} · CT: ${t.agenda_ct || "—"}${insts.length ? ` · Instrutor(es): ${insts.join(", ")}` : ""}</div>`;
+  }).join("");
+  $("cancagend-motivo").value = "";
+  $("cancagend-erro").classList.add("hidden");
+  $("modal-cancelar-agend").dataset.turmas = JSON.stringify(comAgend.map((t) => t.id));
+  $("modal-cancelar-agend").classList.remove("hidden");
+  setTimeout(() => $("cancagend-motivo").focus(), 30);
+}
+function fecharModalCancelarAgend() { $("modal-cancelar-agend").classList.add("hidden"); }
+
+async function confirmarCancelarAgend() {
+  const erro = $("cancagend-erro");
+  erro.classList.add("hidden");
+  const motivo = $("cancagend-motivo").value.trim();
+  if (motivo.length < 3) { erro.textContent = "Informe o motivo do cancelamento."; erro.classList.remove("hidden"); return; }
+  let ids = [];
+  try { ids = JSON.parse($("modal-cancelar-agend").dataset.turmas || "[]"); } catch (_) { ids = []; }
+  if (ids.length === 0) return fecharModalCancelarAgend();
+  const btn = $("btn-cancagend-confirmar");
+  btn.disabled = true;
+  btn.textContent = "Cancelando…";
+  try {
+    const { data, error } = await supabase.rpc("cancelar_agendamento_turmas", { p_turma_ids: ids, p_motivo: motivo });
+    if (error) throw error;
+    const r = data || {};
+    fecharModalCancelarAgend();
+    ids.forEach((id) => { agendTurmaInstrutores.delete(id); agendTurmaCentroStatus.delete(id); });
+    await recarregarTurmasAgendTurma();
+    const { data: insts } = await supabase.from("instrutores").select("*").eq("status", "Ativo").order("nome");
+    listaInstrutoresAtivos = insts || listaInstrutoresAtivos;
+    renderizarListaAgendTurmas();
+    const ign = (r.ignoradas || []).map((i) => `Turma ${i.identificacao || i.turma_id}: ${i.motivo}`);
+    mostrarResultadoSolicitacao(
+      `<strong>${r.canceladas || 0}</strong> turma(s) com agendamento cancelado; o Centro de Treinamento foi informado na tela de Confirmação do CT.` +
+      `<br><strong>${r.instrutores_avisados || 0}</strong> instrutor(es) avisado(s) pelo app Agenda de Instrutores.` +
+      (ign.length ? `<br><span class="text-slate-600">${ign.join("<br>")}</span>` : ""),
+      (r.canceladas || 0) > 0
+    );
+  } catch (e) {
+    erro.textContent = "Não foi possível cancelar: " + (e?.message || "erro desconhecido");
+    erro.classList.remove("hidden");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Cancelar agendamento";
+  }
+}
+$("btn-agend-cancelar").addEventListener("click", abrirModalCancelarAgend);
+$("btn-cancagend-voltar").addEventListener("click", fecharModalCancelarAgend);
+$("btn-cancagend-confirmar").addEventListener("click", confirmarCancelarAgend);
+
 function formatarDataBr(iso) {
   if (!iso) return "—";
   const [a, m, d] = iso.split("-");
@@ -9638,6 +9706,7 @@ async function carregarConfirmacaoCtInit() {
   cctDiaSelecionado = null;
   cctAutoSelecionarDia = true;
   await carregarTurmasPreAgendamentoDefinitivo();
+  await carregarAgendamentosCancelados();
   await carregarListaConfirmacaoCt();
 }
 
@@ -9694,6 +9763,79 @@ async function marcarPreAgendamentoDefinitivoVisto(ids) {
 
 $("btn-cct-definitivos-limpar").addEventListener("click", () =>
   marcarPreAgendamentoDefinitivoVisto(turmasPreAgendamentoDefinitivo.map((t) => t.id)));
+
+// -----------------------------------------------------------
+// Aviso para o Centro de Treinamento: agendamentos de turmas cancelados
+// (botão "Cancelar agendamento" da tela Agendamento de Turmas). Fica na tela até
+// ser marcado como visto; se um CT estiver escolhido, mostra só os dele.
+// -----------------------------------------------------------
+let agendamentosCancelados = [];
+
+async function carregarAgendamentosCancelados(forcar = true) {
+  const { data, error } = await supabase
+    .from("turma_agendamento_cancelamentos")
+    .select("id, turma_id, centro_treinamento_id, data_inicio, motivo, instrutores, criado_em")
+    .eq("visto_ct", false)
+    .order("criado_em", { ascending: false });
+  if (error) {
+    console.warn("Não foi possível carregar os agendamentos cancelados:", error.message);
+    return;
+  }
+  const lista = data || [];
+  if (!forcar && !dadosMudaram("agendamentosCancelados", lista)) return;
+  if (forcar) dadosMudaram("agendamentosCancelados", lista);
+  // Nomes de turma/empresa/CT em consultas separadas (a tabela não tem FKs).
+  const turmaIds = [...new Set(lista.map((c) => c.turma_id).filter(Boolean))];
+  const turmas = new Map();
+  if (turmaIds.length) {
+    const { data: ts } = await supabase.from("turmas").select("id, identificacao, orcamentos(numero, empresas(nome))").in("id", turmaIds);
+    (ts || []).forEach((t) => turmas.set(t.id, t));
+  }
+  agendamentosCancelados = lista.map((c) => ({
+    ...c,
+    turma: turmas.get(c.turma_id) || null,
+    centro_nome: listaCentrosAtivos.find((x) => x.id === c.centro_treinamento_id)?.nome || "",
+  }));
+  renderizarAgendamentosCancelados();
+}
+
+function renderizarAgendamentosCancelados() {
+  const bloco = $("cct-cancelados-bloco");
+  const centroId = $("cct-centro-select").value;
+  const visiveis = agendamentosCancelados.filter((c) => !centroId || c.centro_treinamento_id === centroId);
+  if (visiveis.length === 0) {
+    bloco.classList.add("hidden");
+    return;
+  }
+  bloco.classList.remove("hidden");
+  $("cct-cancelados-badge").textContent = String(visiveis.length);
+  const esc = (v) => String(v ?? "").replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
+  $("cct-cancelados-lista").innerHTML = visiveis.map((c) => `
+    <div class="flex items-start justify-between gap-3 text-xs bg-white border border-rose-100 rounded-md px-3 py-2">
+      <span>
+        <span class="font-mono text-slate-700">${esc(c.turma?.identificacao) || "—"}</span>
+        — ${esc(c.turma?.orcamentos?.empresas?.nome) || "—"} · ${esc(c.centro_nome) || "—"}${c.data_inicio ? ` · ${formatarDataBr(c.data_inicio)}` : ""}
+        <span class="block text-slate-600">Motivo: ${esc(c.motivo)}</span>
+        ${(c.instrutores || []).length ? `<span class="block text-slate-500">Instrutor(es) avisado(s): ${esc((c.instrutores || []).join(", "))}</span>` : ""}
+      </span>
+      <button data-cct-cancelado-visto="${c.id}" class="text-rose-700 hover:underline whitespace-nowrap">marcar como visto</button>
+    </div>
+  `).join("");
+  $("cct-cancelados-lista").querySelectorAll("[data-cct-cancelado-visto]").forEach((el) =>
+    el.addEventListener("click", () => marcarAgendamentosCanceladosVisto([el.getAttribute("data-cct-cancelado-visto")])));
+}
+
+async function marcarAgendamentosCanceladosVisto(ids) {
+  if (!ids.length) return;
+  await supabase.from("turma_agendamento_cancelamentos").update({ visto_ct: true, visto_em: new Date().toISOString() }).in("id", ids);
+  await carregarAgendamentosCancelados();
+}
+
+$("btn-cct-cancelados-limpar").addEventListener("click", () => {
+  const centroId = $("cct-centro-select").value;
+  marcarAgendamentosCanceladosVisto(agendamentosCancelados.filter((c) => !centroId || c.centro_treinamento_id === centroId).map((c) => c.id));
+});
+$("cct-centro-select").addEventListener("change", renderizarAgendamentosCancelados);
 
 async function carregarListaConfirmacaoCt(forcar = true) {
   const centroId = $("cct-centro-select").value;
@@ -10525,6 +10667,7 @@ async function refreshAgendamentoTurmas() {
 
 async function refreshConfirmacaoCt() {
   await carregarTurmasPreAgendamentoDefinitivo(false);
+  await carregarAgendamentosCancelados(false);
   if (!$("cct-centro-select").value) return;
   await carregarListaConfirmacaoCt(false);
 }
