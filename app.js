@@ -34,7 +34,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.42 · 06/10/2026";
+const APP_VERSAO = "Prod 1.43 · 09/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -6052,7 +6052,17 @@ function calcularOrcamento() {
   const imposto = Number($("orc-perc-imposto").value) || 0;
   const pctCusto = 1 - (apoio + margem + imposto) / 100;
   const valido = pctCusto > 0.000001;
-  const valorTurma = valido ? custo / pctCusto : 0;
+  // Margem garantida: vale a MAIOR entre a margem pelo % aplicado e o valor mínimo de margem por turma
+  // (R$) do cadastro do treinamento. Margem = valor da turma − custo − apoio − imposto.
+  const tipo = listaTiposAtivos.find((t) => t.id === $("orc-tipo").value);
+  const minPerc = tipo ? Number(tipo.perc_margem_minima) || 0 : 0;
+  const minValor = tipo ? Number(tipo.valor_margem_minimo) || 0 : 0;
+  const valorTurmaPerc = valido ? custo / pctCusto : 0;
+  const fatorLiquido = 1 - (apoio + imposto) / 100;                      // sobra após apoio e imposto
+  const valorTurmaMinimo = valido && minValor > 0 && custo > 0 ? (custo + minValor) / fatorLiquido : 0;
+  const margemMinimaAplicada = valido && valorTurmaMinimo > valorTurmaPerc + 0.005;
+  const valorTurma = margemMinimaAplicada ? valorTurmaMinimo : valorTurmaPerc;
+  const pctCustoEfetivo = valorTurma > 0 ? custo / valorTurma : pctCusto;
   const total = valorTurma * q.turmas;
   // Desconto: o usuário informa o percentual OU o valor em R$ (o outro é calculado).
   let desconto, valorDesc;
@@ -6069,17 +6079,16 @@ function calcularOrcamento() {
   const margemTurma = finalTurma * (1 - (apoio + imposto) / 100) - custo;
   const margemPerc = finalTurma > 0 ? margemTurma / finalTurma * 100 : 0;
   // Margem mínima do treinamento (percentual e/ou valor por turma): abaixo de qualquer uma, precisa de aprovação do gestor.
-  const tipo = listaTiposAtivos.find((t) => t.id === $("orc-tipo").value);
-  const minPerc = tipo ? Number(tipo.perc_margem_minima) || 0 : 0;
-  const minValor = tipo ? Number(tipo.valor_margem_minimo) || 0 : 0;
   const abaixoPerc = minPerc > 0 && r2(margemPerc) < r2(minPerc);
   const abaixoValor = minValor > 0 && r2(margemTurma) < r2(minValor);
   const precisaAprovacao = itens.length > 0 && valido && (abaixoPerc || abaixoValor);
   return {
-    q, itens, custo, apoio, margem, imposto, desconto, pctCusto, valido, valorTurma, total, valorDesc, final,
+    q, itens, custo, apoio, margem, imposto, desconto, pctCusto, pctCustoEfetivo, margemMinimaAplicada, valorTurmaPerc, valido, valorTurma, total, valorDesc, final,
     finalTurma, margemTurma, margemPerc, margemTotal: margemTurma * q.turmas, minPerc, minValor, abaixoPerc, abaixoValor, precisaAprovacao,
     descontoInvalido: valorDesc > total + 0.005 || desconto > 100.0001,
-    apoioV: valorTurma * apoio / 100, impostoV: valorTurma * imposto / 100, margemV: valorTurma * margem / 100,
+    apoioV: valorTurma * apoio / 100, impostoV: valorTurma * imposto / 100,
+    margemV: valorTurma - custo - valorTurma * (apoio + imposto) / 100,
+    margemEfetivaPerc: valorTurma > 0 ? (valorTurma - custo - valorTurma * (apoio + imposto) / 100) / valorTurma * 100 : margem,
     porAluno: q.alunosPorTurma ? valorTurma / q.alunosPorTurma : 0,
     finalAluno: q.alunos ? final / q.alunos : 0,
   };
@@ -6285,10 +6294,12 @@ function recalcularOrcamentoTela() {
   aviso.classList.toggle("hidden", c.valido);
   if (!c.valido) aviso.textContent = "A soma de apoio, margem e imposto precisa ser menor que 100%.";
   $("orc-r-custo").textContent = fmtBRL(c.custo);
-  $("orc-r-pct-custo").textContent = c.valido ? fmtPercOrc(c.pctCusto * 100) : "—";
+  $("orc-r-pct-custo").textContent = c.valido ? fmtPercOrc(c.pctCustoEfetivo * 100) : "—";
   $("orc-r-apoio").textContent = `${fmtBRL(c.apoioV)} · ${fmtPercOrc(c.apoio)}`;
   $("orc-r-imposto").textContent = `${fmtBRL(c.impostoV)} · ${fmtPercOrc(c.imposto)}`;
-  $("orc-r-margem").textContent = `${fmtBRL(c.margemV)} · ${fmtPercOrc(c.margem)}`;
+  $("orc-r-margem").textContent = c.margemMinimaAplicada
+    ? `${fmtBRL(c.margemV)} · ${fmtPercOrc(c.margemEfetivaPerc)} (margem mínima de ${fmtBRL(c.minValor)} aplicada; pelo % seria ${fmtPercOrc(c.margem)})`
+    : `${fmtBRL(c.margemV)} · ${fmtPercOrc(c.margem)}`;
   $("orc-r-turma").textContent = fmtBRL(c.valorTurma);
   $("orc-r-por-aluno").textContent = fmtBRL(c.porAluno);
   $("orc-r-qt").textContent = c.q.turmas;

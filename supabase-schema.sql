@@ -1194,3 +1194,12 @@ alter table public.rotina_controle enable row level security;
 -- RLS ativa, com policies de select/update (pode_acessar_tabela / admin).
 -- function public.cancelar_agendamento_turmas(p_turma_ids uuid[], p_motivo text) returns jsonb
 --   (security definer; retorna {canceladas, instrutores_avisados, ignoradas[]}); definição completa no banco.
+
+-- ===========================================================
+-- Prod 1.43 — Cálculo do orçamento garante a margem mínima em R$ (09/10/2026)
+-- Sem alteração de banco. No app (calcularOrcamento): o valor da turma passa a ser o MAIOR entre
+--   (a) custo ÷ (100% − apoio − imposto − % de margem)            -- pelo % de margem aplicado
+--   (b) (custo + tipos_treinamento.valor_margem_minimo) ÷ (100% − apoio − imposto)  -- margem mínima em R$ por turma
+-- ou seja, a margem de cada turma nunca fica abaixo de valor_margem_minimo. A aprovação do gestor
+-- (margem final após desconto abaixo de perc_margem_minima / valor_margem_minimo) continua igual.
+-- ===========================================================
