@@ -34,7 +34,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.43 · 09/10/2026";
+const APP_VERSAO = "Prod 1.44 · 09/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -581,6 +581,7 @@ function rotuloCategoriaTreinamento(id) {
   return c ? `🗃️ ${c.codigo} — ${c.descricao}` : null;
 }
 
+const usuarioEhAdmin = () => !!(usuarioSistemaAtual && usuarioSistemaAtual.role === "admin");
 function podeFazer(modulo, acao) {
   if (usuarioSistemaAtual && usuarioSistemaAtual.role === "admin") return true;
   // "Aprovações de Reembolso" não usa a grade de permissões padrão: quem vê
@@ -5830,7 +5831,7 @@ function renderizarFiltroStatusOrcamento() {
 
 function renderizarListaOrcamentos() {
   const podeAlterar = podeFazer("orcamentos", "alterar");
-  const podeExcluir = podeFazer("orcamentos", "excluir");
+  const podeExcluir = usuarioEhAdmin();
   const lista = listaOrcamentos;
   const cont = $("orc-lista");
   renderizarPaginadores(["orc-paginacao-topo", "orc-paginacao"], orcPagina, orcTotal, ORC_TAMANHO_PAGINA, "orc", irParaPaginaOrcamentos);
@@ -6483,6 +6484,7 @@ async function abrirNovoOrcamento() {
   try { falhasRefs = await carregarReferenciasOrcamento(); } finally { btn.disabled = false; } // sempre busca as listas atuais no banco
   editandoOrcamentoId = null;
   orcEmpresaDoOrcamento = null;
+  $("btn-orc-excluir-editor").classList.add("hidden");
   esconderErro("orc-form-erro");
   $("orc-numero").value = "";
   $("orc-numero").disabled = false;
@@ -6578,6 +6580,7 @@ async function abrirEdicaoOrcamento(id) {
   $("orc-tag-numero").textContent = o.numero || "";
   $("orc-tag-numero").classList.remove("hidden");
   $("btn-salvar-orcamento").textContent = "Salvar alterações";
+  $("btn-orc-excluir-editor").classList.toggle("hidden", !usuarioEhAdmin());
   abrirEditorOrcamento();
   if (falhasRefs.length) mostrarErro("orc-form-erro", `Não foi possível carregar: ${falhasRefs.join(", ")}. Clique no campo para tentar de novo ou verifique a conexão.`);
   await Promise.all([
@@ -6606,7 +6609,6 @@ function transporteAplicavel(t) {
 // Data, Instrutor 1, Instrutor 2 e Empresa de Transporte (ou "N/A" quando o formato do dia não exige
 // deslocamento) são editáveis aqui e gravam automaticamente ao alterar.
 let orcTurmasGrupos = [];   // [{ letra, linhas }]
-let orcTurmaAtiva = 0;
 let orcTurmasRef = { instrutores: [], transportadoras: [] };
 
 function agruparTurmasOrcamento(turmas) {
@@ -6622,7 +6624,9 @@ function agruparTurmasOrcamento(turmas) {
     .map(([letra, itens]) => ({ letra, linhas: itens.sort((a, b) => a.n - b.n).map((x) => x.t) }));
 }
 
+let orcTurmasOrcId = null;
 async function carregarTabelaTurmasOrcamento(orcamentoId) {
+  if (orcTurmasOrcId !== orcamentoId) { orcTurmasOrcId = orcamentoId; orcTurmasPagina = 1; }
   if (!orcamentoId) {
     orcTurmasGrupos = [];
     renderizarDockTurmas("As turmas são geradas automaticamente quando você salvar o orçamento.");
@@ -6636,9 +6640,12 @@ async function carregarTabelaTurmasOrcamento(orcamentoId) {
   listaInstrutoresAtivos = insts || [];
   orcTurmasRef = { instrutores: insts || [], transportadoras: transportadoras || [] };
   orcTurmasGrupos = agruparTurmasOrcamento(data || []);
-  if (orcTurmaAtiva >= orcTurmasGrupos.length) orcTurmaAtiva = 0;
   renderizarDockTurmas("Este orçamento ainda não tem turmas geradas.");
 }
+
+const ORC_TURMAS_TAMANHO_PAGINA = 10;
+let orcTurmasPagina = 1;
+const orcTurmasListaPlana = () => orcTurmasGrupos.flatMap((g) => g.linhas);
 
 function atualizarNotaDockTurmas() {
   const nota = $("orc-turmas-nota");
@@ -6646,40 +6653,44 @@ function atualizarNotaDockTurmas() {
   orcAtualizarAbas();
   if (orcTurmasGrupos.length === 0) { nota.textContent = ""; return; }
   const c = calcularOrcamento();
-  const g = orcTurmasGrupos[orcTurmaAtiva];
-  nota.textContent = `Turma ${g ? g.letra : "—"} de ${orcTurmasGrupos.length}` +
-    (c.q.alunos > 0 ? ` · ${c.q.alunosPorTurma} alunos` : "") +
+  nota.textContent = `${orcTurmasGrupos.length} turma(s) · ${orcTurmasListaPlana().length} dia(s)` +
+    (c.q.alunos > 0 ? ` · ${c.q.alunosPorTurma} alunos por turma` : "") +
     (orcLinhasCalc.length && c.valido ? ` · valor da turma ${fmtBRL(c.valorTurma)}` : "");
+}
+
+function irParaPaginaTurmasOrc(p) {
+  orcTurmasPagina = p;
+  renderizarDockTurmas();
 }
 
 function renderizarDockTurmas(msgVazio) {
   const bloco = $("orc-turmas-bloco");
   const corpo = $("orc-turmas-tbody");
   const vazio = $("orc-turmas-vazio");
-  const abas = $("orc-turmas-abas");
-  if (orcTurmasGrupos.length === 0) {
+  const lista = orcTurmasListaPlana();
+  if (lista.length === 0) {
     bloco.classList.add("hidden");
     corpo.innerHTML = "";
-    abas.innerHTML = "";
+    $("orc-turmas-pag-topo").classList.add("hidden");
+    $("orc-turmas-pag").classList.add("hidden");
     vazio.textContent = msgVazio || "";
     vazio.classList.remove("hidden");
-    $("btn-orc-turma-ant").classList.add("hidden");
-    $("btn-orc-turma-prox").classList.add("hidden");
     atualizarNotaDockTurmas();
     return;
   }
   vazio.classList.add("hidden");
   bloco.classList.remove("hidden");
-  const varias = orcTurmasGrupos.length > 1;
-  $("btn-orc-turma-ant").classList.toggle("hidden", !varias);
-  $("btn-orc-turma-prox").classList.toggle("hidden", !varias);
-  abas.innerHTML = orcTurmasGrupos.map((g, i) => `<button type="button" data-orc-turma-aba="${i}" class="rounded-md border px-3 py-0.5 text-sm font-semibold ${i === orcTurmaAtiva ? "bg-slate-900 text-white border-slate-900" : "bg-white border-slate-300 hover:bg-slate-50"}">${g.letra}</button>`).join("");
+  const totalPaginas = Math.max(1, Math.ceil(lista.length / ORC_TURMAS_TAMANHO_PAGINA));
+  orcTurmasPagina = Math.min(Math.max(1, orcTurmasPagina), totalPaginas);
+  renderizarPaginadores(["orc-turmas-pag-topo", "orc-turmas-pag"], orcTurmasPagina, lista.length, ORC_TURMAS_TAMANHO_PAGINA, "orcturma", irParaPaginaTurmasOrc);
+  const pagina = lista.slice((orcTurmasPagina - 1) * ORC_TURMAS_TAMANHO_PAGINA, orcTurmasPagina * ORC_TURMAS_TAMANHO_PAGINA);
 
   const corTipoDia = { "Teoria": "bg-blue-50 text-blue-700", "Prática": "bg-amber-50 text-amber-700", "Teoria com Prática": "bg-purple-50 text-purple-700" };
+  const corAgend = { "Agendado": "bg-emerald-50 text-emerald-700", "Aguardando confirmação": "bg-amber-50 text-amber-700" };
   const opcoesInstrutor = (val) => `<option value="">—</option>` + orcTurmasRef.instrutores.map((i) => `<option value="${i.id}" ${i.id === val ? "selected" : ""}>${i.nome}</option>`).join("");
   const opcoesTransporte = (val) => `<option value="">—</option>` + orcTurmasRef.transportadoras.map((e) => `<option value="${e.id}" ${e.id === val ? "selected" : ""}>${e.nome}</option>`).join("");
   const campoCls = "w-full text-xs rounded-md border border-slate-300 px-2 py-1";
-  corpo.innerHTML = orcTurmasGrupos[orcTurmaAtiva].linhas.map((t) => `
+  corpo.innerHTML = pagina.map((t) => `
     <tr data-turma-linha="${t.id}">
       <td class="px-2 py-1 font-mono text-slate-500">${t.identificacao || "—"}</td>
       <td class="px-2 py-1">${t.tipo_dia ? `<span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${corTipoDia[t.tipo_dia] || ""}">${t.tipo_dia}</span>` : "—"}</td>
@@ -6689,6 +6700,7 @@ function renderizarDockTurmas(msgVazio) {
       <td class="px-2 py-1">${transporteAplicavel(t)
         ? `<select data-turma-campo="empresa_transporte_id" class="${campoCls}">${opcoesTransporte(t.empresa_transporte_id)}</select>`
         : `<span class="text-slate-400">N/A</span>`}</td>
+      <td class="px-2 py-1 whitespace-nowrap"><span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${corAgend[t.status_agendamento] || "bg-slate-100 text-slate-500"}">${t.status_agendamento || "Não agendado"}</span></td>
     </tr>`).join("");
 
   corpo.querySelectorAll("[data-turma-campo]").forEach((el) => {
@@ -6697,7 +6709,7 @@ function renderizarDockTurmas(msgVazio) {
       const turmaId = linha.getAttribute("data-turma-linha");
       const campo = e.target.getAttribute("data-turma-campo");
       const valor = e.target.value || null;
-      const t = orcTurmasGrupos.flatMap((g) => g.linhas).find((x) => x.id === turmaId);
+      const t = orcTurmasListaPlana().find((x) => x.id === turmaId);
       if (t) t[campo] = valor;
       await supabase.from("turmas").update({ [campo]: valor }).eq("id", turmaId);
     });
@@ -6705,19 +6717,10 @@ function renderizarDockTurmas(msgVazio) {
   atualizarNotaDockTurmas();
 }
 
-function irParaTurmaOrc(i) {
-  if (orcTurmasGrupos.length === 0) return;
-  orcTurmaAtiva = (i + orcTurmasGrupos.length) % orcTurmasGrupos.length;
-  renderizarDockTurmas();
-}
-$("orc-turmas-abas").addEventListener("click", (ev) => {
-  const b = ev.target.closest("[data-orc-turma-aba]");
-  if (b) irParaTurmaOrc(Number(b.getAttribute("data-orc-turma-aba")));
-});
-$("btn-orc-turma-ant").addEventListener("click", () => irParaTurmaOrc(orcTurmaAtiva - 1));
-$("btn-orc-turma-prox").addEventListener("click", () => irParaTurmaOrc(orcTurmaAtiva + 1));
-
 $("btn-orc-novo").addEventListener("click", abrirNovoOrcamento);
+$("btn-orc-excluir-editor").addEventListener("click", () => {
+  if (editandoOrcamentoId) excluirOrcamento(editandoOrcamentoId, $("orc-tag-numero").textContent);
+});
 $("btn-cancelar-painel-orcamento").addEventListener("click", () => { sairEditorOrcamentoPermitido(); });
 
 // Mostra o erro e leva o usuário à aba onde está o campo com problema.
@@ -8329,11 +8332,25 @@ $("orc-importar-arquivo").addEventListener("change", (ev) => {
   if (arquivo) lerPlanilhaOrcamentos(arquivo);
 });
 
-async function excluirOrcamento(id) {
+// Exclusão de orçamento: somente administrador. O banco (RPC excluir_orcamento + gatilho) recusa a exclusão
+// quando alguma turma tem agendamento confirmado; agendamentos ainda aguardando confirmação são cancelados
+// (instrutores avisados, dias liberados) antes de apagar.
+
+async function excluirOrcamento(id, numeroInformado) {
+  if (!usuarioEhAdmin()) return alert("Somente o administrador pode excluir orçamentos.");
   const o = listaOrcamentos.find((x) => x.id === id);
-  if (!confirmarExclusao(`o orçamento ${o?.numero || ""}`.trim())) return;
-  const { error } = await supabase.from("orcamentos").delete().eq("id", id);
-  if (!error) await carregarPaginaOrcamentos();
+  const numero = numeroInformado || o?.numero || "";
+  if (!confirm(`Excluir o orçamento ${numero}?\n\nSerão apagados também o cálculo, as propostas e as turmas deste orçamento. Agendamentos que ainda aguardam confirmação serão cancelados (os instrutores são avisados). Se houver agendamento CONFIRMADO, a exclusão não é permitida.\n\nEsta ação não pode ser desfeita.`)) return false;
+  const { data, error } = await supabase.rpc("excluir_orcamento", { p_orcamento_id: id });
+  if (error) {
+    alert(`Não foi possível excluir o orçamento ${numero}.\n\n${error.message}`);
+    return false;
+  }
+  if (orcEditorAberto() && editandoOrcamentoId === id) fecharEditorOrcamento();
+  await carregarPaginaOrcamentos();
+  const cancelados = Number(data?.agendamentos_cancelados) || 0;
+  if (cancelados > 0) alert(`Orçamento ${numero} excluído. ${cancelados} agendamento(s) aguardando confirmação foram cancelados e ${Number(data?.instrutores_avisados) || 0} instrutor(es) avisado(s).`);
+  return true;
 }
 
 // ===========================================================
@@ -9785,7 +9802,7 @@ let agendamentosCancelados = [];
 async function carregarAgendamentosCancelados(forcar = true) {
   const { data, error } = await supabase
     .from("turma_agendamento_cancelamentos")
-    .select("id, turma_id, centro_treinamento_id, data_inicio, motivo, instrutores, criado_em")
+    .select("id, turma_id, centro_treinamento_id, data_inicio, motivo, instrutores, criado_em, turma_identificacao, orcamento_numero, empresa_nome")
     .eq("visto_ct", false)
     .order("criado_em", { ascending: false });
   if (error) {
@@ -9824,8 +9841,8 @@ function renderizarAgendamentosCancelados() {
   $("cct-cancelados-lista").innerHTML = visiveis.map((c) => `
     <div class="flex items-start justify-between gap-3 text-xs bg-white border border-rose-100 rounded-md px-3 py-2">
       <span>
-        <span class="font-mono text-slate-700">${esc(c.turma?.identificacao) || "—"}</span>
-        — ${esc(c.turma?.orcamentos?.empresas?.nome) || "—"} · ${esc(c.centro_nome) || "—"}${c.data_inicio ? ` · ${formatarDataBr(c.data_inicio)}` : ""}
+        <span class="font-mono text-slate-700">${esc(c.turma?.identificacao || c.turma_identificacao) || "—"}</span>${c.orcamento_numero ? ` <span class="text-slate-400">(orç. ${esc(c.orcamento_numero)})</span>` : ""}
+        — ${esc(c.turma?.orcamentos?.empresas?.nome || c.empresa_nome) || "—"} · ${esc(c.centro_nome) || "—"}${c.data_inicio ? ` · ${formatarDataBr(c.data_inicio)}` : ""}
         <span class="block text-slate-600">Motivo: ${esc(c.motivo)}</span>
         ${(c.instrutores || []).length ? `<span class="block text-slate-500">Instrutor(es) avisado(s): ${esc((c.instrutores || []).join(", "))}</span>` : ""}
       </span>

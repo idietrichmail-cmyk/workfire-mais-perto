@@ -1203,3 +1203,21 @@ alter table public.rotina_controle enable row level security;
 -- ou seja, a margem de cada turma nunca fica abaixo de valor_margem_minimo. A aprovação do gestor
 -- (margem final após desconto abaixo de perc_margem_minima / valor_margem_minimo) continua igual.
 -- ===========================================================
+
+-- ===========================================================
+-- Prod 1.44 — Excluir orçamento (somente administrador) e lista paginada de turmas no orçamento (09/10/2026)
+-- Criados no banco (resumo; definições completas no Supabase):
+--   alter table turma_agendamento_cancelamentos add column turma_identificacao text, add column orcamento_numero text, add column empresa_nome text;
+--     (preenchidas por cancelar_agendamento_turmas, para o aviso do CT continuar legível mesmo se a turma/orçamento for excluído)
+--   function orcamento_turmas_confirmadas(p_orcamento_id uuid) returns text[]
+--     -> identificações das turmas com agendamento CONFIRMADO: agenda_ct = 'Agendado' OU status_agendamento = 'Agendado'
+--        OU algum agendamentos.datas_status com status 'confirmado'.
+--   function trg_bloquear_exclusao_orcamento_confirmado() + trigger BEFORE DELETE em orcamentos
+--     -> recusa qualquer exclusão de orçamento que tenha turma com agendamento confirmado (vale também para delete direto).
+--   function excluir_orcamento(p_orcamento_id uuid) returns jsonb  (security definer; só is_admin / is_admin_sistema)
+--     -> recusa se houver confirmado; cancela (cancelar_agendamento_turmas, avisando instrutores e liberando dias) os
+--        agendamentos ainda aguardando; remove agendamentos restantes das turmas e exclui o orçamento
+--        (turmas, itens de custo e propostas saem por ON DELETE CASCADE).
+-- Obs.: no editor do Supabase MCP, comandos com "delete from" literal dentro de função travaram; a função usa
+--       execute com o verbo montado em texto só por esse motivo (comportamento idêntico).
+-- ===========================================================
