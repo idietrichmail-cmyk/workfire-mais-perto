@@ -34,7 +34,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.49 · 10/10/2026";
+const APP_VERSAO = "Prod 1.50 · 10/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -3108,7 +3108,7 @@ function renderCampoHtml(campo, valor, item) {
           <button type="button" data-imagem-remover class="text-xs text-rose-600 hover:text-rose-800 ${tem ? "" : "hidden"}">Remover</button>
         </div>
       </div>
-      <p data-imagem-msg class="text-[11px] mt-1 text-slate-400">PNG ou JPG; é reduzida automaticamente.</p>
+      <p data-imagem-msg class="text-[11px] mt-1 text-slate-400">PNG ou JPG; é reduzida automaticamente (até 800 px no maior lado).</p>
     </div>`;
   }
   if (campo.tipo === "checkbox") {
@@ -3562,7 +3562,7 @@ document.addEventListener("change", async (e) => {
   if (!arquivo) return;
   if (arquivo.size > 8 * 1024 * 1024) { msg.textContent = "Arquivo muito grande (máx. 8 MB)."; msg.className = "text-[11px] mt-1 text-rose-600"; return; }
   try {
-    const r = await reduzirImagemArquivo(arquivo, 480);
+    const r = await reduzirImagemArquivo(arquivo, 800);
     caixa.querySelector("input[type=hidden]").value = r.dataUrl;
     const prev = caixa.querySelector("[data-imagem-prev]");
     prev.src = r.dataUrl; prev.classList.remove("hidden");
@@ -7597,7 +7597,7 @@ function construirPdfProposta(JsPDF, d, opts, ct, infoE, infoD, e) {
   const quebra = (txt, larg) => doc.splitTextToSize(pdfTxt(txt), larg);
 
   // Cabeçalho: logotipos do Centro de Treinamento (esquerdo e direito)
-  const LOGO_W = 50, LOGO_H = 14;
+  const LOGO_W = 60, LOGO_H = 16.8; // logotipos 20% maiores que na 1.49
   const caixaLogo = (dataUrl, info, x, alinharDireita) => {
     if (!dataUrl || !info) return;
     const esc = Math.min(LOGO_W / info.w, LOGO_H / info.h);

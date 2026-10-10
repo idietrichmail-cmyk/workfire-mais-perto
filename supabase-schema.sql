@@ -1279,3 +1279,10 @@ alter table public.rotina_controle enable row level security;
 -- na mesma linha e, abaixo, contato, fone e e-mail; o nº do orçamento não é mais impresso; totais por grupo/geral
 -- em caixa só com contorno (sem fundo). Se o conteúdo passar de uma página, o sistema refaz o PDF com textos e
 -- espaços um pouco menores até caber em uma página.
+
+-- ============================================================
+-- Prod 1.50 · Logotipos da proposta 20% maiores e com mais resolução
+-- ============================================================
+-- Somente front-end (sem mudança no banco). Área dos logotipos no PDF da proposta: 50x14 mm -> 60x16,8 mm.
+-- O envio do logotipo no cadastro do Centro de Treinamento passou de 480 px para 800 px no maior lado
+-- (logotipos já cadastrados continuam com a resolução antiga até serem enviados de novo).
