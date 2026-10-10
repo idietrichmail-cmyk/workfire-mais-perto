@@ -1256,3 +1256,10 @@ alter table public.rotina_controle enable row level security;
 --   -- A política antiga vendedores_admin_update (só admin) é redundante e pode ser removida: drop policy vendedores_admin_update on vendedores;
 -- O módulo "vendedores" aparece na grade de permissões do usuário (Consultar/Incluir/Alterar/Excluir).
 -- Excluir um vendedor com orçamentos vinculados é bloqueado pela FK; use "Ativo" desmarcado.
+
+-- ============================================================
+-- Prod 1.47 · Treinamentos: itens de custo em uma linha por item + importar de outro treinamento
+-- ============================================================
+-- Somente front-end (sem mudança no banco). A importação copia, para o formulário, os registros de
+-- treinamento_itens_custo do treinamento escolhido (item, divisor, unidade, múltiplo, imprime, ordem);
+-- só é gravada quando o treinamento é salvo. Opção "Substituir os itens atuais" ou só acrescentar os que faltam.

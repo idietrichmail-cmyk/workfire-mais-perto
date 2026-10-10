@@ -34,7 +34,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.46 · 10/10/2026";
+const APP_VERSAO = "Prod 1.47 · 10/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -4661,14 +4661,30 @@ async function salvarParcelasPrazo(prazoId) {
 function htmlSecaoItensCustoTreinamento() {
   return `
   <div id="treino-itens-custo-bloco" class="pt-4 mt-2 border-t border-slate-200">
-    <div class="flex items-center justify-between mb-1">
+    <div class="flex flex-wrap items-center justify-between gap-2 mb-1">
       <p class="text-xs font-medium text-slate-500 uppercase tracking-wide">Itens de custo do treinamento</p>
       <button type="button" id="btn-treino-item-add" class="text-xs font-medium text-white bg-slate-900 hover:bg-slate-800 rounded-md px-3 py-1.5">+ Adicionar item</button>
     </div>
-    <p class="text-[11px] text-slate-400 mb-3">Para cada item informe o divisor (ex.: 20) com a sua unidade (ex.: aluno) — o divisor pode ficar em branco, e então a unidade também — e o múltiplo. Marque "Imprime" para o item sair na impressão e defina a ordem.</p>
-    <div id="treino-itens-custo-lista" class="space-y-2"></div>
+    <p class="text-[11px] text-slate-400 mb-2">Uma linha por item: informe o divisor (ex.: 20) com a sua unidade (ex.: aluno) — o divisor pode ficar em branco, e então a unidade também — e o múltiplo. Marque "Imprime" para o item sair na impressão e defina a ordem.</p>
+    <div class="flex flex-wrap items-end gap-2 mb-3 border border-slate-200 bg-slate-50 rounded-md px-3 py-2">
+      <div class="flex-1 min-w-[220px]">
+        <label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Importar itens de custo de outro treinamento</label>
+        <select id="treino-import-origem" class="mt-0.5 w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"></select>
+      </div>
+      <label class="flex items-center gap-2 text-xs text-slate-600 pb-2 cursor-pointer">
+        <input type="checkbox" id="treino-import-substituir" class="h-4 w-4 rounded border-slate-300" />
+        Substituir os itens atuais <span class="text-slate-400">(desmarcado: só acrescenta os que ainda não estão na lista)</span>
+      </label>
+      <button type="button" id="btn-treino-importar" class="text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-100 rounded-md px-3 py-2">⬇ Importar</button>
+    </div>
+    <p id="treino-import-msg" class="hidden text-[11px] mb-2"></p>
+    <div class="overflow-x-auto">
+      <div id="treino-itens-custo-lista" class="min-w-[860px] space-y-1"></div>
+    </div>
   </div>`;
 }
+
+const TREINO_GRADE_ITENS = "grid-template-columns:minmax(0,3fr) 90px minmax(0,2fr) 90px 80px 90px 40px";
 
 function novaLinhaItemCustoTreino(base = {}) {
   return {
@@ -4688,6 +4704,8 @@ async function iniciarSecaoItensCustoTreinamento(item) {
   treinoItensCustoOriginais = [];
   const lista = $("treino-itens-custo-lista");
   if (!lista) return;
+  preencherOrigensImportacaoTreino();
+  $("btn-treino-importar").addEventListener("click", importarItensCustoDeTreinamento);
   $("btn-treino-item-add").addEventListener("click", () => {
     const maior = treinoItensCustoForm.reduce((m, x) => Math.max(m, parseInt(x.ordem_impressao, 10) || 0), 0);
     treinoItensCustoForm.push(novaLinhaItemCustoTreino({ ordem_impressao: maior + 1 }));
@@ -4738,38 +4756,64 @@ function renderizarItensCustoTreinamento() {
   const opcoesUnidades = (sel) => `<option value="">— Selecione —</option>` + treinoRefUnidades
     .filter((u) => u.status === "Ativo" || u.id === sel)
     .map((u) => `<option value="${u.id}" ${u.id === sel ? "selected" : ""}>${u.sigla} — ${u.descricao}${u.status === "Inativo" ? " (inativa)" : ""}</option>`).join("");
-  lista.innerHTML = treinoItensCustoForm.map((l) => `
-    <div data-treino-linha="${l.chave}" class="grid grid-cols-12 gap-2 items-end border border-slate-200 rounded-md p-2.5 bg-slate-50">
-      <div class="col-span-12 sm:col-span-5">
-        <label class="${rotulo}">Item de custo</label>
-        <select data-treino-campo="item_custo_id" class="${classeCampo}">${opcoesItens(l.item_custo_id)}</select>
-      </div>
-      <div class="col-span-4 sm:col-span-2">
-        <label class="${rotulo}">Divisor <span class="normal-case text-slate-400">(opcional)</span></label>
-        <input data-treino-campo="divisor" type="number" min="0" step="any" value="${l.divisor}" class="${classeCampo}" />
-      </div>
-      <div class="col-span-8 sm:col-span-3">
-        <label class="${rotulo}">Unidade do divisor</label>
-        <select data-treino-campo="unidade_divisor_id" class="${classeCampo}">${opcoesUnidades(l.unidade_divisor_id)}</select>
-      </div>
-      <div class="col-span-8 sm:col-span-2">
-        <label class="${rotulo}">Múltiplo</label>
-        <input data-treino-campo="multiplo" type="number" min="0" step="any" value="${l.multiplo}" class="${classeCampo}" />
-      </div>
-      <div class="col-span-6 sm:col-span-3 flex items-center pb-1.5">
-        <label class="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
-          <input data-treino-campo="imprime" type="checkbox" ${l.imprime ? "checked" : ""} class="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500" />
-          Imprime
-        </label>
-      </div>
-      <div class="col-span-6 sm:col-span-3">
-        <label class="${rotulo}">Ordem de impressão</label>
-        <input data-treino-campo="ordem_impressao" type="number" min="0" step="1" value="${l.ordem_impressao}" class="${classeCampo}" />
-      </div>
-      <div class="col-span-12 sm:col-span-6 text-right">
-        <button type="button" data-treino-remover="${l.chave}" title="Remover item" class="text-rose-500 hover:text-rose-700 px-2 py-1.5">🗑️ Remover</button>
-      </div>
+  const cabecalho = `
+    <div class="grid gap-2 px-2 pb-0.5 ${rotulo}" style="${TREINO_GRADE_ITENS}">
+      <span>Item de custo</span><span>Divisor</span><span>Unidade do divisor</span><span>Múltiplo</span><span class="text-center">Imprime</span><span>Ordem</span><span></span>
+    </div>`;
+  const campo = classeCampo.replace("mt-0.5 ", "");
+  lista.innerHTML = cabecalho + treinoItensCustoForm.map((l) => `
+    <div data-treino-linha="${l.chave}" class="grid gap-2 items-center border border-slate-200 rounded-md px-2 py-1.5 bg-slate-50" style="${TREINO_GRADE_ITENS}">
+      <select data-treino-campo="item_custo_id" class="${campo}">${opcoesItens(l.item_custo_id)}</select>
+      <input data-treino-campo="divisor" type="number" min="0" step="any" value="${l.divisor}" placeholder="—" class="${campo}" />
+      <select data-treino-campo="unidade_divisor_id" class="${campo}">${opcoesUnidades(l.unidade_divisor_id)}</select>
+      <input data-treino-campo="multiplo" type="number" min="0" step="any" value="${l.multiplo}" class="${campo}" />
+      <div class="flex justify-center"><input data-treino-campo="imprime" type="checkbox" ${l.imprime ? "checked" : ""} class="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500" /></div>
+      <input data-treino-campo="ordem_impressao" type="number" min="0" step="1" value="${l.ordem_impressao}" class="${campo}" />
+      <button type="button" data-treino-remover="${l.chave}" title="Remover item" class="text-rose-500 hover:text-rose-700 text-center">🗑️</button>
     </div>`).join("");
+}
+
+// Importa os itens de custo de outro treinamento para o formulário (só grava ao salvar o treinamento).
+function preencherOrigensImportacaoTreino() {
+  const sel = $("treino-import-origem");
+  if (!sel) return;
+  const atualId = crudItemEmEdicao ? crudItemEmEdicao.id : null;
+  const opcoes = (crudLista || [])
+    .filter((t) => t.id !== atualId && (treinoContagemItensCusto[t.id] || 0) > 0)
+    .sort((x, y) => String(x.nome).localeCompare(String(y.nome), "pt-BR"))
+    .map((t) => `<option value="${t.id}">${t.nome}${t.status === "Inativo" ? " (inativo)" : ""} — ${treinoContagemItensCusto[t.id]} item(ns)</option>`);
+  sel.innerHTML = `<option value="">— Selecione o treinamento de origem —</option>` + opcoes.join("");
+}
+
+async function importarItensCustoDeTreinamento() {
+  const msg = $("treino-import-msg");
+  const aviso = (t, ok) => { msg.textContent = t; msg.className = `text-[11px] mb-2 ${ok ? "text-emerald-700" : "text-rose-600"}`; };
+  const origemId = $("treino-import-origem").value;
+  if (!origemId) return aviso("Selecione o treinamento de origem.", false);
+  const btn = $("btn-treino-importar");
+  btn.disabled = true;
+  const { data, error } = await supabase.from("treinamento_itens_custo").select("*").eq("tipo_treinamento_id", origemId).order("ordem_impressao", { nullsFirst: false }).order("created_at").order("id");
+  btn.disabled = false;
+  if (error) return aviso("Não foi possível ler os itens do treinamento de origem.", false);
+  if (!data || data.length === 0) return aviso("O treinamento de origem não tem itens de custo.", false);
+  const substituir = $("treino-import-substituir").checked;
+  if (substituir && treinoItensCustoForm.length > 0 && !confirm(`Substituir os ${treinoItensCustoForm.length} item(ns) atuais pelos ${data.length} do treinamento escolhido? (só é gravado quando você salvar o treinamento)`)) return;
+  const existentes = new Set(substituir ? [] : treinoItensCustoForm.map((l) => l.item_custo_id));
+  if (substituir) treinoItensCustoForm = [];
+  let novos = 0;
+  const maior = () => treinoItensCustoForm.reduce((m, x) => Math.max(m, parseInt(x.ordem_impressao, 10) || 0), 0);
+  data.forEach((r) => {
+    if (existentes.has(r.item_custo_id)) return;
+    const ordem = r.ordem_impressao != null ? r.ordem_impressao : null;
+    treinoItensCustoForm.push(novaLinhaItemCustoTreino({
+      item_custo_id: r.item_custo_id, divisor: r.divisor, unidade_divisor_id: r.unidade_divisor_id,
+      multiplo: r.multiplo, imprime: r.imprime, ordem_impressao: substituir || ordem == null ? ordem : (maior() + 1),
+    }));
+    novos++;
+  });
+  renderizarItensCustoTreinamento();
+  const pulados = data.length - novos;
+  aviso(`${novos} item(ns) importado(s)${pulados ? `; ${pulados} já estava(m) na lista` : ""}. Revise e salve o treinamento para gravar.`, true);
 }
 
 function validarItensCustoTreinamento() {
