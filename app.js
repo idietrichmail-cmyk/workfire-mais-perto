@@ -34,7 +34,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.44 · 09/10/2026";
+const APP_VERSAO = "Prod 1.45 · 10/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -5688,6 +5688,14 @@ let orcBuscaTimer = null;
 // São consultadas no banco a cada abertura do orçamento (e quando o seletor é usado depois de um tempo ou
 // está vazio), com novas tentativas — assim uma falha momentânea de rede não deixa a lista vazia.
 let orcRefsCarregadoEm = 0;
+let listaVendedoresOrc = []; // vendedores (sincronizados do Bitrix) para o seletor do orçamento
+function preencherSeletorVendedorOrc(valorAtual) {
+  const lista = listaVendedoresOrc.filter((v) => (v.ativo && v.eh_vendedor) || v.id === valorAtual)
+    .map((v) => ({ id: v.id, nome: v.ativo ? v.nome : `${v.nome} (inativo)` }));
+  preencherSelect("orc-vendedor", lista, "id", (i) => i.nome, "— Sem vendedor —");
+  $("orc-vendedor").value = valorAtual || "";
+}
+
 async function carregarReferenciasOrcamento() {
   const tentar = async (fn) => {
     let r;
@@ -5698,15 +5706,17 @@ async function carregarReferenciasOrcamento() {
     }
     return r;
   };
-  const [rt, rc, rp, rpp] = await Promise.all([
+  const [rt, rc, rp, rpp, rv] = await Promise.all([
     tentar(() => supabase.from("tipos_treinamento").select("*").eq("status", "Ativo").order("nome")),
     tentar(() => supabase.from("centros_treinamento").select("*").eq("status", "Ativo").order("nome")),
     tentar(() => supabase.from("prazos_pagamento").select("id, descricao, status").order("descricao")),
     tentar(() => supabase.from("prazos_pagamento_parcelas").select("prazo_pagamento_id, numero, dias, percentual").order("numero")),
+    tentar(() => supabase.from("vendedores").select("id, nome, ativo, eh_vendedor").order("nome")),
   ]);
   const falhas = [];
   if (rt.error) falhas.push("treinamentos"); else listaTiposAtivos = rt.data || [];
   if (rc.error) falhas.push("centros de treinamento"); else listaCentrosAtivos = rc.data || [];
+  if (rv.error) falhas.push("vendedores"); else listaVendedoresOrc = rv.data || [];
   if (rp.error || rpp.error) falhas.push("prazos de pagamento");
   else orcPrazosPagamento = (rp.data || []).map((p) => ({ ...p, parcelas: (rpp.data || []).filter((x) => x.prazo_pagamento_id === p.id).sort((a, b) => a.numero - b.numero) }));
   if (!falhas.length) orcRefsCarregadoEm = Date.now();
@@ -6492,6 +6502,7 @@ async function abrirNovoOrcamento() {
   $("orc-contato-nome").value = "";
   $("orc-contato-telefone").value = "";
   $("orc-contato-email").value = "";
+  preencherSeletorVendedorOrc("");
   preencherSelect("orc-centro", listaCentrosAtivos, "id", (i) => i.nome, "— Selecione —");
   preencherSelect("orc-tipo", listaTiposAtivos, "id", (i) => i.nome, "— Selecione —");
   preencherSelect("orc-formato-teoria", FORMATOS_TEORIA.map((f) => ({ id: f, nome: f })), "id", (i) => i.nome, "— Selecione —");
@@ -6541,6 +6552,7 @@ async function abrirEdicaoOrcamento(id) {
   $("orc-contato-nome").value = o.contato_nome || "";
   $("orc-contato-telefone").value = o.contato_telefone || "";
   $("orc-contato-email").value = o.contato_email || "";
+  preencherSeletorVendedorOrc(o.vendedor_id || "");
   preencherSelect("orc-centro", listaCentrosAtivos, "id", (i) => i.nome, "— Selecione —");
   $("orc-centro").value = o.centro_treinamento_id || "";
   preencherSelect("orc-tipo", listaTiposAtivos, "id", (i) => i.nome, "— Selecione —");
@@ -6813,6 +6825,7 @@ async function salvarOrcamento(opts = {}) {
     contato_nome: $("orc-contato-nome").value.trim() || null,
     contato_telefone: $("orc-contato-telefone").value.trim() || null,
     contato_email: contatoEmail || null,
+    vendedor_id: $("orc-vendedor").value || null,
     centro_treinamento_id: centroId,
     tipo_treinamento_id: tipoId,
     formato_teoria: $("orc-formato-teoria").value || null,

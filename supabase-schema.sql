@@ -1221,3 +1221,21 @@ alter table public.rotina_controle enable row level security;
 -- Obs.: no editor do Supabase MCP, comandos com "delete from" literal dentro de função travaram; a função usa
 --       execute com o verbo montado em texto só por esse motivo (comportamento idêntico).
 -- ===========================================================
+
+-- ============================================================
+-- Prod 1.45 · Vendedores (sincronizados do Bitrix24) e vínculo com orçamentos
+-- ============================================================
+-- Já aplicado no projeto. Resumo do que existe no banco:
+--   alter table orcamentos add column id_negocio_bitrix text;   -- ID do negócio (deal) no Bitrix24
+--   alter table orcamentos add column vendedor_id uuid references vendedores(id);
+--   create table vendedores (
+--     id uuid primary key default gen_random_uuid(),
+--     bitrix_user_id bigint unique not null,   -- ID do usuário no Bitrix24
+--     nome text, email text, cargo text, tipo_usuario text,
+--     departamentos_bitrix int[], ativo boolean default true,
+--     eh_vendedor boolean default false,        -- aparece no seletor do orçamento
+--     sincronizado_em timestamptz, created_at timestamptz default now());
+--   RLS: vendedores_select (membros de usuarios_sistema) e vendedores_admin_update (is_admin_sistema).
+--   Escrita via RPC sincronizar_vendedores_bitrix(p_usuarios jsonb) (upsert por bitrix_user_id; só admin/service role).
+-- Carga inicial: 38 usuários do Bitrix; 1.307 orçamentos vinculados (id_negocio_bitrix + vendedor_id)
+-- pelo número do orçamento no título do negócio. Sem mudança de regra no app além do campo "Vendedor".
