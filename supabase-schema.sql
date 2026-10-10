@@ -1286,3 +1286,26 @@ alter table public.rotina_controle enable row level security;
 -- Somente front-end (sem mudança no banco). Área dos logotipos no PDF da proposta: 50x14 mm -> 60x16,8 mm.
 -- O envio do logotipo no cadastro do Centro de Treinamento passou de 480 px para 800 px no maior lado
 -- (logotipos já cadastrados continuam com a resolução antiga até serem enviados de novo).
+
+-- ============================================================
+-- Prod 1.51 · Proposta: os dois logotipos saem com a mesma altura
+-- ============================================================
+-- Somente front-end (sem mudança no banco). No PDF da proposta os logotipos esquerdo e direito são desenhados
+-- com a mesma altura (16,8 mm); a largura segue a proporção de cada imagem (máx. 90 mm).
+
+-- ============================================================
+-- Prod 1.52 · Proposta: totais e condições comerciais em uma linha
+-- ============================================================
+-- Somente front-end (sem mudança no banco). "Total por grupo" e "Total geral" lado a lado em uma linha;
+-- "Prazo de pagamento" e "Validade da proposta" com rótulo e valor na mesma linha.
+
+-- ============================================================
+-- Prod 1.53 · Proposta: quantidades também com rótulo e valor na mesma linha
+-- ============================================================
+-- Somente front-end (sem mudança no banco). "Quantidade de grupos", "Participantes por grupo" e "Total de
+-- participantes" ficam lado a lado em uma linha, com rótulo e valor na mesma linha.
+
+-- ============================================================
+-- Prod 1.54 · Proposta: "Total por grupo" à esquerda e "Total geral" à direita, rótulo e valor juntos
+-- ============================================================
+-- Somente front-end (sem mudança no banco).

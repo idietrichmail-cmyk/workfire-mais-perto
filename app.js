@@ -34,7 +34,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.50 · 10/10/2026";
+const APP_VERSAO = "Prod 1.54 · 10/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -7597,7 +7597,8 @@ function construirPdfProposta(JsPDF, d, opts, ct, infoE, infoD, e) {
   const quebra = (txt, larg) => doc.splitTextToSize(pdfTxt(txt), larg);
 
   // Cabeçalho: logotipos do Centro de Treinamento (esquerdo e direito)
-  const LOGO_W = 60, LOGO_H = 16.8; // logotipos 20% maiores que na 1.49
+  // Os dois logotipos saem com a MESMA ALTURA (a largura acompanha a proporção de cada imagem).
+  const LOGO_W = 90, LOGO_H = 16.8;
   const caixaLogo = (dataUrl, info, x, alinharDireita) => {
     if (!dataUrl || !info) return;
     const esc = Math.min(LOGO_W / info.w, LOGO_H / info.h);
@@ -7698,31 +7699,38 @@ function construirPdfProposta(JsPDF, d, opts, ct, infoE, infoD, e) {
   });
   y += 2 * e;
 
-  // Valores: caixa só com contorno (sem fundo preto)
-  garantir(40);
-  const hVal = 14.5;
+  // Valores: uma linha só (total por grupo | total geral), caixa só com contorno (sem fundo preto)
+  garantir(32);
+  const hVal = 9.5, ym = y + 6.3;
   traco(BORDA, 0.3); doc.roundedRect(M, y, CW, hVal, 1.8, 1.8, "S");
-  fonte("bold", 7.5); cor(MUT); doc.text("TOTAL POR GRUPO", M + 4, y + 5, { charSpace: 0.4 });
-  fonte("bold", 10); cor(INK); doc.text(pdfTxt(fmtBRL(d.calculo.valor_final_turma)), W - M - 4, y + 5.2, { align: "right" });
-  traco(LINE, 0.25); doc.line(M + 4, y + 7.3, W - M - 4, y + 7.3);
-  fonte("bold", 8.5); cor(ACC); doc.text("TOTAL GERAL", M + 4, y + 12.2, { charSpace: 0.4 });
-  fonte("bold", 12.5); cor(ACC); doc.text(pdfTxt(fmtBRL(d.calculo.valor_final)), W - M - 4, y + 12.4, { align: "right" });
+  traco(LINE, 0.3); doc.line(M + CW / 2, y + 1.8, M + CW / 2, y + hVal - 1.8);
+  // "Total por grupo": rótulo e valor juntos, à esquerda. "Total geral": rótulo e valor juntos, justificados à direita.
+  const txtTG = pdfTxt(fmtBRL(d.calculo.valor_final_turma)), txtTT = pdfTxt(fmtBRL(d.calculo.valor_final));
+  fonte("bold", 7.5); const lwTG = doc.getTextWidth("TOTAL POR GRUPO") + "TOTAL POR GRUPO".length * 0.55 + 3;
+  cor(MUT); doc.text("TOTAL POR GRUPO", M + 4, ym, { charSpace: 0.4 });
+  fonte("bold", 10.5); cor(INK); doc.text(txtTG, M + 4 + lwTG, ym + 0.2);
+  fonte("bold", 12.5); const wTT = doc.getTextWidth(txtTT);
+  cor(ACC); doc.text(txtTT, W - M - 4, ym + 0.3, { align: "right" });
+  fonte("bold", 8.5); const lwTT = doc.getTextWidth("TOTAL GERAL") + "TOTAL GERAL".length * 0.55 + 3;
+  cor(ACC); doc.text("TOTAL GERAL", W - M - 4 - wTT - lwTT, ym, { charSpace: 0.4 });
   y += hVal + 3.5;
 
-  // Quantidades e condições comerciais (contorno fino, sem fundo)
-  const celula = (rot, v, x, larg, tamV) => {
-    traco(LINE, 0.35); doc.roundedRect(x, y, larg, 10, 1.5, 1.5, "S");
-    fonte("bold", 6.3); cor(MUT); doc.text(rot, x + 3, y + 3.9, { charSpace: 0.3 });
-    fonte("bold", tamV || 9.5); cor(INK); doc.text(quebra(v, larg - 6)[0] || "—", x + 3, y + 8.2);
+  // Quantidades e condições comerciais: cada caixa com rótulo e valor na MESMA linha (contorno fino, sem fundo)
+  const hCel = 8;
+  const celulaLinha = (rot, v, x, larg, tamV) => {
+    traco(LINE, 0.35); doc.roundedRect(x, y, larg, hCel, 1.5, 1.5, "S");
+    fonte("bold", 6.3); cor(MUT); doc.text(rot, x + 3, y + 5.2, { charSpace: 0.3 });
+    const lw = doc.getTextWidth(rot) + rot.length * 0.5 + 2.5;
+    linhaAjustada(v, x + 3 + lw, y + 5.4, larg - 6 - lw, tamV || 9, true, 7);
   };
   const wc = (CW - 4) / 3;
   [["QUANTIDADE DE GRUPOS", String(d.quantidades.turmas)], ["PARTICIPANTES POR GRUPO", String(d.quantidades.alunos_por_turma)], ["TOTAL DE PARTICIPANTES", String(d.quantidades.alunos)]]
-    .forEach(([rot, v], k) => celula(rot, v, M + k * (wc + 2), wc, 10.5));
-  y += 12;
+    .forEach(([rot, v], k) => celulaLinha(rot, v, M + k * (wc + 2), wc, 9.5));
+  y += hCel + 2.5;
   const wm = (CW - 2) / 2;
   [["PRAZO DE PAGAMENTO", d.prazo_pagamento || "—"], ["VALIDADE DA PROPOSTA", `${d.validade_dias} dias${d.validade_ate ? " (até " + dataBrDeIso(d.validade_ate) + ")" : ""}`]]
-    .forEach(([rot, v], k) => celula(rot, v, M + k * (wm + 2), wm, 9.5));
-  y += 13.5;
+    .forEach(([rot, v], k) => celulaLinha(rot, v, M + k * (wm + 2), wm, 9));
+  y += hCel + 4;
 
   // Parcelas do prazo de pagamento (só quando há mais de uma parcela ou prazo após o faturamento)
   const parc = Array.isArray(d.parcelas) ? d.parcelas : [];
