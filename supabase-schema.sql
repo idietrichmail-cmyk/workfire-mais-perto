@@ -1309,3 +1309,11 @@ alter table public.rotina_controle enable row level security;
 -- Prod 1.54 · Proposta: "Total por grupo" à esquerda e "Total geral" à direita, rótulo e valor juntos
 -- ============================================================
 -- Somente front-end (sem mudança no banco).
+
+-- ============================================================
+-- Prod 1.55 · Proposta: observação do orçamento após o último item e vendedor na assinatura
+-- ============================================================
+-- Somente front-end (sem mudança no banco). O campo "Observações" do orçamento (não a "Observação para o Centro
+-- de Treinamento") é impresso logo após a descrição do último item do escopo. A assinatura usa o nome do vendedor
+-- cadastrado no orçamento (orcamentos.vendedor_id -> vendedores.nome); sem vendedor, usa o usuário que gerou a proposta.
+-- O nome do vendedor e a observação ficam gravados em orcamento_propostas.dados (dados.vendedor.nome, dados.observacoes).

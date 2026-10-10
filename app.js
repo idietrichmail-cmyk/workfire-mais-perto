@@ -34,7 +34,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.54 · 10/10/2026";
+const APP_VERSAO = "Prod 1.55 · 10/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -7431,6 +7431,8 @@ function montarDadosProposta(linha, calc, agora, numero, versao) {
     gerada_em: agora.toISOString(), gerado_por: usuarioSistemaAtual ? usuarioSistemaAtual.nome : null,
     empresa: { id: emp.id || null, nome: emp.nome || "" },
     contato: { nome: linha.contato_nome || "", telefone: linha.contato_telefone || "", email: linha.contato_email || "" },
+    vendedor: { id: linha.vendedor_id || null, nome: ((listaVendedoresOrc.find((v) => v.id === linha.vendedor_id) || {}).nome) || "" },
+    observacoes: String(linha.observacoes || "").trim(),
     centro: { id: ct.id || null, nome: ct.nome || "", cidade: ct.cidade || "", endereco: ct.endereco || "", rodape_pagina: ct.texto_rodape_pagina || "", logotipo_esquerdo: ct.logotipo_esquerdo || null, logotipo_direito: ct.logotipo_direito || null },
     treinamento: { id: tipo.id || null, nome: tipo.nome || "", descricao_impressao: tipo.descricao_impressao || "", rodape: tipo.rodape || "" },
     quantidades: { alunos: calc.q.alunos, turmas: calc.q.turmas, alunos_por_turma: calc.q.alunosPorTurma, localidades: calc.q.localidades },
@@ -7524,6 +7526,7 @@ async function gerarPreviaProposta() {
       numero: numeroOrc, empresa_id: $("orc-empresa").value, contato_nome: $("orc-contato-nome").value.trim(), contato_telefone: $("orc-contato-telefone").value.trim(),
       contato_email: $("orc-contato-email").value.trim(), centro_treinamento_id: $("orc-centro").value || null, tipo_treinamento_id: $("orc-tipo").value,
       prazo_pagamento_id: $("orc-prazo").value, validade_dias: dias,
+      observacoes: $("orc-observacoes").value.trim(), vendedor_id: $("orc-vendedor").value || null,
     };
     const versao = orcPropostas.reduce((m, p) => Math.max(m, p.versao || 0), 0) + 1;
     const dados = montarDadosProposta(linha, calc, agora, `${numeroOrc}-PREVIA`, versao);
@@ -7697,6 +7700,15 @@ function construirPdfProposta(JsPDF, d, opts, ct, infoE, infoD, e) {
     linhas.forEach((ln, k) => doc.text(ln, M + 8, y + k * leadIt));
     y += linhas.length * leadIt + 1.2 * e;
   });
+  // Observação registrada no orçamento: logo após a descrição do último item impresso
+  const obsOrc = String(d.observacoes || "").trim();
+  if (obsOrc) {
+    y += 0.8 * e;
+    garantir(10);
+    fonte("bold", 7.5 * e); cor(ACC); doc.text("OBSERVAÇÕES", M + 1, y, { charSpace: 0.5 });
+    y += 3.8 * e;
+    paragrafo(obsOrc, 8.8, false, INK, 4);
+  }
   y += 2 * e;
 
   // Valores: uma linha só (total por grupo | total geral), caixa só com contorno (sem fundo preto)
@@ -7769,7 +7781,7 @@ function construirPdfProposta(JsPDF, d, opts, ct, infoE, infoD, e) {
   y += 8 * e;
   traco(INK, 0.3); doc.line(M, y, M + 58, y);
   y += 4.2;
-  fonte("bold", 9); cor(INK); doc.text(pdfTxt(d.gerado_por || "").toUpperCase(), M, y);
+  fonte("bold", 9); cor(INK); doc.text(pdfTxt((d.vendedor && d.vendedor.nome) || d.gerado_por || "").toUpperCase(), M, y);
   y += 4;
   fonte("normal", 8); cor(MUT); doc.text(pdfTxt(ct.nome || ""), M, y);
 
