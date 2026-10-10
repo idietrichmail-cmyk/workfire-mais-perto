@@ -34,7 +34,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.45 · 10/10/2026";
+const APP_VERSAO = "Prod 1.46 · 10/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -336,6 +336,7 @@ let treinoItensCustoForm = [];        // linhas exibidas no formulário
 let treinoItensCustoOriginais = [];   // linhas que já estavam gravadas (ao editar)
 let treinoItensSeq = 0;
 let materialContagemPorTipo = {};
+let vendedorContagemOrc = {};
 
 // Requisições de Compra
 let reqRefCentros = [], reqRefUsuarios = [], reqRefAprovadores = [], reqRefMateriais = [], reqRefAtividades = [];
@@ -425,6 +426,7 @@ const MODULOS = [
   // Cadastros Básicos
   { id: "usuarios_sistema", label: "Usuários do Sistema", icone: "🔑", grupo: "Cadastros Básicos" },
   { id: "instrutores", label: "Instrutores", icone: "👥", grupo: "Cadastros Básicos" },
+  { id: "vendedores", label: "Vendedores", icone: "🤝", grupo: "Cadastros Básicos" },
   { id: "fornecedores", label: "Fornecedores", icone: "🚚", grupo: "Cadastros Básicos" },
   { id: "centros_treinamento", label: "Centros de Treinamento", icone: "🏫", grupo: "Cadastros Básicos" },
   { id: "categorias_treinamento", label: "Tipos de Treinamento", icone: "🗃️", grupo: "Cadastros Básicos" },
@@ -1986,6 +1988,7 @@ const CRUD_CONFIG = {
     buscaPlaceholder: "Buscar por nome",
     ordenarPor: "nome",
     painelLargo: true,
+    painelTelaCheia: true,
     carregarRefs: async () => {
       const [{ data }, { data: itens }, { data: unidades }, { data: contagem }] = await Promise.all([
         supabase.from("categorias_treinamento").select("id, codigo, descricao, status").order("codigo"),
@@ -2057,6 +2060,68 @@ const CRUD_CONFIG = {
       (Number(i.perc_apoio) || Number(i.perc_margem) || Number(i.perc_imposto)) && `📊 Apoio ${fmtPerc(i.perc_apoio)} · Margem ${fmtPerc(i.perc_margem)} · Imposto ${fmtPerc(i.perc_imposto)}`,
       (Number(i.perc_margem_minima) || Number(i.valor_margem_minimo)) && `🛡️ Margem mínima ${fmtPerc(i.perc_margem_minima)} · ${fmtBRL(i.valor_margem_minimo)} por turma`,
     ].filter(Boolean),
+  },
+  vendedores: {
+    tabela: "vendedores",
+    titulo: "Vendedor",
+    descricao: "Vendedores do comercial. Os usuários do Bitrix24 são trazidos automaticamente pela sincronização; aqui você escolhe quem aparece como vendedor nos orçamentos.",
+    buscaPlaceholder: "Buscar por nome, e-mail ou cargo",
+    ordenarPor: "nome",
+    dicaInativar: 'Para tirá-lo de uso sem apagar o histórico, desmarque "Ativo".',
+    carregarRefs: async () => {
+      vendedorContagemOrc = {};
+      for (let ini = 0; ; ini += 1000) {
+        const { data } = await supabase.from("orcamentos").select("vendedor_id").not("vendedor_id", "is", null).order("id").range(ini, ini + 999);
+        (data || []).forEach((o) => { vendedorContagemOrc[o.vendedor_id] = (vendedorContagemOrc[o.vendedor_id] || 0) + 1; });
+        if (!data || data.length < 1000) break;
+      }
+    },
+    campos: [
+      { id: "nome", label: "Nome", obrigatorio: true },
+      { id: "email", label: "E-mail" },
+      { id: "cargo", label: "Cargo" },
+      { id: "bitrix_user_id", label: "ID do usuário no Bitrix24", display: true, formato: (v) => (v == null ? "— (cadastrado manualmente, sem vínculo com o Bitrix)" : v) },
+      { id: "eh_vendedor", label: "Aparece como vendedor nos orçamentos", tipo: "checkbox", padrao: true },
+      { id: "ativo", label: "Ativo (se estiver inativo no Bitrix, a sincronização também o inativa)", tipo: "checkbox", padrao: true },
+    ],
+    ajustarPayload: (p) => { ["email", "cargo"].forEach((k) => { if (!p[k]) p[k] = null; }); },
+    campoBusca: (i) => `${i.nome} ${i.email || ""} ${i.cargo || ""}`,
+    cardTitulo: (i) => i.nome,
+    cardLinhas: () => [],
+    renderTabela: (lista, { podeAlterar, podeExcluir }) => {
+      const badge = (ok, sim, nao) => `<span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${ok ? "bg-teal-50 text-teal-700" : "bg-rose-50 text-rose-600"}">${ok ? sim : nao}</span>`;
+      return `
+      <table class="w-full text-xs bg-white border border-slate-200 rounded-lg">
+        <thead>
+          <tr class="bg-slate-50 text-left text-slate-500 uppercase tracking-wide text-[10px]">
+            <th class="px-3 py-2 font-medium">Nome</th>
+            <th class="px-3 py-2 font-medium">E-mail</th>
+            <th class="px-3 py-2 font-medium">Cargo</th>
+            <th class="px-3 py-2 font-medium">Bitrix</th>
+            <th class="px-3 py-2 font-medium">Orçamentos</th>
+            <th class="px-3 py-2 font-medium">Vendedor</th>
+            <th class="px-3 py-2 font-medium">Status</th>
+            <th class="px-3 py-2"></th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          ${lista.map((i) => `
+          <tr class="hover:bg-slate-50">
+            <td class="px-3 py-2 text-slate-800 font-medium">${i.nome || "—"}</td>
+            <td class="px-3 py-2 text-slate-600">${i.email || "—"}</td>
+            <td class="px-3 py-2 text-slate-600">${i.cargo || "—"}</td>
+            <td class="px-3 py-2 font-mono text-slate-500">${i.bitrix_user_id != null ? i.bitrix_user_id : "—"}</td>
+            <td class="px-3 py-2 text-slate-600">${vendedorContagemOrc[i.id] || 0}</td>
+            <td class="px-3 py-2 whitespace-nowrap">${badge(i.eh_vendedor, "Sim", "Não")}</td>
+            <td class="px-3 py-2 whitespace-nowrap">${badge(i.ativo, "Ativo", "Inativo")}</td>
+            <td class="px-3 py-2 text-right whitespace-nowrap">
+              ${podeAlterar ? `<button data-crud-editar="${i.id}" class="text-slate-500 hover:text-slate-800 mr-2">✏️</button>` : ""}
+              ${podeExcluir ? `<button data-crud-excluir="${i.id}" class="text-rose-500 hover:text-rose-700">🗑️</button>` : ""}
+            </td>
+          </tr>`).join("")}
+        </tbody>
+      </table>`;
+    },
   },
   empresas_transporte: {
     tabela: "empresas_transporte",
@@ -3327,8 +3392,24 @@ function montarBlocoPermissoes(cfg, item) {
 function ajustarLarguraPainelCrud(cfg) {
   const caixa = $("painel-crud-caixa");
   if (!caixa) return;
-  caixa.classList.toggle("max-w-md", !cfg.painelLargo);
-  caixa.classList.toggle("max-w-3xl", !!cfg.painelLargo);
+  caixa.classList.toggle("max-w-md", !cfg.painelLargo && !cfg.painelTelaCheia);
+  caixa.classList.toggle("max-w-3xl", !!cfg.painelLargo && !cfg.painelTelaCheia);
+  caixa.classList.toggle("max-w-none", !!cfg.painelTelaCheia);
+  caixa.classList.toggle("px-6", !cfg.painelTelaCheia);
+  caixa.classList.toggle("px-8", !!cfg.painelTelaCheia);
+  // Tela cheia: os campos ficam em colunas; textos longos e a seção de itens ocupam a linha toda.
+  const campos = $("crud-campos");
+  campos.className = cfg.painelTelaCheia ? "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-x-5 gap-y-4 items-start" : "space-y-4";
+}
+
+function organizarCamposTelaCheia(cfg) {
+  if (!cfg.painelTelaCheia) return;
+  [...$("crud-campos").children].forEach((el) => {
+    const largo = el.querySelector("textarea") || el.id === "treino-itens-custo-bloco" || el.querySelector("[data-imagem-campo]");
+    if (largo) el.classList.add("col-span-full");
+    else if (el.tagName === "LABEL" && el.querySelector("input[type=checkbox]")) el.classList.add("md:col-span-2");
+    else if (el.querySelector("select") && /Tipo de treinamento/.test(el.textContent)) el.classList.add("md:col-span-2");
+  });
 }
 
 function abrirNovoCrud() {
@@ -3341,6 +3422,7 @@ function abrirNovoCrud() {
   ajustarLarguraPainelCrud(cfg);
   $("crud-campos").innerHTML = cfg.campos.map((c) => renderCampoHtml(c, c.padrao)).join("")
     + (cfg.camposExtraHtml ? cfg.camposExtraHtml(null) : "");
+  organizarCamposTelaCheia(cfg);
   ligarBotoesAcaoCampos(cfg);
   montarBlocoPermissoes(cfg, null);
   $("painel-crud").classList.remove("hidden");
@@ -3358,6 +3440,7 @@ function abrirEdicaoCrud(id) {
   ajustarLarguraPainelCrud(cfg);
   $("crud-campos").innerHTML = cfg.campos.map((c) => renderCampoHtml(c, item[c.id], item)).join("")
     + (cfg.camposExtraHtml ? cfg.camposExtraHtml(item) : "");
+  organizarCamposTelaCheia(cfg);
   ligarBotoesAcaoCampos(cfg);
   montarBlocoPermissoes(cfg, item);
   $("painel-crud").classList.remove("hidden");
@@ -4850,7 +4933,7 @@ async function excluirCrud(id) {
     const vinculo = error.code === "23503" || /foreign key|violates foreign key/i.test(error.message || "");
     alert(
       vinculo
-        ? `Não é possível excluir ${rotulo}: há registros vinculados (por exemplo, orçamentos ou agendamentos).\n\nPara tirá-lo de uso sem apagar o histórico, altere o Status para "Inativo".`
+        ? `Não é possível excluir ${rotulo}: há registros vinculados (por exemplo, orçamentos ou agendamentos).\n\n${cfg.dicaInativar || 'Para tirá-lo de uso sem apagar o histórico, altere o Status para "Inativo".'}`
         : `Não foi possível excluir ${rotulo}. Tente novamente.`
     );
     return;
@@ -5688,6 +5771,15 @@ let orcBuscaTimer = null;
 // São consultadas no banco a cada abertura do orçamento (e quando o seletor é usado depois de um tempo ou
 // está vazio), com novas tentativas — assim uma falha momentânea de rede não deixa a lista vazia.
 let orcRefsCarregadoEm = 0;
+// ID do negócio no Bitrix24: somente visualização, logo abaixo do número do orçamento.
+function mostrarNegocioBitrixOrc(id) {
+  const el = $("orc-negocio-bitrix");
+  if (!el) return;
+  const v = String(id || "").replace(/\D/g, "");
+  el.innerHTML = v
+    ? `Bitrix: <a href="https://workfire.bitrix24.com.br/crm/deal/details/${v}/" target="_blank" rel="noopener" class="font-mono text-sky-700 hover:underline" title="Abrir o negócio no Bitrix24">${v}</a>`
+    : `Bitrix: <span class="font-mono">—</span>`;
+}
 let listaVendedoresOrc = []; // vendedores (sincronizados do Bitrix) para o seletor do orçamento
 function preencherSeletorVendedorOrc(valorAtual) {
   const lista = listaVendedoresOrc.filter((v) => (v.ativo && v.eh_vendedor) || v.id === valorAtual)
@@ -6498,6 +6590,7 @@ async function abrirNovoOrcamento() {
   esconderErro("orc-form-erro");
   $("orc-numero").value = "";
   $("orc-numero").disabled = false;
+  mostrarNegocioBitrixOrc("");
   preencherSelectEmpresa("orc-empresa", listaEmpresasAtivas, "— Selecione —");
   $("orc-contato-nome").value = "";
   $("orc-contato-telefone").value = "";
@@ -6546,6 +6639,7 @@ async function abrirEdicaoOrcamento(id) {
   await garantirEmpresaDoOrcamento(o);
   orcEmpresaDoOrcamento = o.empresa_id || null;
   $("orc-numero").value = o.numero || "";
+  mostrarNegocioBitrixOrc(o.id_negocio_bitrix || "");
   $("orc-numero").disabled = true; // número já definido não muda mais, evita conflito de unicidade
   preencherSelectEmpresa("orc-empresa", listaEmpresasAtivas, "— Selecione —");
   definirEmpresaSelect("orc-empresa", o.empresa_id);

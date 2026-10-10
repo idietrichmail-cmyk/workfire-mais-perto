@@ -1239,3 +1239,20 @@ alter table public.rotina_controle enable row level security;
 --   Escrita via RPC sincronizar_vendedores_bitrix(p_usuarios jsonb) (upsert por bitrix_user_id; só admin/service role).
 -- Carga inicial: 38 usuários do Bitrix; 1.307 orçamentos vinculados (id_negocio_bitrix + vendedor_id)
 -- pelo número do orçamento no título do negócio. Sem mudança de regra no app além do campo "Vendedor".
+
+-- ============================================================
+-- Prod 1.46 · Cadastro de Vendedores (Cadastros Básicos) e Bitrix no orçamento
+-- ============================================================
+-- Já aplicado no projeto:
+--   alter table vendedores alter column bitrix_user_id drop not null;  -- permite vendedor cadastrado à mão (sem Bitrix); unique continua valendo
+--   create policy vendedores_insert on vendedores for insert to authenticated
+--     with check (is_admin_sistema(auth.uid()) or tem_permissao(auth.uid(),'vendedores','incluir'));
+--   create policy vendedores_update on vendedores for update to authenticated
+--     using (is_admin_sistema(auth.uid()) or tem_permissao(auth.uid(),'vendedores','alterar'))
+--     with check (is_admin_sistema(auth.uid()) or tem_permissao(auth.uid(),'vendedores','alterar'));
+--   create policy vendedores_delete on vendedores for delete to authenticated
+--     using (is_admin_sistema(auth.uid()) or tem_permissao(auth.uid(),'vendedores','excluir'));
+--   -- a leitura (vendedores_select) continua liberada a qualquer usuário do sistema (o orçamento precisa da lista).
+--   -- A política antiga vendedores_admin_update (só admin) é redundante e pode ser removida: drop policy vendedores_admin_update on vendedores;
+-- O módulo "vendedores" aparece na grade de permissões do usuário (Consultar/Incluir/Alterar/Excluir).
+-- Excluir um vendedor com orçamentos vinculados é bloqueado pela FK; use "Ativo" desmarcado.

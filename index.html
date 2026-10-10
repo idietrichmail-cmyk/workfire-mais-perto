@@ -1324,7 +1324,7 @@
         <p id="crud-permissoes-admin-nota" class="hidden text-xs text-teal-700 bg-teal-50 rounded-md px-3 py-2 mb-2">Administrador tem acesso total a todos os cadastros e operações.</p>
         <div id="crud-permissoes-tabela" class="border border-slate-200 rounded-lg divide-y divide-slate-100 text-xs"></div>
       </div>
-      <div class="flex gap-3 mt-6">
+      <div class="flex gap-3 mt-6 sticky -bottom-6 bg-white border-t border-slate-100 pt-3 pb-3">
         <button id="btn-salvar-crud" class="flex-1 bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium py-2.5 rounded-md">Salvar</button>
         <button id="btn-cancelar-painel-crud" class="px-4 text-sm font-medium text-slate-500 hover:text-slate-800">Cancelar</button>
       </div>
@@ -1448,7 +1448,8 @@
         <div class="px-3 py-2.5">
           <div class="grid grid-cols-2 md:grid-cols-12 gap-x-3 gap-y-2">
             <div class="col-span-1 md:col-span-2"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Número</label>
-              <input id="orc-numero" class="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono" placeholder="Ex: ORC-2026-001" /></div>
+              <input id="orc-numero" class="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono" placeholder="Ex: ORC-2026-001" />
+              <p id="orc-negocio-bitrix" class="mt-0.5 text-[10px] text-slate-400">Bitrix: <span class="font-mono">—</span></p></div>
             <div class="col-span-2 md:col-span-4"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Empresa</label>
               <select id="orc-empresa" class="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"></select></div>
             <div class="col-span-2 md:col-span-2"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Contato</label>
@@ -2179,6 +2180,6 @@
 </div>
 
 <script src="config.js"></script>
-<script src="app.js?v=20261010a"></script>
+<script src="app.js?v=20261010b"></script>
 </body>
 </html>
