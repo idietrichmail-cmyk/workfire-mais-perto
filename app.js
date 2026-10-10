@@ -34,7 +34,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.47 · 10/10/2026";
+const APP_VERSAO = "Prod 1.49 · 10/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -1904,7 +1904,7 @@ const CRUD_CONFIG = {
       { id: "qtd_uti", label: "Qtd. UTI", tipo: "number" },
       { id: "logotipo_esquerdo", label: "Logotipo esquerdo (proposta)", tipo: "imagem" },
       { id: "logotipo_direito", label: "Logotipo direito (proposta)", tipo: "imagem" },
-      { id: "texto_rodape_pagina", label: "Rodapé das páginas da proposta (razão social, CNPJ, endereços, telefones… — se vazio, usa nome e endereço)", tipo: "textarea" },
+      { id: "texto_rodape_pagina", label: "Rodapé das páginas da proposta (razão social, CNPJ, endereços, telefones… — se vazio, usa nome e endereço)", tipo: "textarea", previa: "rodape_pagina" },
       { id: "observacoes", label: "Observações", tipo: "textarea" },
       { id: "status", label: "Status", tipo: "select", opcoes: ["Ativo", "Inativo"], padrao: "Ativo" },
     ],
@@ -2041,8 +2041,8 @@ const CRUD_CONFIG = {
       { id: "valor_margem_minimo", label: "Valor mínimo de margem por turma (R$)", tipo: "number", min: 0, step: "0.01", padrao: 0 },
       { id: "validade_padrao_dias", label: "Validade padrão da proposta (dias)", tipo: "number", min: 1, max: 3650, step: "1", padrao: 30 },
       { id: "descricao", label: "Descrição", tipo: "textarea" },
-      { id: "descricao_impressao", label: "Descrição para impressão (parágrafo de abertura da proposta, após \"Apresentamos nossa proposta…\")", tipo: "textarea" },
-      { id: "rodape", label: "Rodapé da proposta (Esclarecimento … Atenciosamente)", tipo: "textarea" },
+      { id: "descricao_impressao", label: "Descrição para impressão (parágrafo de abertura da proposta, após \"Apresentamos nossa proposta…\")", tipo: "textarea", previa: "abertura" },
+      { id: "rodape", label: "Rodapé da proposta (Esclarecimento … Atenciosamente)", tipo: "textarea", previa: "rodape" },
       { id: "status", label: "Status", tipo: "select", opcoes: ["Ativo", "Inativo"], padrao: "Ativo" },
     ],
     campoBusca: (i) => `${i.nome} ${i.categoria || ""}`,
@@ -2197,7 +2197,7 @@ const CRUD_CONFIG = {
     },
     campos: [
       { id: "item", label: "Item", obrigatorio: true },
-      { id: "descricao_impressao", label: "Descrição para impressão", tipo: "textarea" },
+      { id: "descricao_impressao", label: "Descrição para impressão (item do escopo da proposta)", tipo: "textarea", previa: "item" },
       {
         id: "unidade_medida_id", label: "Unidade de medida", tipo: "select", obrigatorio: true,
         opcoesFn: () => [{ value: "", label: "— Selecione —" }].concat(
@@ -2237,7 +2237,7 @@ const CRUD_CONFIG = {
           ${lista.map((i) => `
           <tr class="hover:bg-slate-50">
             <td class="px-3 py-2 text-slate-800 font-medium">${i.item || "—"}</td>
-            <td class="px-3 py-2 text-slate-600"><div class="max-w-[320px] whitespace-normal">${i.descricao_impressao || "—"}</div></td>
+            <td class="px-3 py-2 text-slate-600"><div class="max-w-[320px] whitespace-pre-line">${i.descricao_impressao || "—"}</div></td>
             <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${un(i.unidade_medida_id)}</td>
             <td class="px-3 py-2 text-slate-700 text-right whitespace-nowrap">${fmtBRL(i.valor)}</td>
             <td class="px-3 py-2 text-slate-700 text-right whitespace-nowrap">${fmtBRL(i.valor_adicional_in_company || 0)}</td>
@@ -3078,9 +3078,17 @@ function renderCampoHtml(campo, valor, item) {
     </div>`;
   }
   if (campo.tipo === "textarea") {
+    // Texto impresso na proposta: dica de quebra de linha + prévia de como sai no PDF.
+    const dica = campo.previa ? `
+      <p class="mt-1 text-[11px] text-slate-400">Tecle <kbd class="px-1 rounded border border-slate-300 bg-slate-50 text-slate-600">Enter</kbd> para quebrar a linha; uma linha em branco separa parágrafos. A quebra automática na margem da página é feita pelo sistema.${campo.previa === "rodape_pagina" ? " No rodapé da página saem no máximo 3 linhas." : ""}</p>
+      <div class="mt-2">
+        <p class="text-[10px] font-medium text-slate-400 uppercase tracking-wide mb-0.5">Prévia na proposta</p>
+        <div id="crud-previa-${campo.id}" data-previa-tipo="${campo.previa}" class="rounded-md border border-dashed border-slate-300 bg-white px-3 py-2 text-slate-700 whitespace-pre-line"></div>
+        <p id="crud-previa-aviso-${campo.id}" class="hidden mt-1 text-[11px] text-rose-600"></p>
+      </div>` : "";
     return `<div>
       <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">${campo.label}</label>
-      <textarea id="crud-campo-${campo.id}" rows="3" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">${val}</textarea>
+      <textarea id="crud-campo-${campo.id}" rows="${campo.previa ? 5 : 3}" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">${val}</textarea>${dica}
     </div>`;
   }
   if (campo.tipo === "imagem") {
@@ -3300,7 +3308,7 @@ function renderizarListaCrud() {
         <p class="font-serif text-lg text-slate-900 leading-tight">${cfg.cardTitulo(item)}</p>
         ${item.status ? `<span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${(cfg.corStatus && cfg.corStatus[item.status]) || (item.status === "Ativo" ? "bg-teal-50 text-teal-700" : "bg-rose-50 text-rose-600")}">${item.status}</span>` : ""}
       </div>
-      <div class="text-xs text-slate-500 space-y-1">${cfg.cardLinhas(item).map((l) => `<p>${l}</p>`).join("")}</div>
+      <div class="text-xs text-slate-500 space-y-1">${cfg.cardLinhas(item).map((l) => `<p class="whitespace-pre-line">${l}</p>`).join("")}</div>
       <div class="flex gap-2 mt-2 pt-2 border-t border-slate-100">
         ${podeAlterar ? `<button data-crud-editar="${item.id}" class="flex-1 text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-50 rounded-md py-1.5">✏️ Editar</button>` : ""}
         ${podeExcluir ? `<button data-crud-excluir="${item.id}" class="flex-1 text-xs font-medium text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-md py-1.5">🗑️ Excluir</button>` : ""}
@@ -3451,7 +3459,37 @@ function ligarBotoesAcaoCampos(cfg) {
     if (c.botaoAcao) $(c.botaoAcao.id).addEventListener("click", c.botaoAcao.onClick);
   });
   ligarMascaras(cfg);
+  ligarPreviasTextoProposta(cfg);
   if (cfg.aoMontarForm) cfg.aoMontarForm(crudItemEmEdicao);
+}
+
+// Prévia aproximada de como o texto sai no PDF da proposta (quebras de linha e parágrafos).
+const PREVIA_ESTILO = {
+  abertura: "text-[13px] leading-snug text-justify",
+  rodape: "text-[12px] leading-snug text-justify text-slate-600",
+  item: "text-[13px] leading-snug pl-3 border-l-4 border-amber-500",
+  rodape_pagina: "text-[10px] leading-tight text-center text-slate-500",
+};
+function ligarPreviasTextoProposta(cfg) {
+  cfg.campos.forEach((c) => {
+    if (c.tipo !== "textarea" || !c.previa) return;
+    const ta = $("crud-campo-" + c.id), pv = $("crud-previa-" + c.id), av = $("crud-previa-aviso-" + c.id);
+    if (!ta || !pv) return;
+    const atualizar = () => {
+      const txt = ta.value.replace(/\r\n?/g, "\n");
+      pv.className = `rounded-md border border-dashed border-slate-300 bg-white px-3 py-2 whitespace-pre-line ${PREVIA_ESTILO[c.previa] || ""}`;
+      pv.textContent = txt.trim() ? txt : "(vazio — a proposta usa o texto padrão, quando houver)";
+      if (!txt.trim()) pv.classList.add("text-slate-400", "italic");
+      if (av) {
+        const linhas = txt.split("\n").length;
+        const excede = c.previa === "rodape_pagina" && linhas > 3;
+        av.classList.toggle("hidden", !excede);
+        if (excede) av.textContent = `Atenção: são ${linhas} linhas e só as 3 primeiras saem no rodapé da página.`;
+      }
+    };
+    ta.addEventListener("input", atualizar);
+    atualizar();
+  });
 }
 
 const MASCARAS = {
@@ -7531,72 +7569,104 @@ function infoImagemPdf(dataUrl) {
 const pdfTxt = (t) => String(t == null ? "" : t).replace(/\r\n?/g, "\n").replace(/→/g, "->").replace(/[✓✔]/g, "v").replace(/[^\n\x20-\x7E\xA0-\xFF–—‘-„•…€]/g, "");
 const dataBrDeIso = (s) => (s ? String(s).slice(0, 10).split("-").reverse().join("/") : "");
 
+// A proposta precisa caber em UMA página: monta o PDF na escala normal e, se passar de uma página,
+// refaz com textos/espaços um pouco menores (até caber). Margens laterais e rodapé reduzidos; sem
+// blocos pretos/preenchidos (economiza tinta ao imprimir).
 async function gerarPdfProposta(d, opts = {}) {
   const JsPDF = await carregarJsPdf();
+  const ct = d.centro || {};
+  const [infoE, infoD] = await Promise.all([infoImagemPdf(ct.logotipo_esquerdo), infoImagemPdf(ct.logotipo_direito)]);
+  let doc;
+  for (const esc of [1, 0.97, 0.94, 0.91, 0.88, 0.85, 0.82, 0.79, 0.76, 0.73, 0.7, 0.67, 0.64]) {
+    doc = construirPdfProposta(JsPDF, d, opts, ct, infoE, infoD, esc);
+    if (doc.getNumberOfPages() <= 1) break;
+  }
+  return doc.output("blob");
+}
+
+function construirPdfProposta(JsPDF, d, opts, ct, infoE, infoD, e) {
   const doc = new JsPDF({ unit: "mm", format: "a4", compress: true });
-  const W = 210, H = 297, M = 17, CW = W - 2 * M, BASE = H - 26;
-  const INK = [31, 41, 55], ACC = [194, 65, 12], MUT = [107, 114, 128], LINE = [226, 228, 232], SOFT = [248, 247, 244], BRANCO = [255, 255, 255];
+  const W = 210, H = 297, M = 10, CW = W - 2 * M, BASE = H - 19;
+  const INK = [31, 41, 55], ACC = [194, 65, 12], MUT = [107, 114, 128], LINE = [226, 228, 232], BORDA = [168, 172, 180];
   const cor = (c) => doc.setTextColor(c[0], c[1], c[2]);
-  const preenche = (c) => doc.setFillColor(c[0], c[1], c[2]);
   const traco = (c, w) => { doc.setDrawColor(c[0], c[1], c[2]); doc.setLineWidth(w || 0.2); };
-  let y = M;
-  const novaPagina = () => { doc.addPage(); y = 26; };
+  let y = 8;
+  const novaPagina = () => { doc.addPage(); y = 22; };
   const garantir = (h) => { if (y + h > BASE) novaPagina(); };
   const fonte = (estilo, tam) => { doc.setFont("helvetica", estilo); doc.setFontSize(tam); };
   const quebra = (txt, larg) => doc.splitTextToSize(pdfTxt(txt), larg);
 
   // Cabeçalho: logotipos do Centro de Treinamento (esquerdo e direito)
-  const ct = d.centro || {};
-  const [infoE, infoD] = await Promise.all([infoImagemPdf(ct.logotipo_esquerdo), infoImagemPdf(ct.logotipo_direito)]);
+  const LOGO_W = 50, LOGO_H = 14;
   const caixaLogo = (dataUrl, info, x, alinharDireita) => {
-    const maxW = 58, maxH = 20;
     if (!dataUrl || !info) return;
-    const esc = Math.min(maxW / info.w, maxH / info.h);
+    const esc = Math.min(LOGO_W / info.w, LOGO_H / info.h);
     const w = info.w * esc, h = info.h * esc;
     const fmt = /^data:image\/jpe?g/i.test(dataUrl) ? "JPEG" : "PNG";
-    doc.addImage(dataUrl, fmt, alinharDireita ? x + maxW - w : x, y + (maxH - h) / 2, w, h);
+    doc.addImage(dataUrl, fmt, alinharDireita ? x + LOGO_W - w : x, y + (LOGO_H - h) / 2, w, h);
   };
   caixaLogo(ct.logotipo_esquerdo, infoE, M, false);
-  caixaLogo(ct.logotipo_direito, infoD, W - M - 58, true);
-  if (!infoE && !infoD && ct.nome) { fonte("bold", 13); cor(INK); doc.text(pdfTxt(ct.nome).toUpperCase(), M, y + 9); }
-  y += 23;
+  caixaLogo(ct.logotipo_direito, infoD, W - M - LOGO_W, true);
+  if (!infoE && !infoD && ct.nome) { fonte("bold", 12); cor(INK); doc.text(pdfTxt(ct.nome).toUpperCase(), M, y + 8); }
+  y += LOGO_H + 2.5;
   traco(LINE, 0.3); doc.line(M, y, W - M, y);
-  traco(ACC, 1); doc.line(M, y, M + 26, y);
-  y += 9;
-
-  // Título e local/data
-  fonte("bold", 19); cor(INK);
-  doc.text("PROPOSTA COMERCIAL", M, y, { charSpace: 0.9 });
-  const cidadeData = [pdfTxt(ct.cidade), dataBrDeIso(d.data_impressao)].filter(Boolean).join(", ");
-  fonte("normal", 9.5); cor(MUT);
-  doc.text(cidadeData, W - M, y, { align: "right" });
+  traco(ACC, 0.9); doc.line(M, y, M + 24, y);
   y += 7;
 
-  // Painel do cliente (esquerda) + identificação da proposta (direita)
-  const hPainel = 33, wDir = 56, wEsq = CW - wDir - 5;
-  preenche(SOFT); doc.roundedRect(M, y, wEsq, hPainel, 2, 2, "F");
-  const rotulo = (txt, x, yy) => { fonte("bold", 6.8); cor(MUT); doc.text(txt, x, yy, { charSpace: 0.4 }); };
-  const valor = (txt, x, yy, larg, tam) => { fonte("normal", tam || 9.5); cor(INK); const l = quebra(txt || "—", larg)[0] || "—"; doc.text(l, x, yy); };
-  rotulo("EMPRESA", M + 5, y + 6);
-  fonte("bold", 11); cor(INK); doc.text(quebra(d.empresa.nome || "—", wEsq - 10)[0], M + 5, y + 11.5);
-  rotulo("CONTATO", M + 5, y + 18); valor(d.contato.nome, M + 5, y + 23, wEsq / 2 - 8);
-  rotulo("FONE", M + wEsq / 2 + 2, y + 18); valor(d.contato.telefone, M + wEsq / 2 + 2, y + 23, wEsq / 2 - 8);
-  rotulo("E-MAIL", M + 5, y + 28.5); valor(d.contato.email, M + 5, y + 32, wEsq - 10, 9);
-  const xd = W - M - wDir;
-  preenche(BRANCO); traco(ACC, 0.5); doc.roundedRect(xd, y, wDir, hPainel, 2, 2, "S");
-  rotulo("PROPOSTA Nº", xd + 5, y + 6); fonte("bold", 11); cor(ACC); doc.text(pdfTxt(d.proposta_numero), xd + 5, y + 12);
-  rotulo("ORÇAMENTO Nº", xd + 5, y + 19); fonte("bold", 11); cor(INK); doc.text(pdfTxt(d.orcamento_numero), xd + 5, y + 25);
-  fonte("normal", 8); cor(MUT); doc.text(`Versão ${d.versao}`, xd + 5, y + 30.5);
-  y += hPainel + 7;
+  // Título e local/data
+  fonte("bold", 14.5); cor(INK);
+  doc.text("PROPOSTA COMERCIAL", M, y, { charSpace: 0.7 });
+  const cidadeData = [pdfTxt(ct.cidade), dataBrDeIso(d.data_impressao)].filter(Boolean).join(", ");
+  fonte("normal", 9); cor(MUT);
+  doc.text(cidadeData, W - M, y, { align: "right" });
+  y += 4.5;
 
-  // Parágrafo de abertura (cadastro do treinamento)
+  // Painel do cliente: linha 1 = empresa + nº da proposta; linha 2 = contato, fone e e-mail (sem fundo)
+  const hPainel = 15.5, x0 = M + 4, xr = W - M - 4;
+  traco(BORDA, 0.3); doc.roundedRect(M, y, CW, hPainel, 1.8, 1.8, "S");
+  const larguraRotulo = (txt) => { fonte("bold", 6.5); return doc.getTextWidth(txt) + 1.8; };
+  const rotuloInline = (txt, x, yy) => { fonte("bold", 6.5); cor(MUT); doc.text(txt, x, yy); return larguraRotulo(txt); };
+  // Escreve o valor numa linha só: reduz a fonte até caber e, se ainda não couber, corta com reticências.
+  const linhaAjustada = (txt, x, yy, larg, tam, negrito, minimo) => {
+    const t = pdfTxt(txt || "—").replace(/\s+/g, " ");
+    fonte(negrito ? "bold" : "normal", tam); cor(INK);
+    let s = tam;
+    while (doc.getTextWidth(t) > larg && s > (minimo || tam - 2.5)) { s -= 0.25; doc.setFontSize(s); }
+    let out = t;
+    if (doc.getTextWidth(out) > larg) { while (out.length > 1 && doc.getTextWidth(out + "…") > larg) out = out.slice(0, -1); out += "…"; }
+    doc.text(out, x, yy);
+  };
+  const campoInline = (rot, val, x, yy, larg, tam, negrito) => {
+    const lw = rotuloInline(rot, x, yy);
+    linhaAjustada(val, x + lw, yy, Math.max(10, larg - lw), tam, negrito);
+  };
+  // proposta (direita), da direita para a esquerda
+  const yl1 = y + 6.2;
+  fonte("normal", 7.5); cor(MUT);
+  const txtVersao = `  versão ${d.versao}`;
+  const wVersao = doc.getTextWidth(txtVersao);
+  doc.text(txtVersao, xr, yl1, { align: "right" });
+  fonte("bold", 11); cor(ACC);
+  const numProp = pdfTxt(d.proposta_numero);
+  const wNum = doc.getTextWidth(numProp);
+  doc.text(numProp, xr - wVersao, yl1, { align: "right" });
+  const xIniProp = xr - wVersao - wNum - larguraRotulo("PROPOSTA Nº");
+  rotuloInline("PROPOSTA Nº", xIniProp, yl1);
+  campoInline("EMPRESA", d.empresa.nome, x0, yl1, xIniProp - x0 - 4, 11, true);
+  const yl2 = y + 12.4;
+  campoInline("CONTATO", d.contato.nome, x0, yl2, 70, 9);
+  campoInline("FONE", d.contato.telefone, M + 78, yl2, 40, 9);
+  campoInline("E-MAIL", d.contato.email, M + 120, yl2, W - M - 4 - (M + 120), 9);
+  y += hPainel + 5;
+
+  // Texto com quebras de linha do cadastro (tamanho e entrelinha acompanham a escala de encaixe)
   const paragrafo = (txt, tam, justificar, corTxt, lead) => {
-    fonte("normal", tam); cor(corTxt || INK);
-    const entrelinha = lead || tam * 0.5;
+    const t = tam * e, entrelinha = lead * e;
+    fonte("normal", t); cor(corTxt || INK);
     String(txt).split(/\n/).forEach((par) => {
-      if (!par.trim()) { y += entrelinha * 0.6; return; }
+      if (!par.trim()) { y += entrelinha * 0.5; return; }
       const rotuloSozinho = /^[A-ZÀ-Ý][A-ZÀ-Ý \/-]{3,}:\s*$/.test(par.trim());
-      if (rotuloSozinho) { fonte("bold", tam); cor(ACC); } else { fonte("normal", tam); cor(corTxt || INK); }
+      if (rotuloSozinho) { fonte("bold", t); cor(ACC); } else { fonte("normal", t); cor(corTxt || INK); }
       const linhas = quebra(par, CW);
       linhas.forEach((ln, idx) => {
         garantir(entrelinha);
@@ -7608,119 +7678,110 @@ async function gerarPdfProposta(d, opts = {}) {
     });
   };
   const abertura = (d.treinamento.descricao_impressao || "").trim() || `Apresentamos nossa proposta para ${d.treinamento.nome}, conforme segue:`;
-  paragrafo(abertura, 10, true, INK, 5);
-  y += 4;
+  paragrafo(abertura, 9.5, true, INK, 4.6);
+  y += 3 * e;
 
-  // Escopo: itens numerados (sem valores de custo)
-  garantir(20);
-  fonte("bold", 8); cor(ACC); doc.text("ESCOPO DA PROPOSTA", M, y, { charSpace: 0.8 });
-  traco(LINE, 0.3); doc.line(M + 50, y - 1, W - M, y - 1);
-  y += 6;
+  // Escopo: itens numerados (sem valores de custo), sem círculos preenchidos
+  garantir(14);
+  fonte("bold", 7.5); cor(ACC); doc.text("ESCOPO DA PROPOSTA", M, y, { charSpace: 0.7 });
+  traco(LINE, 0.3); doc.line(M + 44, y - 1, W - M, y - 1);
+  y += 4.6 * e;
+  const tIt = 9 * e, leadIt = 4.1 * e;
   (d.itens_impressao || []).forEach((txt, idx) => {
-    fonte("normal", 9.5);
-    const linhas = quebra(txt, CW - 10);
-    const hItem = Math.max(7, linhas.length * 4.6 + 2.2);
-    garantir(hItem);
-    preenche(ACC); doc.circle(M + 3, y + 0.4, 3, "F");
-    fonte("bold", 8); cor(BRANCO); doc.text(String(idx + 1), M + 3, y + 1.8, { align: "center" });
-    fonte("normal", 9.5); cor(INK);
-    linhas.forEach((ln, k) => doc.text(ln, M + 10, y + 1.3 + k * 4.6));
-    y += hItem;
-    if (idx < d.itens_impressao.length - 1) { traco(LINE, 0.2); doc.line(M + 10, y - 2.9, W - M, y - 2.9); }
+    fonte("normal", tIt);
+    const linhas = quebra(txt, CW - 8);
+    garantir(linhas.length * leadIt + 1.2);
+    fonte("bold", tIt); cor(ACC); doc.text(`${idx + 1}.`, M + 1, y);
+    fonte("normal", tIt); cor(INK);
+    linhas.forEach((ln, k) => doc.text(ln, M + 8, y + k * leadIt));
+    y += linhas.length * leadIt + 1.2 * e;
   });
-  y += 4;
+  y += 2 * e;
 
-  // Valores
-  garantir(50);
-  const hVal = 31;
-  preenche(INK); doc.roundedRect(M, y, CW, hVal, 2.5, 2.5, "F");
-  fonte("normal", 9.5); cor([209, 213, 219]); doc.text("TOTAL POR GRUPO", M + 7, y + 10, { charSpace: 0.5 });
-  fonte("bold", 13); cor(BRANCO); doc.text(pdfTxt(fmtBRL(d.calculo.valor_final_turma)), W - M - 7, y + 10.5, { align: "right" });
-  traco([75, 85, 99], 0.3); doc.line(M + 7, y + 15, W - M - 7, y + 15);
-  fonte("bold", 10); cor([251, 146, 60]); doc.text("TOTAL GERAL", M + 7, y + 25, { charSpace: 0.5 });
-  fonte("bold", 19); cor(BRANCO); doc.text(pdfTxt(fmtBRL(d.calculo.valor_final)), W - M - 7, y + 26, { align: "right" });
-  y += hVal + 4;
+  // Valores: caixa só com contorno (sem fundo preto)
+  garantir(40);
+  const hVal = 14.5;
+  traco(BORDA, 0.3); doc.roundedRect(M, y, CW, hVal, 1.8, 1.8, "S");
+  fonte("bold", 7.5); cor(MUT); doc.text("TOTAL POR GRUPO", M + 4, y + 5, { charSpace: 0.4 });
+  fonte("bold", 10); cor(INK); doc.text(pdfTxt(fmtBRL(d.calculo.valor_final_turma)), W - M - 4, y + 5.2, { align: "right" });
+  traco(LINE, 0.25); doc.line(M + 4, y + 7.3, W - M - 4, y + 7.3);
+  fonte("bold", 8.5); cor(ACC); doc.text("TOTAL GERAL", M + 4, y + 12.2, { charSpace: 0.4 });
+  fonte("bold", 12.5); cor(ACC); doc.text(pdfTxt(fmtBRL(d.calculo.valor_final)), W - M - 4, y + 12.4, { align: "right" });
+  y += hVal + 3.5;
 
-  const cel = [
-    ["QUANTIDADE DE GRUPOS", String(d.quantidades.turmas)],
-    ["PARTICIPANTES POR GRUPO", String(d.quantidades.alunos_por_turma)],
-    ["TOTAL DE PARTICIPANTES", String(d.quantidades.alunos)],
-  ];
-  const wc = (CW - 6) / 3;
-  cel.forEach(([rot, v], k) => {
-    const x = M + k * (wc + 3);
-    preenche(SOFT); doc.roundedRect(x, y, wc, 14, 2, 2, "F");
-    rotulo(rot, x + 4, y + 5.5); fonte("bold", 12); cor(INK); doc.text(v, x + 4, y + 11.5);
-  });
-  y += 20;
-
-  // Condições comerciais
-  garantir(22);
-  const wm = (CW - 3) / 2;
-  [["PRAZO DE PAGAMENTO", d.prazo_pagamento || "—"], ["VALIDADE DA PROPOSTA", `${d.validade_dias} dias${d.validade_ate ? " (até " + dataBrDeIso(d.validade_ate) + ")" : ""}`]].forEach(([rot, v], k) => {
-    const x = M + k * (wm + 3);
-    traco(LINE, 0.3); doc.roundedRect(x, y, wm, 15, 2, 2, "S");
-    rotulo(rot, x + 4, y + 5.5); fonte("bold", 10.5); cor(INK); doc.text(quebra(v, wm - 8)[0], x + 4, y + 11.5);
-  });
-  y += 22;
+  // Quantidades e condições comerciais (contorno fino, sem fundo)
+  const celula = (rot, v, x, larg, tamV) => {
+    traco(LINE, 0.35); doc.roundedRect(x, y, larg, 10, 1.5, 1.5, "S");
+    fonte("bold", 6.3); cor(MUT); doc.text(rot, x + 3, y + 3.9, { charSpace: 0.3 });
+    fonte("bold", tamV || 9.5); cor(INK); doc.text(quebra(v, larg - 6)[0] || "—", x + 3, y + 8.2);
+  };
+  const wc = (CW - 4) / 3;
+  [["QUANTIDADE DE GRUPOS", String(d.quantidades.turmas)], ["PARTICIPANTES POR GRUPO", String(d.quantidades.alunos_por_turma)], ["TOTAL DE PARTICIPANTES", String(d.quantidades.alunos)]]
+    .forEach(([rot, v], k) => celula(rot, v, M + k * (wc + 2), wc, 10.5));
+  y += 12;
+  const wm = (CW - 2) / 2;
+  [["PRAZO DE PAGAMENTO", d.prazo_pagamento || "—"], ["VALIDADE DA PROPOSTA", `${d.validade_dias} dias${d.validade_ate ? " (até " + dataBrDeIso(d.validade_ate) + ")" : ""}`]]
+    .forEach(([rot, v], k) => celula(rot, v, M + k * (wm + 2), wm, 9.5));
+  y += 13.5;
 
   // Parcelas do prazo de pagamento (só quando há mais de uma parcela ou prazo após o faturamento)
   const parc = Array.isArray(d.parcelas) ? d.parcelas : [];
   if (parc.length && (parc.length > 1 || parc.some((x) => Number(x.dias) > 0))) {
-    garantir(18 + parc.length * 6.2);
-    fonte("bold", 8); cor(ACC); doc.text("PARCELAS", M, y, { charSpace: 0.8 });
-    traco(LINE, 0.3); doc.line(M + 24, y - 1, W - M, y - 1);
-    y += 3;
-    preenche(SOFT); doc.roundedRect(M, y, CW, 6.2, 1.2, 1.2, "F");
-    const cx = [M + 4, M + 30, M + 100, W - M - 4];
-    fonte("bold", 6.8); cor(MUT);
-    doc.text("PARCELA", cx[0], y + 4.1, { charSpace: 0.4 });
-    doc.text("VENCIMENTO", cx[1], y + 4.1, { charSpace: 0.4 });
-    doc.text("PERCENTUAL", cx[2], y + 4.1, { charSpace: 0.4 });
-    doc.text("VALOR", cx[3], y + 4.1, { align: "right", charSpace: 0.4 });
-    y += 6.2;
+    const hl = 4.7;
+    garantir(8 + parc.length * hl);
+    fonte("bold", 7.5); cor(ACC); doc.text("PARCELAS", M, y, { charSpace: 0.7 });
+    traco(LINE, 0.3); doc.line(M + 22, y - 1, W - M, y - 1);
+    y += 2.2;
+    const cx = [M + 2, M + 24, M + 100, W - M - 2];
+    fonte("bold", 6.3); cor(MUT);
+    doc.text("PARCELA", cx[0], y + 3.3, { charSpace: 0.3 });
+    doc.text("VENCIMENTO", cx[1], y + 3.3, { charSpace: 0.3 });
+    doc.text("PERCENTUAL", cx[2], y + 3.3, { charSpace: 0.3 });
+    doc.text("VALOR", cx[3], y + 3.3, { align: "right", charSpace: 0.3 });
+    y += hl; traco(BORDA, 0.25); doc.line(M, y, W - M, y);
     parc.forEach((x, k) => {
-      fonte("normal", 9.5); cor(INK);
-      doc.text(`${x.numero}ª`, cx[0], y + 4.4);
-      doc.text(Number(x.dias) === 0 ? "À vista" : `${x.dias} dias após o faturamento`, cx[1], y + 4.4);
-      doc.text(`${Number(x.percentual).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}%`, cx[2], y + 4.4);
-      fonte("bold", 9.5); doc.text(pdfTxt(fmtBRL(x.valor)), cx[3], y + 4.4, { align: "right" });
-      y += 6.2;
+      fonte("normal", 8.5); cor(INK);
+      doc.text(`${x.numero}ª`, cx[0], y + 3.5);
+      doc.text(Number(x.dias) === 0 ? "À vista" : `${x.dias} dias após o faturamento`, cx[1], y + 3.5);
+      doc.text(`${Number(x.percentual).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}%`, cx[2], y + 3.5);
+      fonte("bold", 8.5); doc.text(pdfTxt(fmtBRL(x.valor)), cx[3], y + 3.5, { align: "right" });
+      y += hl;
       if (k < parc.length - 1) { traco(LINE, 0.2); doc.line(M, y, W - M, y); }
     });
-    y += 8;
+    y += 4;
   }
 
   // Esclarecimento / rodapé do treinamento + assinatura
   const rodape = (d.treinamento.rodape || "").trim();
-  if (rodape) paragrafo(rodape, 9, true, [55, 65, 81], 4.4);
-  garantir(34);
+  y += 1.5 * e;
+  if (rodape) paragrafo(rodape, 8.5, true, [55, 65, 81], 4);
+  garantir(24);
+  y += 2.5 * e;
+  if (!/atenciosamente/i.test(rodape)) { fonte("normal", 9.5); cor(INK); doc.text("Atenciosamente,", M, y); y += 3.5; }
+  y += 8 * e;
+  traco(INK, 0.3); doc.line(M, y, M + 58, y);
+  y += 4.2;
+  fonte("bold", 9); cor(INK); doc.text(pdfTxt(d.gerado_por || "").toUpperCase(), M, y);
   y += 4;
-  if (!/atenciosamente/i.test(rodape)) { fonte("normal", 10); cor(INK); doc.text("Atenciosamente,", M, y); y += 4; }
-  y += 12;
-  traco(INK, 0.3); doc.line(M, y, M + 62, y);
-  y += 5;
-  fonte("bold", 10); cor(INK); doc.text(pdfTxt(d.gerado_por || "").toUpperCase(), M, y);
-  y += 4.6;
-  fonte("normal", 8.5); cor(MUT); doc.text(pdfTxt(ct.nome || ""), M, y);
+  fonte("normal", 8); cor(MUT); doc.text(pdfTxt(ct.nome || ""), M, y);
 
-  // Rodapé e cabeçalho de continuação em todas as páginas
+  // Rodapé (compacto) e cabeçalho de continuação em todas as páginas
   const total = doc.getNumberOfPages();
   const textoRodape = (ct.rodape_pagina || "").trim() || [ct.nome, ct.endereco].filter(Boolean).join(" - ");
   for (let p = 1; p <= total; p++) {
     doc.setPage(p);
     if (p > 1) {
-      fonte("bold", 8); cor(MUT); doc.text(`PROPOSTA ${pdfTxt(d.proposta_numero)}`, M, 14, { charSpace: 0.4 });
-      fonte("normal", 8); doc.text(pdfTxt(d.empresa.nome || ""), W - M, 14, { align: "right" });
-      traco(LINE, 0.3); doc.line(M, 17, W - M, 17);
+      fonte("bold", 8); cor(MUT); doc.text(`PROPOSTA ${pdfTxt(d.proposta_numero)}`, M, 12, { charSpace: 0.4 });
+      fonte("normal", 8); doc.text(pdfTxt(d.empresa.nome || ""), W - M, 12, { align: "right" });
+      traco(LINE, 0.3); doc.line(M, 15, W - M, 15);
     }
-    traco(LINE, 0.3); doc.line(M, H - 19, W - M, H - 19);
-    fonte("normal", 7); cor(MUT);
+    traco(LINE, 0.3); doc.line(M, H - 17, W - M, H - 17);
+    fonte("normal", 6.5); cor(MUT);
     const linhasRod = quebra(textoRodape, CW).slice(0, 3);
-    linhasRod.forEach((ln, k) => doc.text(ln, W / 2, H - 15 + k * 3.1, { align: "center" }));
-    fonte("normal", 7);
-    doc.text(`Proposta ${pdfTxt(d.proposta_numero)}`, M, H - 5);
-    doc.text(`Página ${p} de ${total}`, W - M, H - 5, { align: "right" });
+    linhasRod.forEach((ln, k) => doc.text(ln, W / 2, H - 13.6 + k * 2.9, { align: "center" }));
+    fonte("normal", 6.5);
+    doc.text(`Proposta ${pdfTxt(d.proposta_numero)}`, M, H - 3.6);
+    doc.text(`Página ${p} de ${total}`, W - M, H - 3.6, { align: "right" });
   }
 
   // Marca d'água diagonal em todas as páginas (NÃO APROVADA / EM ELABORAÇÃO)
@@ -7749,7 +7810,7 @@ async function gerarPdfProposta(d, opts = {}) {
       doc.restoreGraphicsState();
     }
   }
-  return doc.output("blob");
+  return doc;
 }
 
 // Cria automaticamente as linhas de turma do orçamento: uma linha por DIA

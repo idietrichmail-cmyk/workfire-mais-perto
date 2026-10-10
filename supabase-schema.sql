@@ -1263,3 +1263,19 @@ alter table public.rotina_controle enable row level security;
 -- Somente front-end (sem mudança no banco). A importação copia, para o formulário, os registros de
 -- treinamento_itens_custo do treinamento escolhido (item, divisor, unidade, múltiplo, imprime, ordem);
 -- só é gravada quando o treinamento é salvo. Opção "Substituir os itens atuais" ou só acrescentar os que faltam.
+
+-- ============================================================
+-- Prod 1.48 · Textos impressos na proposta: dica de quebra de linha + prévia
+-- ============================================================
+-- Somente front-end (sem mudança no banco). Nos cadastros de Centro de Treinamento (rodapé das páginas),
+-- Treinamento (descrição para impressão e rodapé) e Itens de Custo (descrição para impressão), o Enter já
+-- gera quebra de linha e a linha em branco, novo parágrafo (é gravado como \n no texto). Passou a mostrar
+-- dica e prévia no formulário e a exibir as quebras nas listas/cartões.
+
+-- ============================================================
+-- Prod 1.49 · Proposta (PDF): uma página, margens menores, sem blocos pretos
+-- ============================================================
+-- Somente front-end (sem mudança no banco). Margens laterais 10 mm e rodapé compacto; empresa + nº da proposta
+-- na mesma linha e, abaixo, contato, fone e e-mail; o nº do orçamento não é mais impresso; totais por grupo/geral
+-- em caixa só com contorno (sem fundo). Se o conteúdo passar de uma página, o sistema refaz o PDF com textos e
+-- espaços um pouco menores até caber em uma página.
