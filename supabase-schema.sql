@@ -1367,3 +1367,11 @@ alter table public.rotina_controle enable row level security;
 --   e analisa), "aplicar" (idem + grava vínculos), "so_analisar" (só reanalisa a cópia), "listas" (só atualiza pipelines/fases). Usa o segredo BITRIX_WEBHOOK_URL.
 -- App: seção "Vínculo com o Bitrix24" no orçamento (ID do negócio preenche pipeline/fase pela cópia; só admin/gestor comercial editam),
 --   coluna Bitrix na lista, painel "🔗 Vínculos com o Bitrix" (conferência, vincular os seguros, relatório Excel).
+
+-- ---------------------------------------------------------------------
+-- Prod 1.60 — Vínculo com o Bitrix: havendo mais de um negócio com o número do orçamento, vale o ÚLTIMO CADASTRADO
+-- bitrix_analisar_orcamentos(p_aplicar boolean): quando mais de um negócio (não-renovação) traz o número, tenta desempatar pela empresa;
+--   se ainda houver mais de um, escolhe o de maior criado_em (empate: maior id) entre os que batem com a empresa (ou entre todos, se nenhum bate).
+--   Nova situação 'varios_negocios_ultimo_escolhido' (candidatos ficam em bitrix_verificacao_orcamentos.candidatos). Negócios só de "Renovação" continuam sem vínculo automático.
+-- App: seletor de empresa do orçamento mostra, abaixo, o nome completo da empresa escolhida (nome, fantasia e CNPJ), escapa caracteres especiais
+--   dos rótulos e garante a empresa do orçamento na lista ao abrir; relatório Excel ganhou a coluna "Negócios com o mesmo número".

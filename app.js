@@ -34,7 +34,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.59 · 11/10/2026";
+const APP_VERSAO = "Prod 1.60 · 11/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -5272,7 +5272,21 @@ async function garantirEmpresaDoOrcamento(o) {
 }
 
 function rotuloEmpresa(e) {
-  return e.nome_fantasia ? `${e.nome} — ${e.nome_fantasia}` : e.nome;
+  return escHtmlOrc(e.nome_fantasia ? `${e.nome} — ${e.nome_fantasia}` : e.nome);
+}
+// Linha fixa abaixo do seletor com o nome COMPLETO da empresa escolhida (o seletor é estreito e corta o texto).
+function mostrarEmpresaSelecionada(selectId) {
+  const sel = $(selectId);
+  let p = $(`${selectId}-escolhida`);
+  if (!p) {
+    p = document.createElement("p");
+    p.id = `${selectId}-escolhida`;
+    p.className = "mt-1 text-[11px] font-medium text-teal-700 break-words";
+    sel.parentNode.insertBefore(p, sel.nextSibling);
+    sel.addEventListener("change", () => mostrarEmpresaSelecionada(selectId));
+  }
+  const e = (sel._empresasLista || []).find((x) => x.id === sel.value) || listaEmpresasAtivas.find((x) => x.id === sel.value);
+  p.textContent = e ? `Empresa: ${e.nome}${e.nome_fantasia ? ` — ${e.nome_fantasia}` : ""}${e.cnpj ? ` · CNPJ ${e.cnpj}` : ""}` : "";
 }
 function preencherSelectEmpresa(selectId, lista, opcaoVazia) {
   const sel = $(selectId);
@@ -5283,6 +5297,8 @@ function preencherSelectEmpresa(selectId, lista, opcaoVazia) {
     busca = document.createElement("input");
     busca.id = `${selectId}-busca`;
     busca.type = "search";
+    busca.autocomplete = "off";
+    busca.name = `filtro-${selectId}-${Date.now()}`;
     busca.placeholder = "🔎 Digite nome, fantasia ou CNPJ para filtrar…";
     busca.className = "mt-1 w-full rounded-md border border-slate-300 px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500";
     sel.parentNode.insertBefore(busca, sel);
@@ -5295,6 +5311,7 @@ function preencherSelectEmpresa(selectId, lista, opcaoVazia) {
   busca.value = "";
   if ($(`${selectId}-busca-info`)) $(`${selectId}-busca-info`).textContent = "";
   preencherSelect(selectId, lista, "id", rotuloEmpresa, opcaoVazia);
+  mostrarEmpresaSelecionada(selectId);
 }
 function filtrarSelectEmpresa(selectId) {
   const sel = $(selectId);
@@ -5319,6 +5336,7 @@ function filtrarSelectEmpresa(selectId) {
   }
   preencherSelect(selectId, lista, "id", rotuloEmpresa, sel._empresasVazia);
   sel.value = atual && lista.some((e) => e.id === atual) ? atual : "";
+  mostrarEmpresaSelecionada(selectId);
   const info = $(`${selectId}-busca-info`);
   if (info) info.textContent = termo ? (achadas ? `${achadas} empresa(s) encontrada(s)${achadas > 200 ? " — mostrando as 200 primeiras, refine a busca" : ""}` : "Nenhuma empresa encontrada na lista carregada…") : "";
 }
@@ -5361,6 +5379,15 @@ function definirEmpresaSelect(selectId, id) {
   $(`${selectId}-busca`) && ($(`${selectId}-busca`).value = "");
   preencherSelect(selectId, sel._empresasLista || [], "id", rotuloEmpresa, sel._empresasVazia);
   sel.value = id || "";
+  if (id && sel.value !== id) { // a empresa não está na lista carregada: busca no cadastro e inclui
+    const emp = listaEmpresasAtivas.find((e) => e.id === id);
+    if (emp) {
+      sel._empresasLista = [emp, ...(sel._empresasLista || []).filter((e) => e.id !== id)];
+      preencherSelect(selectId, sel._empresasLista, "id", rotuloEmpresa, sel._empresasVazia);
+      sel.value = id;
+    }
+  }
+  mostrarEmpresaSelecionada(selectId);
 }
 
 // ===========================================================
@@ -6024,7 +6051,8 @@ const BX_SITUACOES = [
   ["vinculado", "Já vinculados", "O número do orçamento aparece no título de um único negócio."],
   ["encontrado_pelo_titulo", "Vínculo seguro a fazer (pelo número)", "O número do orçamento aparece no título de um único negócio ainda não vinculado."],
   ["encontrado_pelo_titulo_e_empresa", "Vínculo seguro a fazer", "Título do negócio traz o número (de forma diferente do padrão) e a empresa confere."],
-  ["varios_negocios_com_o_numero", "Vários negócios com o mesmo número", "Precisa de decisão: escolha o correto no orçamento (alguns são negócios duplicados no Bitrix)."],
+  ["varios_negocios_ultimo_escolhido", "Vários negócios com o mesmo número: vale o último cadastrado", "Há mais de um negócio com o número (alguns são duplicados no Bitrix); o vínculo é feito com o negócio criado por último. Confira na aba “Vinculados e seguros” do relatório."],
+  ["varios_negocios_com_o_numero", "Vários negócios com o mesmo número", "Precisa de decisão: escolha o correto no orçamento."],
   ["so_renovacao_no_titulo", "Só aparece em negócio de renovação", "O número só é citado em negócios de “Renovação”, que são outra oportunidade."],
   ["sem_numero_mas_ha_candidatos_pela_empresa", "Sugestões pela empresa", "Nenhum negócio traz o número, mas há negócios sem número da mesma empresa."],
   ["sem_negocio_no_bitrix", "Sem negócio no Bitrix", "Nenhum negócio identificado (ou o título do negócio não traz o número)."],
@@ -6057,7 +6085,7 @@ function renderizarPainelBitrixOrc(msg) {
   const cont = {};
   (v?.linhas || []).forEach((l) => { cont[l.situacao] = (cont[l.situacao] || 0) + 1; });
   const total = v?.linhas?.length || 0;
-  const aFazer = (cont.encontrado_pelo_titulo_e_empresa || 0) + (cont.encontrado_pelo_titulo || 0);
+  const aFazer = (cont.encontrado_pelo_titulo_e_empresa || 0) + (cont.encontrado_pelo_titulo || 0) + (cont.varios_negocios_ultimo_escolhido || 0);
   painel.innerHTML = `
     <div class="flex items-start justify-between gap-3">
       <div><p class="font-semibold text-slate-800">🔗 Vínculos entre orçamentos e negócios do Bitrix24</p>
@@ -6073,7 +6101,7 @@ function renderizarPainelBitrixOrc(msg) {
       <button type="button" id="btn-bx-aplicar" ${total ? "" : "disabled"} class="text-xs font-medium bg-slate-900 hover:bg-slate-800 text-white rounded-md px-3 py-2 disabled:opacity-40">✅ Vincular os seguros e atualizar pipeline/fase</button>
       <button type="button" id="btn-bx-excel" ${total ? "" : "disabled"} class="text-xs font-medium border border-slate-300 rounded-md px-3 py-2 hover:bg-slate-50 disabled:opacity-40">📥 Baixar relatório (Excel)</button>
     </div>
-    <p class="text-[11px] text-slate-400 mt-2">“Vincular os seguros” grava o negócio (${aFazer} orçamento(s) com vínculo seguro a fazer) e atualiza pipeline e fase de todos os orçamentos vinculados. Orçamentos que pedem decisão (vários negócios, renovações, sugestões) não são alterados: escolha o negócio no próprio orçamento.</p>`;
+    <p class="text-[11px] text-slate-400 mt-2">“Vincular os seguros” grava o negócio (${aFazer} orçamento(s) com vínculo seguro a fazer) e atualiza pipeline e fase de todos os orçamentos vinculados. Quando há mais de um negócio com o número, vale o último cadastrado. Orçamentos que só têm negócio de renovação ou apenas sugestão pela empresa não são alterados: escolha o negócio no próprio orçamento.</p>`;
   $("btn-bx-fechar").addEventListener("click", () => painel.classList.add("hidden"));
   $("btn-bx-verificar").addEventListener("click", () => executarAcaoBitrixOrc("verificar"));
   $("btn-bx-aplicar").addEventListener("click", () => executarAcaoBitrixOrc("aplicar"));
@@ -6140,8 +6168,10 @@ async function baixarRelatorioBitrixOrc() {
   folha(shD, cabBase.concat(["Situação", "Negócios candidatos", "Outros negócios da mesma empresa"]),
     decidir.map((l) => base(l).concat([rot[l.situacao], cands(l), l.negocios_da_mesma_empresa || ""])), [12, 50, 12, 22, 14, 34, 90, 90]);
   shD.column(7).style("wrapText", true); shD.column(8).style("wrapText", true);
-  folha(wb.addSheet("Vinculados e seguros"), cabBase.concat(["Situação", "Negócio", "Título do negócio", "Pipeline", "Fase"]),
-    linhas.filter((l) => ["vinculado", "encontrado_pelo_titulo", "encontrado_pelo_titulo_e_empresa"].includes(l.situacao)).map((l) => base(l).concat([rot[l.situacao], l.negocio_id || "", l.negocio_titulo || "", l.pipeline || "", l.fase || ""])), [12, 50, 12, 22, 14, 26, 12, 60, 18, 24]);
+  const shV = wb.addSheet("Vinculados e seguros");
+  folha(shV, cabBase.concat(["Situação", "Negócio", "Título do negócio", "Pipeline", "Fase", "Negócios com o mesmo número"]),
+    linhas.filter((l) => ["vinculado", "encontrado_pelo_titulo", "encontrado_pelo_titulo_e_empresa", "varios_negocios_ultimo_escolhido"].includes(l.situacao)).map((l) => base(l).concat([rot[l.situacao], l.negocio_id || "", l.negocio_titulo || "", l.pipeline || "", l.fase || "", cands(l)])), [12, 50, 12, 22, 14, 34, 12, 60, 18, 24, 90]);
+  shV.column(11).style("wrapText", true);
   const blob = await wb.outputAsync("blob");
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
