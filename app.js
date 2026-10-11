@@ -34,7 +34,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.56 · 10/10/2026";
+const APP_VERSAO = "Prod 1.57 · 11/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -7121,10 +7121,16 @@ async function salvarOrcamento(opts = {}) {
     await carregarPaginaOrcamentos();
     return { linha, calc };
   }
-  fecharEditorOrcamento();
+  // Salvar alterações NÃO fecha a tela: continua no orçamento e mostra a confirmação.
+  $("btn-salvar-orcamento").textContent = "Salvar alterações";
+  recalcularOrcamentoTela();
+  orcAtualizarModoProposta();
   await carregarPaginaOrcamentos();
+  const msg = $("orc-salvo-msg");
+  if (msg) { msg.classList.remove("hidden"); clearTimeout(orcSalvoTimer); orcSalvoTimer = setTimeout(() => msg.classList.add("hidden"), 4000); }
   return { linha, calc };
 }
+let orcSalvoTimer = null;
 
 $("btn-salvar-orcamento").addEventListener("click", () => salvarOrcamento());
 
@@ -7143,7 +7149,7 @@ function orcPreencherPrazos(selecionado) {
   sel.value = selecionado || "";
 }
 
-const PROPOSTA_CAMPOS = "id, numero, versao, valor_final, gerado_por, created_at, status, requer_aprovacao, margem_final_valor, margem_final_perc, margem_minima_perc, margem_minima_valor, aprovado_em, aprovado_por, justificativa_aprovacao, invalidada_em, invalidada_por, motivo_invalidacao, dossie_gerado_em";
+const PROPOSTA_CAMPOS = "id, numero, versao, valor_final, gerado_por, created_at, status, requer_aprovacao, margem_final_valor, margem_final_perc, margem_minima_perc, margem_minima_valor, aprovado_em, aprovado_por, justificativa_aprovacao, invalidada_em, invalidada_por, motivo_invalidacao, dossie_gerado_em, dossie_arquivo";
 const escHtmlOrc = (t) => String(t == null ? "" : t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const propostaVigente = () => orcPropostas.find((p) => p.status !== "Inválida") || null; // a proposta Válida (só pode haver uma)
 const usuarioPodeAprovar = () => !!usuarioSistemaAtual && (usuarioSistemaAtual.role === "admin" || !!usuarioSistemaAtual.aprovador_comercial);
@@ -7190,7 +7196,7 @@ function orcAtualizarModoProposta() {
     + `: nº ${u.numero} · versão ${u.versao} · gerada em ${formatarDataHoraBr(u.created_at)}${u.gerado_por ? " por " + u.gerado_por : ""} · ${fmtBRL(u.valor_final)}`
     + (v ? " · itens bloqueados (use “Nova negociação” para alterar)" : " · em negociação: gere uma nova proposta");
   const hist = $("orc-proposta-hist");
-  hist.innerHTML = orcPropostas.map((p) => `<div class="flex items-center gap-3 py-0.5 flex-wrap"><span class="font-mono">${escHtmlOrc(p.numero)}</span><span>v${p.versao}</span><span>${formatarDataHoraBr(p.created_at)}</span><span>${escHtmlOrc(p.gerado_por || "")}</span><span class="font-semibold">${fmtBRL(p.valor_final)}</span><span class="${p.status === "Inválida" ? "text-slate-500" : "text-emerald-700 font-medium"}">${p.status === "Inválida" ? "Inválida" : "Válida"}</span><button type="button" data-prop-pdf="${p.id}" class="underline hover:text-amber-700">⬇ PDF</button></div>`).join("");
+  hist.innerHTML = orcPropostas.map((p) => `<div class="flex items-center gap-3 py-0.5 flex-wrap"><span class="font-mono">${escHtmlOrc(p.numero)}</span><span>v${p.versao}</span><span>${formatarDataHoraBr(p.created_at)}</span><span>${escHtmlOrc(p.gerado_por || "")}</span><span class="font-semibold">${fmtBRL(p.valor_final)}</span><span class="${p.status === "Inválida" ? "text-slate-500" : "text-emerald-700 font-medium"}">${p.status === "Inválida" ? "Inválida" : "Válida"}</span><button type="button" data-prop-pdf="${p.id}" class="underline hover:text-amber-700">⬇ PDF</button>${p.dossie_arquivo ? `<button type="button" data-dossie-pdf="${p.id}" class="underline hover:text-amber-700" title="PDF do cálculo + justificativa da nova negociação (abre com senha)">🔒 PDF do cálculo e justificativa</button>` : ""}</div>`).join("");
   orcAtualizarAvisoProposta();
 }
 
@@ -7291,7 +7297,7 @@ function orcAtualizarAprovacao(c) {
           ? `<div class="mt-1" data-senha-area="${p.id}"><button type="button" data-ver-senha="${p.id}" class="text-[11px] px-2 py-0.5 rounded border border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100" title="Senha de abertura do PDF protegido (cálculo + justificativa) gerado nesta nova negociação">🔑 Ver senha do PDF protegido</button></div>`
           : `<div class="mt-1 text-[11px] text-slate-400">🔒 PDF de cálculo e justificativa protegido por senha</div>`)
         : "";
-      const inv = inval ? `${formatarDataHoraBr(p.invalidada_em)}${p.invalidada_por ? " · " + escHtmlOrc(p.invalidada_por) : ""}<div class="text-slate-500 whitespace-pre-wrap">${escHtmlOrc(p.motivo_invalidacao || "")}</div>${senhaBtn}` : "";
+      const inv = inval ? `${formatarDataHoraBr(p.invalidada_em)}${p.invalidada_por ? " · " + escHtmlOrc(p.invalidada_por) : ""}<div class="text-slate-500 whitespace-pre-wrap">${escHtmlOrc(p.motivo_invalidacao || "")}</div>${p.dossie_arquivo ? `<div class="mt-1"><button type="button" data-dossie-pdf="${p.id}" class="text-[11px] underline text-slate-600 hover:text-amber-700">🔒 PDF do cálculo e justificativa</button></div>` : ""}${senhaBtn}` : "";
       return `<tr class="border-t border-slate-100 align-top"><td class="px-2 py-1.5"><span class="font-mono">${escHtmlOrc(p.numero)}</span> <span class="text-slate-400">v${p.versao}</span></td><td class="px-2 py-1.5 ${inval ? "text-slate-500" : "text-emerald-700 font-medium"}">${inval ? "Inválida" : "Válida"}</td><td class="px-2 py-1.5 text-right whitespace-nowrap">${fmtBRL(p.valor_final)}</td><td class="px-2 py-1.5 whitespace-nowrap">${p.margem_final_perc != null ? fmtPercOrc(p.margem_final_perc) : "—"}</td><td class="px-2 py-1.5">${apr}</td><td class="px-2 py-1.5">${inv}</td></tr>`;
     }).join("") + `</tbody></table>`;
 }
@@ -7359,8 +7365,11 @@ $("btn-neg-confirmar").addEventListener("click", async () => {
     const blobInvalida = await gerarPdfProposta(prop.dados, { marca: "INVÁLIDA" });
     const canvas = await capturarTelaCalculoOrcamento();
     const blobDossie = await gerarPdfDossieNegociacao({ canvas, prop, motivo, quem, quandoIso: agoraIso, senha });
-    // 3) invalida a proposta
-    const campos = { status: "Inválida", motivo_invalidacao: motivo, invalidada_em: agoraIso, invalidada_por: quem };
+    // 3) guarda o PDF protegido no sistema (para o link no histórico) e invalida a proposta
+    const caminho = `${editandoOrcamentoId || "orcamento"}/${v.id}-${Date.now()}.pdf`;
+    const { error: eUp } = await supabase.storage.from("negociacoes-dossie").upload(caminho, blobDossie, { contentType: "application/pdf" });
+    if (eUp) throw new Error("não foi possível guardar o PDF de cálculo e justificativa: " + (eUp.message || "erro no armazenamento"));
+    const campos = { status: "Inválida", motivo_invalidacao: motivo, invalidada_em: agoraIso, invalidada_por: quem, dossie_arquivo: caminho };
     const { data, error } = await supabase.from("orcamento_propostas").update(campos).eq("id", v.id).eq("status", "Válida").select(PROPOSTA_CAMPOS).maybeSingle();
     if (error) throw error;
     if (!data) throw new Error("a proposta já não está válida — recarregue o orçamento");
@@ -7408,6 +7417,23 @@ $("orc-apr-hist").addEventListener("click", (ev) => {
 });
 $("btn-orc-proposta-hist").addEventListener("click", () => $("orc-proposta-hist").classList.toggle("hidden"));
 $("btn-orc-proposta-pdf").addEventListener("click", () => { if (orcPropostas[0]) baixarPropostaPdf(orcPropostas[0].id); });
+// Baixa o PDF protegido (cálculo + justificativa) guardado na nova negociação
+async function baixarDossieNegociacao(id) {
+  esconderErro("orc-form-erro");
+  try {
+    const p = orcPropostas.find((x) => x.id === id);
+    if (!p || !p.dossie_arquivo) throw new Error("arquivo não encontrado");
+    const { data, error } = await supabase.storage.from("negociacoes-dossie").download(p.dossie_arquivo);
+    if (error || !data) throw error || new Error("não foi possível baixar");
+    baixarBlobArquivo(data, `Proposta ${p.numero} - Calculo e justificativa (protegido).pdf`);
+  } catch (e) {
+    mostrarErro("orc-form-erro", "Não foi possível baixar o PDF de cálculo e justificativa: " + (e?.message || "erro desconhecido"));
+  }
+}
+document.addEventListener("click", (ev) => {
+  const b = ev.target.closest("[data-dossie-pdf]");
+  if (b) baixarDossieNegociacao(b.getAttribute("data-dossie-pdf"));
+});
 $("orc-proposta-hist").addEventListener("click", (ev) => {
   const b = ev.target.closest("[data-prop-pdf]");
   if (b) baixarPropostaPdf(b.getAttribute("data-prop-pdf"));

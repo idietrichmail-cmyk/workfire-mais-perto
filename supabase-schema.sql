@@ -1328,3 +1328,10 @@ alter table public.rotina_controle enable row level security;
 -- ver_senha_dossie(p_proposta uuid) returns text: security definer; só admin ativo ou usuarios_sistema.aprovador_comercial ativo (gestor comercial)
 -- execute revogado de public/anon e concedido a authenticated nas duas funções.
 -- (os comandos executados estão no histórico do projeto; o PDF usa criptografia padrão do jsPDF — barreira de acesso, não segurança forte)
+
+-- ---------------------------------------------------------------------
+-- Prod 1.57 — Salvar alterações do orçamento não fecha mais a tela; link do PDF de cálculo e justificativa no histórico de propostas
+-- Storage: bucket privado 'negociacoes-dossie' (só application/pdf, até 20 MB); caminho <orcamento_id>/<proposta_id>-<timestamp>.pdf
+--   policies em storage.objects: negociacoes_dossie_insert (admin ou tem_permissao orcamentos 'alterar') e negociacoes_dossie_select
+--   (admin ou tem_permissao orcamentos 'consultar'); sem update/delete. O arquivo é protegido por senha (ver 1.56).
+-- orcamento_propostas.dossie_arquivo text: caminho do PDF no bucket (gravado junto com a invalidação da proposta)
