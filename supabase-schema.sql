@@ -1347,3 +1347,23 @@ alter table public.rotina_controle enable row level security;
 --   NÃO altera permissões nem inativa usuários sozinha.
 -- pg_cron instalado; job 'sincronizar-bitrix-diario' às 09:30 UTC (06:30 de Brasília) chama a função via pg_net com o x-cron-token.
 -- App: botão "🔄 Sincronizar com Bitrix" (só admin) nas telas Usuários do Sistema e Vendedores; card do usuário mostra o vínculo.
+
+-- ---------------------------------------------------------------------
+-- Prod 1.59 — Vínculo do orçamento com o Bitrix24: negócio, pipeline e fase (só administrador/gestor comercial alteram)
+-- orcamentos: id_negocio_bitrix text (já existia), bitrix_pipeline_id/nome, bitrix_fase_id/nome text, bitrix_atualizado_em timestamptz
+-- Gatilho orcamentos_proteger_bitrix_trg (função orcamentos_proteger_bitrix, security definer): recusa INSERT/UPDATE que altere
+--   id_negocio_bitrix / bitrix_pipeline_* / bitrix_fase_* se quem grava não for admin (is_admin_sistema) nem usuarios_sistema.aprovador_comercial ativo.
+--   service_role e rotinas sem auth.uid() passam (usado pela Edge Function).
+-- bitrix_negocios (id bigint pk, titulo, pipeline_id, pipeline, fase_id, fase, empresa_bitrix_id, responsavel_bitrix_id, valor, criado_em, visto_em):
+--   cópia dos negócios do Bitrix; RLS: select só admin/aprovador comercial; escrita só service_role (Edge Function).
+-- bitrix_pipelines (id text pk, nome) e bitrix_fases (id text pk, pipeline_id, nome, ordem): listas dos seletores do orçamento; RLS: select para usuários ativos.
+-- bitrix_verificacao_orcamentos (numero, orcamento_id, situacao, negocio_id, negocio_titulo, pipeline, fase, candidatos jsonb, verificado_em):
+--   resultado da última conferência; RLS select só admin/aprovador. View bitrix_verificacao_detalhe (security_invoker = true) junta dados do orçamento.
+-- bitrix_norm(text), bitrix_tokens_empresa(text): auxiliares de comparação de nomes (sem acento/pontuação).
+-- bitrix_analisar_orcamentos(p_aplicar boolean) returns jsonb (security definer): confere cada orçamento com os negócios (número de 5 dígitos no título;
+--   negócios de "Renovação" nunca vinculam sozinhos; desempate pelo nome da empresa; sugestões por empresa só entre negócios sem número, até 180 dias).
+--   Com p_aplicar = true grava negócio (sem sobrescrever o já informado), pipeline e fase em todos os orçamentos com negócio identificado.
+-- Edge Function 'bitrix-negocios' (verify_jwt = false; admin/aprovador logado ou x-cron-token): ações "verificar" (lê negócios, pipelines e fases do Bitrix
+--   e analisa), "aplicar" (idem + grava vínculos), "so_analisar" (só reanalisa a cópia), "listas" (só atualiza pipelines/fases). Usa o segredo BITRIX_WEBHOOK_URL.
+-- App: seção "Vínculo com o Bitrix24" no orçamento (ID do negócio preenche pipeline/fase pela cópia; só admin/gestor comercial editam),
+--   coluna Bitrix na lista, painel "🔗 Vínculos com o Bitrix" (conferência, vincular os seguros, relatório Excel).

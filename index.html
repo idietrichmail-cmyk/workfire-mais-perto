@@ -531,9 +531,11 @@
             <input id="orc-importar-arquivo" type="file" accept=".xlsx" class="hidden" />
             <button id="btn-orc-importar" class="hidden inline-flex items-center gap-2 border border-slate-300 text-slate-700 hover:bg-white text-sm font-medium px-4 py-2 rounded-md">📥 Importar planilha de orçamentos</button>
             <button id="btn-orc-historico" class="hidden inline-flex items-center gap-2 border border-slate-300 text-slate-700 hover:bg-white text-sm font-medium px-4 py-2 rounded-md">🧾 Histórico de importações</button>
+            <button id="btn-orc-bitrix" class="hidden inline-flex items-center gap-2 border border-slate-300 text-slate-700 hover:bg-white text-sm font-medium px-4 py-2 rounded-md" title="Confere quais orçamentos já têm negócio no Bitrix24 e permite vincular">🔗 Vínculos com o Bitrix</button>
             <button id="btn-orc-novo" class="inline-flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium px-4 py-2 rounded-md">+ Novo orçamento</button>
           </div>
         </div>
+        <div id="orc-bitrix-painel" class="hidden mb-4 bg-white border border-slate-200 rounded-lg p-4 text-sm"></div>
         <div id="orc-importacao-painel" class="hidden mb-4 bg-white border border-slate-200 rounded-lg p-4 text-sm"></div>
         <div id="orc-filtro-status" class="flex flex-wrap gap-x-4 gap-y-1 mb-2 text-xs text-slate-600"></div>
         <p class="text-[11px] text-slate-400 mb-3">✏️ Use o ícone de lápis (ou dois cliques no número do orçamento) para editar.</p>
@@ -551,6 +553,7 @@
                 <th class="px-3 py-2 font-medium">Alunos</th>
                 <th class="px-3 py-2 font-medium" title="Quantidade de localidades do cliente onde os alunos vão treinar">Localid.</th>
                 <th class="px-3 py-2 font-medium">Data</th>
+                <th class="px-3 py-2 font-medium" title="Negócio, pipeline e fase no Bitrix24">Bitrix</th>
                 <th class="px-3 py-2 font-medium text-right" title="Valor final calculado do orçamento">Valor final</th>
                 <th class="px-3 py-2 font-medium"></th>
               </tr>
@@ -1451,8 +1454,7 @@
         <div class="px-3 py-2.5">
           <div class="grid grid-cols-2 md:grid-cols-12 gap-x-3 gap-y-2">
             <div class="col-span-1 md:col-span-2"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Número</label>
-              <input id="orc-numero" class="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono" placeholder="Ex: ORC-2026-001" />
-              <p id="orc-negocio-bitrix" class="mt-0.5 text-[10px] text-slate-400">Bitrix: <span class="font-mono">—</span></p></div>
+              <input id="orc-numero" class="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono" placeholder="Ex: ORC-2026-001" /></div>
             <div class="col-span-2 md:col-span-4"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Empresa</label>
               <select id="orc-empresa" class="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"></select></div>
             <div class="col-span-2 md:col-span-2"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Contato</label>
@@ -1463,6 +1465,26 @@
               <input id="orc-contato-email" type="email" class="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" /></div>
             <div class="col-span-2 md:col-span-3"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Vendedor</label>
               <select id="orc-vendedor" class="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"></select></div>
+          </div>
+        </div>
+      </section>
+      <section id="orc-bx-secao" class="bg-white border border-slate-200 rounded-lg">
+        <div class="px-3 py-1.5 border-b border-slate-100 flex items-center justify-between gap-2">
+          <h3 class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Vínculo com o Bitrix24</h3>
+          <span id="orc-bx-aviso" class="text-[10px] text-slate-400">Somente o administrador ou o gestor comercial altera estes campos.</span>
+        </div>
+        <div class="px-3 py-2.5">
+          <div class="grid grid-cols-2 md:grid-cols-12 gap-x-3 gap-y-2">
+            <div class="col-span-2 md:col-span-3"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Negócio (ID no Bitrix)</label>
+              <div class="mt-0.5 flex items-center gap-1.5">
+                <input id="orc-bx-negocio" inputmode="numeric" autocomplete="off" placeholder="Ex: 12345" class="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-amber-500 disabled:bg-slate-50 disabled:text-slate-500" />
+                <a id="orc-bx-abrir" href="#" target="_blank" rel="noopener" class="hidden shrink-0 text-xs text-sky-700 hover:underline" title="Abrir o negócio no Bitrix24">Abrir ↗</a>
+              </div></div>
+            <div class="col-span-1 md:col-span-4"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Pipeline</label>
+              <select id="orc-bx-pipeline" class="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 disabled:bg-slate-50 disabled:text-slate-500"></select></div>
+            <div class="col-span-1 md:col-span-5"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Fase</label>
+              <select id="orc-bx-fase" class="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 disabled:bg-slate-50 disabled:text-slate-500"></select></div>
+            <p id="orc-bx-info" class="col-span-2 md:col-span-12 text-[11px] text-slate-500 hidden"></p>
           </div>
         </div>
       </section>
@@ -2183,6 +2205,6 @@
 </div>
 
 <script src="config.js"></script>
-<script src="app.js?v=20261011b"></script>
+<script src="app.js?v=20261011c"></script>
 </body>
 </html>

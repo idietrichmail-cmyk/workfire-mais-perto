@@ -34,7 +34,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.58 · 11/10/2026";
+const APP_VERSAO = "Prod 1.59 · 11/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -5891,15 +5891,265 @@ let orcBuscaTimer = null;
 // São consultadas no banco a cada abertura do orçamento (e quando o seletor é usado depois de um tempo ou
 // está vazio), com novas tentativas — assim uma falha momentânea de rede não deixa a lista vazia.
 let orcRefsCarregadoEm = 0;
-// ID do negócio no Bitrix24: somente visualização, logo abaixo do número do orçamento.
-function mostrarNegocioBitrixOrc(id) {
-  const el = $("orc-negocio-bitrix");
-  if (!el) return;
-  const v = String(id || "").replace(/\D/g, "");
-  el.innerHTML = v
-    ? `Bitrix: <a href="https://workfire.bitrix24.com.br/crm/deal/details/${v}/" target="_blank" rel="noopener" class="font-mono text-sky-700 hover:underline" title="Abrir o negócio no Bitrix24">${v}</a>`
-    : `Bitrix: <span class="font-mono">—</span>`;
+// ---------------------------------------------------------------------------
+// Vínculo do orçamento com o Bitrix24: negócio, pipeline e fase.
+// Só o administrador e o gestor comercial (aprovador comercial) alteram; os demais apenas veem.
+// O banco também recusa a gravação por qualquer outra pessoa (gatilho orcamentos_proteger_bitrix_trg).
+// ---------------------------------------------------------------------------
+const BITRIX_URL_NEGOCIO = (id) => `https://workfire.bitrix24.com.br/crm/deal/details/${id}/`;
+let bxListas = { pipelines: [], fases: [], em: 0 };
+let orcBxOriginal = { neg: "", pip: "", pipNome: "", fase: "", faseNome: "" };
+let bxBuscaSeq = 0;
+
+async function carregarListasBitrixOrc() {
+  if (bxListas.pipelines.length && Date.now() - bxListas.em < 300000) return;
+  try {
+    const [p, f] = await Promise.all([
+      supabase.from("bitrix_pipelines").select("id, nome").order("nome"),
+      supabase.from("bitrix_fases").select("id, pipeline_id, nome, ordem").order("ordem"),
+    ]);
+    if (!p.error && !f.error) bxListas = { pipelines: p.data || [], fases: f.data || [], em: Date.now() };
+  } catch { /* segue com o que já havia */ }
 }
+
+// ID do negócio no campo + link para abrir no Bitrix24.
+function mostrarNegocioBitrixOrc(id) {
+  const v = String(id || "").replace(/\D/g, "");
+  const campo = $("orc-bx-negocio");
+  if (campo) campo.value = v;
+  const a = $("orc-bx-abrir");
+  if (a) {
+    a.classList.toggle("hidden", !v);
+    if (v) a.href = BITRIX_URL_NEGOCIO(v);
+  }
+}
+
+function bxPreencherPipelines(pipId, pipNome) {
+  const sel = $("orc-bx-pipeline");
+  const ops = [`<option value="">— Sem pipeline —</option>`, ...bxListas.pipelines.map((p) => `<option value="${escHtmlOrc(p.id)}">${escHtmlOrc(p.nome)}</option>`)];
+  if (pipId && !bxListas.pipelines.some((p) => p.id === pipId)) ops.push(`<option value="${escHtmlOrc(pipId)}">${escHtmlOrc(pipNome || pipId)}</option>`);
+  sel.innerHTML = ops.join("");
+  sel.value = pipId || "";
+}
+function bxPreencherFases(pipId, faseId, faseNome) {
+  const sel = $("orc-bx-fase");
+  const nomePip = (id) => bxListas.pipelines.find((p) => p.id === id)?.nome || "";
+  const fs = bxListas.fases.filter((f) => !pipId || f.pipeline_id === pipId);
+  const ops = [`<option value="">— Sem fase —</option>`, ...fs.map((f) => `<option value="${escHtmlOrc(f.id)}">${escHtmlOrc(pipId ? f.nome : `${nomePip(f.pipeline_id)} › ${f.nome}`)}</option>`)];
+  if (faseId && !fs.some((f) => f.id === faseId)) ops.push(`<option value="${escHtmlOrc(faseId)}">${escHtmlOrc(faseNome || faseId)}</option>`);
+  sel.innerHTML = ops.join("");
+  sel.value = faseId || "";
+}
+function bxInfoOrc(html, cor) {
+  const el = $("orc-bx-info");
+  el.className = `col-span-2 md:col-span-12 text-[11px] ${cor || "text-slate-500"}${html ? "" : " hidden"}`;
+  el.innerHTML = html || "";
+}
+
+// Preenche os 3 campos ao abrir o orçamento (o = linha do orçamento, ou null para um novo).
+async function preencherVinculoBitrixOrc(o) {
+  await carregarListasBitrixOrc();
+  const pode = usuarioPodeAprovar();
+  const neg = String(o?.id_negocio_bitrix || "").replace(/\D/g, "");
+  orcBxOriginal = { neg, pip: o?.bitrix_pipeline_id || "", pipNome: o?.bitrix_pipeline_nome || "", fase: o?.bitrix_fase_id || "", faseNome: o?.bitrix_fase_nome || "" };
+  mostrarNegocioBitrixOrc(neg);
+  bxPreencherPipelines(orcBxOriginal.pip, orcBxOriginal.pipNome);
+  bxPreencherFases(orcBxOriginal.pip, orcBxOriginal.fase, orcBxOriginal.faseNome);
+  for (const id of ["orc-bx-negocio", "orc-bx-pipeline", "orc-bx-fase"]) $(id).disabled = !pode;
+  $("orc-bx-aviso").classList.toggle("hidden", pode);
+  $("orc-bx-negocio").placeholder = pode ? "Ex: 12345" : "—";
+  bxInfoOrc(o?.bitrix_atualizado_em ? `Última atualização do vínculo: ${escHtmlOrc(formatarDataHoraBr(o.bitrix_atualizado_em))}` : "");
+}
+
+// Ao informar o ID do negócio, busca na cópia dos negócios do Bitrix e preenche pipeline e fase.
+async function bxBuscarNegocioOrc() {
+  const campo = $("orc-bx-negocio");
+  const v = campo.value.replace(/\D/g, "");
+  mostrarNegocioBitrixOrc(v);
+  if (!v) { bxInfoOrc(""); return; }
+  const seq = ++bxBuscaSeq;
+  bxInfoOrc("Consultando o negócio…");
+  const [{ data: n }, { data: outros }] = await Promise.all([
+    supabase.from("bitrix_negocios").select("id, titulo, pipeline_id, pipeline, fase_id, fase").eq("id", v).maybeSingle(),
+    (() => { let q = supabase.from("orcamentos").select("numero").eq("id_negocio_bitrix", v).limit(8); if (editandoOrcamentoId) q = q.neq("id", editandoOrcamentoId); return q; })(),
+  ]);
+  if (seq !== bxBuscaSeq) return;
+  const aviso = (outros || []).length ? `<br>⚠ Este negócio também está vinculado ao(s) orçamento(s): ${outros.map((x) => escHtmlOrc(x.numero)).join(", ")}.` : "";
+  if (n) {
+    bxPreencherPipelines(n.pipeline_id, n.pipeline);
+    bxPreencherFases(n.pipeline_id, n.fase_id, n.fase);
+    bxInfoOrc(`Negócio encontrado: <strong>${escHtmlOrc(n.titulo)}</strong> — ${escHtmlOrc(n.pipeline)} › ${escHtmlOrc(n.fase)}${aviso}`, "text-teal-700");
+  } else {
+    bxInfoOrc(`Negócio ${escHtmlOrc(v)} não está na cópia dos negócios do Bitrix (pode ser novo: use “Vínculos com o Bitrix” na lista de orçamentos para atualizar). Escolha o pipeline e a fase manualmente.${aviso}`, "text-amber-700");
+  }
+}
+$("orc-bx-negocio").addEventListener("change", bxBuscarNegocioOrc);
+$("orc-bx-pipeline").addEventListener("change", () => {
+  const pip = $("orc-bx-pipeline").value;
+  const faseAtual = $("orc-bx-fase").value;
+  const f = bxListas.fases.find((x) => x.id === faseAtual);
+  bxPreencherFases(pip, f && (!pip || f.pipeline_id === pip) ? faseAtual : "", "");
+});
+
+// Campos do vínculo para gravar (somente quem pode alterar). Devolve { erro } ou { campos }.
+function camposVinculoBitrixOrc() {
+  if (!usuarioPodeAprovar()) return { campos: {} };
+  const neg = $("orc-bx-negocio").value.replace(/\D/g, "");
+  const pip = $("orc-bx-pipeline").value;
+  const fase = $("orc-bx-fase").value;
+  const fObj = bxListas.fases.find((f) => f.id === fase);
+  if (fObj && pip && fObj.pipeline_id !== pip) return { erro: "A fase escolhida não pertence ao pipeline selecionado." };
+  const pipNome = !pip ? null : (bxListas.pipelines.find((p) => p.id === pip)?.nome || (pip === orcBxOriginal.pip ? orcBxOriginal.pipNome : null) || pip);
+  const faseNome = !fase ? null : (fObj?.nome || (fase === orcBxOriginal.fase ? orcBxOriginal.faseNome : null) || fase);
+  const campos = { id_negocio_bitrix: neg || null, bitrix_pipeline_id: pip || null, bitrix_pipeline_nome: pipNome, bitrix_fase_id: fase || null, bitrix_fase_nome: faseNome };
+  const mudou = neg !== orcBxOriginal.neg || pip !== orcBxOriginal.pip || fase !== orcBxOriginal.fase;
+  if (mudou) campos.bitrix_atualizado_em = new Date().toISOString();
+  return { campos };
+}
+function guardarVinculoBitrixOrc(linha) {
+  orcBxOriginal = { neg: String(linha?.id_negocio_bitrix || ""), pip: linha?.bitrix_pipeline_id || "", pipNome: linha?.bitrix_pipeline_nome || "", fase: linha?.bitrix_fase_id || "", faseNome: linha?.bitrix_fase_nome || "" };
+}
+
+// Coluna "Bitrix" da lista de orçamentos.
+function celulaBitrixLista(o) {
+  if (!o.id_negocio_bitrix) return '<span class="text-slate-300">—</span>';
+  const fase = [o.bitrix_pipeline_nome, o.bitrix_fase_nome].filter(Boolean).join(" › ");
+  return `<a href="${BITRIX_URL_NEGOCIO(encodeURIComponent(o.id_negocio_bitrix))}" target="_blank" rel="noopener" class="font-mono text-sky-700 hover:underline" title="Abrir o negócio no Bitrix24">${escHtmlOrc(o.id_negocio_bitrix)}</a>${fase ? `<div class="text-[10px] text-slate-400 leading-tight">${escHtmlOrc(fase)}</div>` : ""}`;
+}
+
+// ---------------------------------------------------------------------------
+// Painel "Vínculos com o Bitrix" (lista de orçamentos): conferência, vínculo automático e relatório Excel.
+// ---------------------------------------------------------------------------
+const BX_SITUACOES = [
+  ["vinculado", "Já vinculados", "O número do orçamento aparece no título de um único negócio."],
+  ["encontrado_pelo_titulo", "Vínculo seguro a fazer (pelo número)", "O número do orçamento aparece no título de um único negócio ainda não vinculado."],
+  ["encontrado_pelo_titulo_e_empresa", "Vínculo seguro a fazer", "Título do negócio traz o número (de forma diferente do padrão) e a empresa confere."],
+  ["varios_negocios_com_o_numero", "Vários negócios com o mesmo número", "Precisa de decisão: escolha o correto no orçamento (alguns são negócios duplicados no Bitrix)."],
+  ["so_renovacao_no_titulo", "Só aparece em negócio de renovação", "O número só é citado em negócios de “Renovação”, que são outra oportunidade."],
+  ["sem_numero_mas_ha_candidatos_pela_empresa", "Sugestões pela empresa", "Nenhum negócio traz o número, mas há negócios sem número da mesma empresa."],
+  ["sem_negocio_no_bitrix", "Sem negócio no Bitrix", "Nenhum negócio identificado (ou o título do negócio não traz o número)."],
+  ["negocio_nao_encontrado_no_bitrix", "Negócio informado não existe mais no Bitrix", "O ID gravado no orçamento não foi encontrado entre os negócios do Bitrix (excluído ou digitado errado)."],
+  ["numero_nao_padrao", "Número fora do padrão", "Orçamentos de teste ou com numeração diferente de 5 dígitos."],
+];
+let bxVerificacao = null; // { linhas, verificadoEm }
+
+async function paginarTudo(montar, tam = 1000) {
+  const out = [];
+  for (let i = 0; i < 50; i++) {
+    const { data, error } = await montar().range(i * tam, i * tam + tam - 1);
+    if (error) throw error;
+    out.push(...(data || []));
+    if (!data || data.length < tam) break;
+  }
+  return out;
+}
+async function carregarVerificacaoBitrix() {
+  const linhas = await paginarTudo(() => supabase.from("bitrix_verificacao_detalhe").select("*").order("numero"));
+  const { data: ult } = await supabase.from("bitrix_verificacao_orcamentos").select("verificado_em").order("verificado_em", { ascending: false }).limit(1);
+  bxVerificacao = { linhas, verificadoEm: ult?.[0]?.verificado_em || null };
+  return bxVerificacao;
+}
+
+function renderizarPainelBitrixOrc(msg) {
+  const painel = $("orc-bitrix-painel");
+  painel.classList.remove("hidden");
+  const v = bxVerificacao;
+  const cont = {};
+  (v?.linhas || []).forEach((l) => { cont[l.situacao] = (cont[l.situacao] || 0) + 1; });
+  const total = v?.linhas?.length || 0;
+  const aFazer = (cont.encontrado_pelo_titulo_e_empresa || 0) + (cont.encontrado_pelo_titulo || 0);
+  painel.innerHTML = `
+    <div class="flex items-start justify-between gap-3">
+      <div><p class="font-semibold text-slate-800">🔗 Vínculos entre orçamentos e negócios do Bitrix24</p>
+      <p class="text-xs text-slate-500 mt-0.5">${v?.verificadoEm ? `Última verificação: ${escHtmlOrc(formatarDataHoraBr(v.verificadoEm))} · ${total.toLocaleString("pt-BR")} orçamentos conferidos` : "Ainda não há verificação. Clique em “Atualizar do Bitrix e verificar”."}</p></div>
+      <button type="button" id="btn-bx-fechar" class="text-slate-400 hover:text-slate-700 text-xs">fechar</button>
+    </div>
+    ${msg ? `<p class="mt-2 text-xs ${msg.erro ? "text-rose-600" : "text-teal-700"}">${msg.erro ? "" : "✔ "}${escHtmlOrc(msg.texto)}</p>` : ""}
+    ${total ? `<div class="mt-3 overflow-x-auto"><table class="w-full text-xs"><tbody class="divide-y divide-slate-100">
+      ${BX_SITUACOES.map(([k, rot, dica]) => cont[k] ? `<tr><td class="py-1.5 pr-3 font-medium text-slate-700 whitespace-nowrap">${rot}</td><td class="py-1.5 pr-3 text-right font-mono">${cont[k].toLocaleString("pt-BR")}</td><td class="py-1.5 text-slate-500">${dica}</td></tr>` : "").join("")}
+    </tbody></table></div>` : ""}
+    <div class="mt-3 flex flex-wrap gap-2">
+      <button type="button" id="btn-bx-verificar" class="text-xs font-medium border border-slate-300 rounded-md px-3 py-2 hover:bg-slate-50">🔄 Atualizar do Bitrix e verificar</button>
+      <button type="button" id="btn-bx-aplicar" ${total ? "" : "disabled"} class="text-xs font-medium bg-slate-900 hover:bg-slate-800 text-white rounded-md px-3 py-2 disabled:opacity-40">✅ Vincular os seguros e atualizar pipeline/fase</button>
+      <button type="button" id="btn-bx-excel" ${total ? "" : "disabled"} class="text-xs font-medium border border-slate-300 rounded-md px-3 py-2 hover:bg-slate-50 disabled:opacity-40">📥 Baixar relatório (Excel)</button>
+    </div>
+    <p class="text-[11px] text-slate-400 mt-2">“Vincular os seguros” grava o negócio (${aFazer} orçamento(s) com vínculo seguro a fazer) e atualiza pipeline e fase de todos os orçamentos vinculados. Orçamentos que pedem decisão (vários negócios, renovações, sugestões) não são alterados: escolha o negócio no próprio orçamento.</p>`;
+  $("btn-bx-fechar").addEventListener("click", () => painel.classList.add("hidden"));
+  $("btn-bx-verificar").addEventListener("click", () => executarAcaoBitrixOrc("verificar"));
+  $("btn-bx-aplicar").addEventListener("click", () => executarAcaoBitrixOrc("aplicar"));
+  $("btn-bx-excel").addEventListener("click", baixarRelatorioBitrixOrc);
+}
+
+async function abrirPainelBitrixOrc() {
+  const painel = $("orc-bitrix-painel");
+  painel.classList.remove("hidden");
+  painel.innerHTML = `<p class="text-slate-500">Carregando a última verificação…</p>`;
+  try { await carregarVerificacaoBitrix(); renderizarPainelBitrixOrc(); }
+  catch (e) { painel.innerHTML = `<p class="text-rose-600">Não foi possível carregar a verificação: ${escHtmlOrc(e?.message || "erro")}</p>`; }
+}
+
+async function executarAcaoBitrixOrc(acao) {
+  if (acao === "aplicar" && !confirm("Vincular automaticamente os orçamentos com vínculo seguro e atualizar pipeline e fase de todos os orçamentos já vinculados?\n\nOs que pedem decisão não serão alterados. Pode levar alguns minutos.")) return;
+  const painel = $("orc-bitrix-painel");
+  painel.querySelectorAll("button").forEach((b) => { b.disabled = true; });
+  const aviso = document.createElement("p");
+  aviso.className = "mt-2 text-xs text-slate-500";
+  aviso.innerHTML = `<span class="inline-block animate-pulse text-teal-600">●</span> ${acao === "aplicar" ? "Atualizando do Bitrix e gravando os vínculos" : "Lendo os negócios do Bitrix e conferindo os orçamentos"}… leva cerca de 3 minutos; mantenha esta página aberta.`;
+  painel.appendChild(aviso);
+  try {
+    const resp = await fetch(`${SUPABASE_URL}/functions/v1/bitrix-negocios`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${sessaoAtual?.access_token || SUPABASE_ANON_KEY}` },
+      body: JSON.stringify({ acao }),
+    });
+    const r = await resp.json().catch(() => ({}));
+    if (!resp.ok || !r.ok) throw new Error(r.error || `erro ${resp.status}`);
+    await carregarVerificacaoBitrix();
+    bxListas.em = 0; // recarrega pipelines/fases
+    await carregarListasBitrixOrc();
+    renderizarPainelBitrixOrc({ texto: acao === "aplicar" ? "Vínculos gravados e pipeline/fase atualizados." : `Verificação concluída (${(r.bitrix?.negocios || 0).toLocaleString("pt-BR")} negócios lidos no Bitrix).` });
+    await carregarPaginaOrcamentos();
+  } catch (e) {
+    renderizarPainelBitrixOrc({ erro: true, texto: `Não foi possível concluir: ${e?.message || "erro desconhecido"}` });
+  }
+}
+
+async function baixarRelatorioBitrixOrc() {
+  const linhas = bxVerificacao?.linhas || [];
+  if (!linhas.length || typeof XlsxPopulate === "undefined") return;
+  const wb = await XlsxPopulate.fromBlankAsync();
+  const rot = Object.fromEntries(BX_SITUACOES.map(([k, r]) => [k, r]));
+  const dataBr = (d) => (d ? String(d).split("-").reverse().join("/") : "");
+  const cont = {};
+  linhas.forEach((l) => { cont[l.situacao] = (cont[l.situacao] || 0) + 1; });
+  const folha = (sh, cab, dados, larguras) => {
+    sh.cell("A1").value([cab]);
+    sh.row(1).style("bold", true);
+    if (dados.length) sh.cell("A2").value(dados);
+    larguras.forEach((w, i) => sh.column(i + 1).width(w));
+  };
+  folha(wb.sheet(0).name("Resumo"), ["Situação", "Orçamentos", "O que significa"],
+    BX_SITUACOES.filter(([k]) => cont[k]).map(([k, r, d]) => [r, cont[k], d]).concat([["Total", linhas.length, ""]]), [38, 14, 90]);
+  const base = (l) => [l.numero, l.empresa, dataBr(l.data), l.status, l.valor_final == null ? "" : Number(l.valor_final)];
+  const cabBase = ["Orçamento", "Empresa", "Data", "Status", "Valor final"];
+  folha(wb.addSheet("Sem negócio"), cabBase.concat(["Situação"]),
+    linhas.filter((l) => l.situacao === "sem_negocio_no_bitrix" || l.situacao === "numero_nao_padrao").map((l) => base(l).concat([rot[l.situacao]])), [12, 50, 12, 22, 14, 28]);
+  const cands = (l) => (Array.isArray(l.candidatos) ? l.candidatos : []).map((c) => `${c.id} · ${c.titulo} · ${c.pipeline} › ${c.fase} · criado ${dataBr(c.criado)}`).join("\n");
+  const decidir = linhas.filter((l) => ["varios_negocios_com_o_numero", "so_renovacao_no_titulo", "sem_numero_mas_ha_candidatos_pela_empresa", "negocio_nao_encontrado_no_bitrix"].includes(l.situacao));
+  const shD = wb.addSheet("Para decidir");
+  folha(shD, cabBase.concat(["Situação", "Negócios candidatos", "Outros negócios da mesma empresa"]),
+    decidir.map((l) => base(l).concat([rot[l.situacao], cands(l), l.negocios_da_mesma_empresa || ""])), [12, 50, 12, 22, 14, 34, 90, 90]);
+  shD.column(7).style("wrapText", true); shD.column(8).style("wrapText", true);
+  folha(wb.addSheet("Vinculados e seguros"), cabBase.concat(["Situação", "Negócio", "Título do negócio", "Pipeline", "Fase"]),
+    linhas.filter((l) => ["vinculado", "encontrado_pelo_titulo", "encontrado_pelo_titulo_e_empresa"].includes(l.situacao)).map((l) => base(l).concat([rot[l.situacao], l.negocio_id || "", l.negocio_titulo || "", l.pipeline || "", l.fase || ""])), [12, 50, 12, 22, 14, 26, 12, 60, 18, 24]);
+  const blob = await wb.outputAsync("blob");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `vinculos-orcamentos-bitrix-${formatarData(new Date())}.xlsx`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+$("btn-orc-bitrix").addEventListener("click", abrirPainelBitrixOrc);
 let listaVendedoresOrc = []; // vendedores (sincronizados do Bitrix) para o seletor do orçamento
 function preencherSeletorVendedorOrc(valorAtual) {
   const lista = listaVendedoresOrc.filter((v) => (v.ativo && v.eh_vendedor) || v.id === valorAtual)
@@ -5983,6 +6233,8 @@ async function carregarOrcamentos() {
   $("btn-orc-novo").classList.toggle("hidden", !podeFazer("orcamentos", "incluir"));
   $("btn-orc-importar").classList.toggle("hidden", !podeFazer("orcamentos", "incluir"));
   $("btn-orc-historico").classList.toggle("hidden", !podeFazer("orcamentos", "incluir"));
+  $("btn-orc-bitrix").classList.toggle("hidden", !usuarioPodeAprovar());
+  $("orc-bitrix-painel").classList.add("hidden");
   $("orc-importacao-painel").classList.add("hidden");
   renderizarFiltroStatusOrcamento();
   await carregarPaginaOrcamentos();
@@ -6058,7 +6310,7 @@ function renderizarListaOrcamentos() {
   const cont = $("orc-lista");
   renderizarPaginadores(["orc-paginacao-topo", "orc-paginacao"], orcPagina, orcTotal, ORC_TAMANHO_PAGINA, "orc", irParaPaginaOrcamentos);
   if (lista.length === 0) {
-    cont.innerHTML = `<tr><td colspan="9" class="text-center text-slate-500 text-sm py-16">Nenhum orçamento encontrado.</td></tr>`;
+    cont.innerHTML = `<tr><td colspan="12" class="text-center text-slate-500 text-sm py-16">Nenhum orçamento encontrado.</td></tr>`;
     return;
   }
   const corStatus = {
@@ -6082,6 +6334,7 @@ function renderizarListaOrcamentos() {
       <td class="px-3 py-2 text-slate-500">${o.qtd_alunos || 0}</td>
       <td class="px-3 py-2 text-slate-500">${o.qtd_localidades || 1}</td>
       <td class="px-3 py-2 text-slate-500">${o.data || "—"}</td>
+      <td class="px-3 py-2 text-xs whitespace-nowrap">${celulaBitrixLista(o)}</td>
       <td class="px-3 py-2 text-right whitespace-nowrap text-slate-700">${o.calculado_em ? htmlValorOrcamentoLista(o) : '<span class="text-slate-300" title="Orçamento ainda sem cálculo">—</span>'}</td>
       <td class="px-3 py-2 text-right whitespace-nowrap">
         ${podeAlterar ? `<button data-orc-editar="${o.id}" title="Editar orçamento" class="text-slate-500 hover:text-slate-800 px-2 py-1">✏️</button>` : ""}
@@ -6710,7 +6963,7 @@ async function abrirNovoOrcamento() {
   esconderErro("orc-form-erro");
   $("orc-numero").value = "";
   $("orc-numero").disabled = false;
-  mostrarNegocioBitrixOrc("");
+  await preencherVinculoBitrixOrc(null);
   preencherSelectEmpresa("orc-empresa", listaEmpresasAtivas, "— Selecione —");
   $("orc-contato-nome").value = "";
   $("orc-contato-telefone").value = "";
@@ -6759,7 +7012,7 @@ async function abrirEdicaoOrcamento(id) {
   await garantirEmpresaDoOrcamento(o);
   orcEmpresaDoOrcamento = o.empresa_id || null;
   $("orc-numero").value = o.numero || "";
-  mostrarNegocioBitrixOrc(o.id_negocio_bitrix || "");
+  await preencherVinculoBitrixOrc(o);
   $("orc-numero").disabled = true; // número já definido não muda mais, evita conflito de unicidade
   preencherSelectEmpresa("orc-empresa", listaEmpresasAtivas, "— Selecione —");
   definirEmpresaSelect("orc-empresa", o.empresa_id);
@@ -7096,6 +7349,9 @@ async function salvarOrcamento(opts = {}) {
     endereco_pratica_longitude: enderecoPratica.longitude,
   };
   if (!editandoOrcamentoId) payload.numero = numero;
+  const vinculoBx = camposVinculoBitrixOrc();
+  if (vinculoBx.erro) return orcFalha(1, vinculoBx.erro);
+  Object.assign(payload, vinculoBx.campos);
 
   $("btn-salvar-orcamento").disabled = true;
   $("btn-salvar-orcamento").textContent = "Salvando…";
@@ -7129,6 +7385,7 @@ async function salvarOrcamento(opts = {}) {
     erroCalculo = e?.message || "erro desconhecido";
   }
   orcEditorSujo = false;
+  guardarVinculoBitrixOrc(linha);
 
   if (eraNovo) {
     await gerarTurmasParaOrcamento(linha, qtdTurmas);
