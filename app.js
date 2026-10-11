@@ -34,7 +34,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.60 · 11/10/2026";
+const APP_VERSAO = "Prod 1.61 · 11/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -5274,19 +5274,12 @@ async function garantirEmpresaDoOrcamento(o) {
 function rotuloEmpresa(e) {
   return escHtmlOrc(e.nome_fantasia ? `${e.nome} — ${e.nome_fantasia}` : e.nome);
 }
-// Linha fixa abaixo do seletor com o nome COMPLETO da empresa escolhida (o seletor é estreito e corta o texto).
+// O seletor é estreito e corta o texto: o nome completo da empresa escolhida fica na dica (tooltip) do seletor.
 function mostrarEmpresaSelecionada(selectId) {
   const sel = $(selectId);
-  let p = $(`${selectId}-escolhida`);
-  if (!p) {
-    p = document.createElement("p");
-    p.id = `${selectId}-escolhida`;
-    p.className = "mt-1 text-[11px] font-medium text-teal-700 break-words";
-    sel.parentNode.insertBefore(p, sel.nextSibling);
-    sel.addEventListener("change", () => mostrarEmpresaSelecionada(selectId));
-  }
   const e = (sel._empresasLista || []).find((x) => x.id === sel.value) || listaEmpresasAtivas.find((x) => x.id === sel.value);
-  p.textContent = e ? `Empresa: ${e.nome}${e.nome_fantasia ? ` — ${e.nome_fantasia}` : ""}${e.cnpj ? ` · CNPJ ${e.cnpj}` : ""}` : "";
+  sel.title = e ? `${e.nome}${e.nome_fantasia ? ` — ${e.nome_fantasia}` : ""}${e.cnpj ? ` · CNPJ ${e.cnpj}` : ""}` : "";
+  if (!sel._tituloLigado) { sel._tituloLigado = true; sel.addEventListener("change", () => mostrarEmpresaSelecionada(selectId)); }
 }
 function preencherSelectEmpresa(selectId, lista, opcaoVazia) {
   const sel = $(selectId);
@@ -5301,11 +5294,12 @@ function preencherSelectEmpresa(selectId, lista, opcaoVazia) {
     busca.name = `filtro-${selectId}-${Date.now()}`;
     busca.placeholder = "🔎 Digite nome, fantasia ou CNPJ para filtrar…";
     busca.className = "mt-1 w-full rounded-md border border-slate-300 px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500";
-    sel.parentNode.insertBefore(busca, sel);
+    // o seletor (com o nome da empresa) fica na primeira linha, ao lado do número; o filtro de pesquisa vem logo abaixo
+    sel.parentNode.insertBefore(busca, sel.nextSibling);
     const info = document.createElement("p");
     info.id = `${selectId}-busca-info`;
     info.className = "mt-0.5 text-[11px] text-slate-400";
-    sel.parentNode.insertBefore(info, sel);
+    sel.parentNode.insertBefore(info, busca.nextSibling);
     busca.addEventListener("input", () => { filtrarSelectEmpresa(selectId); buscarEmpresasNoServidor(selectId); });
   }
   busca.value = "";

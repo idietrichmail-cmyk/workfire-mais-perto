@@ -1375,3 +1375,5 @@ alter table public.rotina_controle enable row level security;
 --   Nova situação 'varios_negocios_ultimo_escolhido' (candidatos ficam em bitrix_verificacao_orcamentos.candidatos). Negócios só de "Renovação" continuam sem vínculo automático.
 -- App: seletor de empresa do orçamento mostra, abaixo, o nome completo da empresa escolhida (nome, fantasia e CNPJ), escapa caracteres especiais
 --   dos rótulos e garante a empresa do orçamento na lista ao abrir; relatório Excel ganhou a coluna "Negócios com o mesmo número".
+
+-- Prod 1.61 — (somente app) seletor de empresa: o nome da empresa fica na primeira linha, ao lado do número; o campo de pesquisa vem logo abaixo.
