@@ -34,7 +34,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.57 · 11/10/2026";
+const APP_VERSAO = "Prod 1.58 · 11/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -2684,6 +2684,7 @@ const CRUD_CONFIG = {
       i.gestor_direto_id ? `🧭 Gestor direto: ${(usuariosSistemaRefGestores.find((u) => u.id === i.gestor_direto_id) || {}).nome || "—"}` : null,
       i.gestor_financeiro ? "💰 Gestor financeiro (2ª fase de reembolsos)" : null,
       i.aprovador_comercial ? "✅ Aprovador comercial (propostas)" : null,
+      i.bitrix_user_id ? `🔗 Vinculado ao Bitrix (ID ${i.bitrix_user_id})` : "⚪ Sem vínculo com o Bitrix",
     ].filter(Boolean),
     camposExtraHtml: (item) => {
       if (!item) return "";
@@ -3242,6 +3243,9 @@ async function carregarModuloCrud(id, opcoes = {}) {
   const ehEmpresasComPermissao = id === "empresas" && podeFazer(id, "incluir");
   $("btn-crud-importar-clientes").classList.toggle("hidden", !ehEmpresasComPermissao);
   $("btn-crud-completar-enderecos").classList.toggle("hidden", !ehEmpresasComPermissao);
+  const ehAdminBitrix = (id === "usuarios_sistema" || id === "vendedores") && !!usuarioSistemaAtual && usuarioSistemaAtual.role === "admin";
+  $("btn-crud-sync-bitrix").classList.toggle("hidden", !ehAdminBitrix);
+  if (!ehAdminBitrix) $("crud-sync-painel").classList.add("hidden");
 
   const elFiltros = $("crud-filtros");
   if (cfg.renderFiltros) {
@@ -3848,6 +3852,40 @@ async function completarEnderecosReceita() {
   atualizar(true);
   if (importacaoEnderecosParar) $("crud-importacao-painel").insertAdjacentHTML("beforeend", `<p class="text-xs text-slate-500">Interrompido por você. Clique em "Completar endereços" de novo para continuar de onde parou.</p>`);
 }
+
+// ---- Sincronização de usuários com o Bitrix24 (função do Supabase; o webhook fica só no servidor) ----
+async function sincronizarComBitrix() {
+  const painel = $("crud-sync-painel");
+  const btn = $("btn-crud-sync-bitrix");
+  painel.classList.remove("hidden");
+  painel.innerHTML = `<p class="text-slate-500">Sincronizando com o Bitrix… pode levar alguns segundos.</p>`;
+  btn.disabled = true;
+  try {
+    const resp = await fetch(`${SUPABASE_URL}/functions/v1/sincronizar-bitrix`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${sessaoAtual?.access_token || SUPABASE_ANON_KEY}` },
+      body: "{}",
+    });
+    const r = await resp.json().catch(() => ({}));
+    if (!resp.ok || !r.ok) throw new Error(r.error || `erro ${resp.status}`);
+    const lista = (titulo, itens, dica) => !itens || !itens.length ? "" : `<details class="mt-2"><summary class="cursor-pointer font-medium text-slate-700">${titulo} <span class="text-slate-400">(${itens.length})</span></summary>${dica ? `<p class="text-[11px] text-slate-400 mt-1">${dica}</p>` : ""}<ul class="mt-1 ml-4 list-disc text-xs text-slate-600 max-h-48 overflow-y-auto">${itens.map((t) => `<li>${escHtmlOrc(t)}</li>`).join("")}</ul></details>`;
+    painel.innerHTML = `
+      <div class="flex items-start justify-between gap-3"><p class="font-semibold text-teal-700">✔ Sincronização concluída</p><button type="button" id="btn-crud-sync-fechar" class="text-slate-400 hover:text-slate-700 text-xs">fechar</button></div>
+      <p class="text-xs text-slate-600 mt-1">Bitrix: ${r.bitrix.total} usuários (${r.bitrix.ativos} ativos, ${r.bitrix.inativos} inativos) · Vendedores: ${r.vendedores.novos} novos, ${r.vendedores.atualizados} atualizados · Vínculos por e-mail: ${r.vinculos.novos} novos${r.vinculos.trocados ? `, ${r.vinculos.trocados} alterados` : ""}</p>
+      ${lista("Vínculos criados agora", r.novos_vinculos)}
+      ${lista("⚠ E-mail repetido no Bitrix (não vinculado)", r.emails_ambiguos, "Corrija o e-mail no Bitrix ou no cadastro do usuário.")}
+      ${lista("⚠ Desativados no Bitrix, mas ainda com acesso ao app", r.desativados_no_bitrix_com_acesso, "Avalie inativar o acesso na tela de Usuários (a sincronização não faz isso sozinha).")}
+      ${lista("Usuários do app sem usuário no Bitrix com o mesmo e-mail", r.usuarios_sem_bitrix)}
+      ${lista("Usuários ativos do Bitrix que ainda não têm acesso ao app", r.bitrix_sem_acesso_ao_app, "Para liberar, cadastre a pessoa em Usuários do Sistema com o mesmo e-mail do Bitrix.")}`;
+    $("btn-crud-sync-fechar").addEventListener("click", () => painel.classList.add("hidden"));
+    if (crudModuloId) await carregarModuloCrud(crudModuloId, { manter: true });
+  } catch (e) {
+    painel.innerHTML = `<p class="text-rose-600">Não foi possível sincronizar: ${escHtmlOrc(e?.message || "erro desconhecido")}</p>`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+$("btn-crud-sync-bitrix").addEventListener("click", sincronizarComBitrix);
 
 $("btn-crud-importar-clientes").addEventListener("click", () => $("crud-importar-arquivo").click());
 $("crud-importar-arquivo").addEventListener("change", (ev) => {

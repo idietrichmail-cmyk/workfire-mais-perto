@@ -1335,3 +1335,15 @@ alter table public.rotina_controle enable row level security;
 --   policies em storage.objects: negociacoes_dossie_insert (admin ou tem_permissao orcamentos 'alterar') e negociacoes_dossie_select
 --   (admin ou tem_permissao orcamentos 'consultar'); sem update/delete. O arquivo é protegido por senha (ver 1.56).
 -- orcamento_propostas.dossie_arquivo text: caminho do PDF no bucket (gravado junto com a invalidação da proposta)
+
+-- ---------------------------------------------------------------------
+-- Prod 1.58 — Integração com o Bitrix24: sincronização de usuários (vínculo pelo e-mail)
+-- usuarios_sistema.bitrix_user_id bigint (índice único parcial usuarios_sistema_bitrix_user_id_uq) e bitrix_vinculado_em timestamptz
+-- bitrix_sync_log (executado_em, origem, ok, resumo jsonb, erro): RLS ligado; select só para admin (is_admin_sistema)
+-- segredos_app: nova linha 'bitrix_cron_token' (token aleatório que autoriza a rotina diária a chamar a função)
+-- Edge Function 'sincronizar-bitrix' (verify_jwt = false; valida o token do admin logado OU o header x-cron-token):
+--   lê o segredo BITRIX_WEBHOOK_URL (criado no painel do Supabase; nunca vai ao navegador), busca user.get (ativos e inativos, paginado),
+--   chama sincronizar_vendedores_bitrix, vincula usuarios_sistema pelo e-mail e devolve relatório de divergências.
+--   NÃO altera permissões nem inativa usuários sozinha.
+-- pg_cron instalado; job 'sincronizar-bitrix-diario' às 09:30 UTC (06:30 de Brasília) chama a função via pg_net com o x-cron-token.
+-- App: botão "🔄 Sincronizar com Bitrix" (só admin) nas telas Usuários do Sistema e Vendedores; card do usuário mostra o vínculo.
