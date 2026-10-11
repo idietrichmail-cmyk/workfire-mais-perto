@@ -34,7 +34,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.55 · 10/10/2026";
+const APP_VERSAO = "Prod 1.56 · 10/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -7143,12 +7143,12 @@ function orcPreencherPrazos(selecionado) {
   sel.value = selecionado || "";
 }
 
-const PROPOSTA_CAMPOS = "id, numero, versao, valor_final, gerado_por, created_at, status, requer_aprovacao, margem_final_valor, margem_final_perc, margem_minima_perc, margem_minima_valor, aprovado_em, aprovado_por, justificativa_aprovacao, invalidada_em, invalidada_por, motivo_invalidacao";
+const PROPOSTA_CAMPOS = "id, numero, versao, valor_final, gerado_por, created_at, status, requer_aprovacao, margem_final_valor, margem_final_perc, margem_minima_perc, margem_minima_valor, aprovado_em, aprovado_por, justificativa_aprovacao, invalidada_em, invalidada_por, motivo_invalidacao, dossie_gerado_em";
 const escHtmlOrc = (t) => String(t == null ? "" : t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const propostaVigente = () => orcPropostas.find((p) => p.status !== "Inválida") || null; // a proposta Válida (só pode haver uma)
 const usuarioPodeAprovar = () => !!usuarioSistemaAtual && (usuarioSistemaAtual.role === "admin" || !!usuarioSistemaAtual.aprovador_comercial);
 // Marca d'água do PDF de uma proposta gravada: "NÃO APROVADA" enquanto exigir aprovação do gestor e não a tiver.
-const marcaDaProposta = (p) => (p && p.requer_aprovacao && !p.aprovado_em ? "NÃO APROVADA" : null);
+const marcaDaProposta = (p) => (p && p.status === "Inválida" ? "INVÁLIDA" : p && p.requer_aprovacao && !p.aprovado_em ? "NÃO APROVADA" : null);
 
 async function carregarPropostasDoOrcamento(o) {
   const { data, error } = await supabase.from("orcamento_propostas")
@@ -7286,7 +7286,12 @@ function orcAtualizarAprovacao(c) {
       const apr = !p.requer_aprovacao ? `<span class="text-slate-400">não necessária</span>`
         : p.aprovado_em ? `<span class="text-emerald-700">✔ ${escHtmlOrc(p.aprovado_por || "")} · ${formatarDataHoraBr(p.aprovado_em)}</span><div class="text-slate-500 whitespace-pre-wrap">${escHtmlOrc(p.justificativa_aprovacao || "")}</div>`
         : `<span class="${inval ? "text-slate-500" : "text-rose-600"}">${inval ? "não aprovada" : "⏳ pendente"}</span>`;
-      const inv = inval ? `${formatarDataHoraBr(p.invalidada_em)}${p.invalidada_por ? " · " + escHtmlOrc(p.invalidada_por) : ""}<div class="text-slate-500 whitespace-pre-wrap">${escHtmlOrc(p.motivo_invalidacao || "")}</div>` : "";
+      const senhaBtn = inval && p.dossie_gerado_em
+        ? (usuarioPodeAprovar()
+          ? `<div class="mt-1" data-senha-area="${p.id}"><button type="button" data-ver-senha="${p.id}" class="text-[11px] px-2 py-0.5 rounded border border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100" title="Senha de abertura do PDF protegido (cálculo + justificativa) gerado nesta nova negociação">🔑 Ver senha do PDF protegido</button></div>`
+          : `<div class="mt-1 text-[11px] text-slate-400">🔒 PDF de cálculo e justificativa protegido por senha</div>`)
+        : "";
+      const inv = inval ? `${formatarDataHoraBr(p.invalidada_em)}${p.invalidada_por ? " · " + escHtmlOrc(p.invalidada_por) : ""}<div class="text-slate-500 whitespace-pre-wrap">${escHtmlOrc(p.motivo_invalidacao || "")}</div>${senhaBtn}` : "";
       return `<tr class="border-t border-slate-100 align-top"><td class="px-2 py-1.5"><span class="font-mono">${escHtmlOrc(p.numero)}</span> <span class="text-slate-400">v${p.versao}</span></td><td class="px-2 py-1.5 ${inval ? "text-slate-500" : "text-emerald-700 font-medium"}">${inval ? "Inválida" : "Válida"}</td><td class="px-2 py-1.5 text-right whitespace-nowrap">${fmtBRL(p.valor_final)}</td><td class="px-2 py-1.5 whitespace-nowrap">${p.margem_final_perc != null ? fmtPercOrc(p.margem_final_perc) : "—"}</td><td class="px-2 py-1.5">${apr}</td><td class="px-2 py-1.5">${inv}</td></tr>`;
     }).join("") + `</tbody></table>`;
 }
@@ -7339,14 +7344,31 @@ $("btn-neg-confirmar").addEventListener("click", async () => {
   const motivo = $("neg-motivo").value.trim();
   if (motivo.length < 3) { erro.textContent = "Informe por que a proposta precisa ser alterada."; erro.classList.remove("hidden"); return; }
   const btn = $("btn-neg-confirmar");
+  const rotulo = btn.textContent;
   btn.disabled = true;
+  btn.textContent = "Gerando PDFs…";
   try {
-    const campos = { status: "Inválida", motivo_invalidacao: motivo, invalidada_em: new Date().toISOString(), invalidada_por: usuarioSistemaAtual ? usuarioSistemaAtual.nome : null };
+    // 1) proposta gravada + senha do PDF protegido (gerada e guardada criptografada no banco)
+    const { data: prop, error: e0 } = await supabase.from("orcamento_propostas").select("numero, versao, valor_final, dados").eq("id", v.id).single();
+    if (e0 || !prop) throw e0 || new Error("proposta não encontrada");
+    const { data: senha, error: e1 } = await supabase.rpc("gerar_senha_dossie", { p_proposta: v.id });
+    if (e1 || !senha) throw e1 || new Error("não foi possível gerar a senha do PDF protegido");
+    const agoraIso = new Date().toISOString();
+    const quem = usuarioSistemaAtual ? usuarioSistemaAtual.nome : null;
+    // 2) os dois PDFs (se algo falhar aqui, a proposta continua válida)
+    const blobInvalida = await gerarPdfProposta(prop.dados, { marca: "INVÁLIDA" });
+    const canvas = await capturarTelaCalculoOrcamento();
+    const blobDossie = await gerarPdfDossieNegociacao({ canvas, prop, motivo, quem, quandoIso: agoraIso, senha });
+    // 3) invalida a proposta
+    const campos = { status: "Inválida", motivo_invalidacao: motivo, invalidada_em: agoraIso, invalidada_por: quem };
     const { data, error } = await supabase.from("orcamento_propostas").update(campos).eq("id", v.id).eq("status", "Válida").select(PROPOSTA_CAMPOS).maybeSingle();
     if (error) throw error;
     if (!data) throw new Error("a proposta já não está válida — recarregue o orçamento");
     orcPropostas = orcPropostas.map((p) => (p.id === v.id ? { ...p, ...data } : p));
     orcPropostaTravada = !!propostaVigente();
+    // 4) entrega dos arquivos
+    baixarBlobArquivo(blobInvalida, `Proposta ${prop.numero} - INVALIDA.pdf`);
+    setTimeout(() => baixarBlobArquivo(blobDossie, `Proposta ${prop.numero} - Calculo e justificativa (protegido).pdf`), 700);
     fecharModalNovaNegociacao();
     orcAtualizarModoProposta();
     renderizarCalcOrcamento();
@@ -7356,7 +7378,33 @@ $("btn-neg-confirmar").addEventListener("click", async () => {
     erro.classList.remove("hidden");
   } finally {
     btn.disabled = false;
+    btn.textContent = rotulo;
   }
+});
+
+// Gestor/administrador: mostra a senha do PDF protegido de uma negociação (a senha só sai do banco para eles)
+$("orc-apr-hist").addEventListener("click", async (ev) => {
+  const b = ev.target.closest("[data-ver-senha]");
+  if (!b) return;
+  const id = b.getAttribute("data-ver-senha");
+  const area = b.closest("[data-senha-area]");
+  b.disabled = true;
+  try {
+    const { data, error } = await supabase.rpc("ver_senha_dossie", { p_proposta: id });
+    if (error) throw error;
+    if (!data) throw new Error("não há senha gravada para esta proposta");
+    area.innerHTML = `<span class="text-[11px] text-slate-500">Senha:</span> <code class="font-mono text-sm bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5 select-all">${escHtmlOrc(data)}</code> <button type="button" data-copiar-senha="${escHtmlOrc(data)}" class="text-[11px] text-slate-500 underline hover:text-slate-800">copiar</button><span class="text-[10px] text-slate-400 ml-1">(some em 30 s)</span>`;
+    setTimeout(() => { if (area.isConnected) orcAtualizarAprovacao(); }, 30000);
+  } catch (e) {
+    b.disabled = false;
+    area.insertAdjacentHTML("beforeend", `<div class="text-[11px] text-rose-600">${escHtmlOrc(e?.message || "erro ao buscar a senha")}</div>`);
+  }
+});
+$("orc-apr-hist").addEventListener("click", (ev) => {
+  const c = ev.target.closest("[data-copiar-senha]");
+  if (!c) return;
+  const t = c.getAttribute("data-copiar-senha");
+  (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(() => { c.textContent = "copiado"; }).catch(() => { c.textContent = "selecione e copie (Ctrl+C)"; });
 });
 $("btn-orc-proposta-hist").addEventListener("click", () => $("orc-proposta-hist").classList.toggle("hidden"));
 $("btn-orc-proposta-pdf").addEventListener("click", () => { if (orcPropostas[0]) baixarPropostaPdf(orcPropostas[0].id); });
@@ -7376,7 +7424,7 @@ function baixarBlobArquivo(blob, nome) {
 async function baixarPropostaPdf(id) {
   esconderErro("orc-form-erro");
   try {
-    const { data, error } = await supabase.from("orcamento_propostas").select("numero, dados, requer_aprovacao, aprovado_em").eq("id", id).single();
+    const { data, error } = await supabase.from("orcamento_propostas").select("numero, dados, requer_aprovacao, aprovado_em, status").eq("id", id).single();
     if (error || !data) throw error || new Error("proposta não encontrada");
     // a marca d'água acompanha a situação ATUAL da aprovação (gera "NÃO APROVADA" até o gestor aprovar)
     const blob = await gerarPdfProposta(data.dados, { marca: marcaDaProposta(data) });
@@ -7559,6 +7607,120 @@ function carregarJsPdf() {
   }
   return jsPdfPromise;
 }
+// ---- Nova negociação: "print" da tela de cálculo (html2canvas sob demanda) e PDF protegido por senha ----
+let html2canvasPromise = null;
+function carregarHtml2Canvas() {
+  if (window.html2canvas) return Promise.resolve(window.html2canvas);
+  if (!html2canvasPromise) {
+    html2canvasPromise = new Promise((resolve, reject) => {
+      const sc = document.createElement("script");
+      sc.src = "https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js";
+      sc.onload = () => (window.html2canvas ? resolve(window.html2canvas) : reject(new Error("captura de tela indisponível")));
+      sc.onerror = () => { html2canvasPromise = null; reject(new Error("não foi possível carregar o recurso de captura da tela (verifique a conexão)")); };
+      document.head.appendChild(sc);
+    });
+  }
+  return html2canvasPromise;
+}
+// Tira o "print" da área de cálculo do orçamento (mesmo que a aba de cálculo não esteja aberta no momento).
+async function capturarTelaCalculoOrcamento() {
+  const h2c = await carregarHtml2Canvas();
+  const pg = $("orc-pg-2");
+  const sec = pg && pg.querySelector("section");
+  if (!sec) throw new Error("tela de cálculo não encontrada");
+  const estavaOculta = pg.classList.contains("hidden");
+  if (estavaOculta) pg.classList.remove("hidden");
+  try {
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    return await h2c(sec, {
+      scale: 1.6, backgroundColor: "#ffffff", useCORS: true, logging: false,
+      onclone: (docu) => {
+        ["btn-orc-opcional", "btn-orc-restaurar", "orc-opcional-painel"].forEach((id) => { const el = docu.getElementById(id); if (el) el.style.display = "none"; });
+        docu.querySelectorAll("#orc-pg-2 .overflow-x-auto").forEach((el) => { el.style.overflow = "visible"; });
+        // campos de digitação viram texto (o print sai fiel mesmo com campos travados/desabilitados)
+        docu.querySelectorAll("#orc-pg-2 input:not([type=checkbox]):not([type=radio]):not([type=hidden])").forEach((inp) => {
+          const sp = docu.createElement("span");
+          sp.className = inp.className;
+          sp.style.cssText = "display:inline-block;min-height:1.4em;line-height:1.3;color:#1f2937;background:#fff;text-align:" + (getComputedStyle(inp).textAlign || "right");
+          sp.textContent = inp.type === "number" ? String(inp.value).replace(".", ",") : inp.value;
+          inp.replaceWith(sp);
+        });
+      },
+    });
+  } finally {
+    if (estavaOculta) pg.classList.add("hidden");
+  }
+}
+// PDF 2 da nova negociação: print do cálculo + justificativa, protegido por senha de abertura.
+async function gerarPdfDossieNegociacao({ canvas, prop, motivo, quem, quandoIso, senha }) {
+  const JsPDF = await carregarJsPdf();
+  const dados = prop.dados || {};
+  const doc = new JsPDF({
+    unit: "mm", format: "a4", orientation: "landscape", compress: true,
+    encryption: { userPassword: senha, ownerPassword: senha + "-WF-" + (prop.numero || ""), userPermissions: ["print"] },
+  });
+  const W = 297, H = 210, M = 8;
+  const INK = [31, 41, 55], MUT = [107, 114, 128], ACC = [194, 65, 12];
+  const quando = formatarDataHoraBr(quandoIso);
+  const cab = (titulo) => {
+    doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.setTextColor(INK[0], INK[1], INK[2]);
+    doc.text(pdfTxt(titulo), M, M + 3);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(MUT[0], MUT[1], MUT[2]);
+    const emp = (dados.empresa && dados.empresa.nome) || "";
+    doc.text(pdfTxt(`Proposta ${prop.numero} (v${prop.versao}) · Orçamento ${dados.orcamento_numero || ""}${emp ? " · " + emp : ""}`), M, M + 7.5);
+    doc.text(pdfTxt(`Nova negociação em ${quando}${quem ? " por " + quem : ""}`), W - M, M + 3, { align: "right" });
+    doc.setDrawColor(ACC[0], ACC[1], ACC[2]); doc.setLineWidth(0.6); doc.line(M, M + 9.5, M + 22, M + 9.5);
+    doc.setDrawColor(226, 228, 232); doc.setLineWidth(0.25); doc.line(M + 22, M + 9.5, W - M, M + 9.5);
+    return M + 12.5;
+  };
+  // print do cálculo, em tantas páginas quantas precisar (largura inteira da página)
+  const larg = W - 2 * M;
+  const mmPorPx = larg / canvas.width;
+  const altTotal = canvas.height * mmPorPx;
+  let y0 = 0; // mm já impressos
+  let primeira = true;
+  while (y0 < altTotal - 0.01) {
+    if (!primeira) doc.addPage();
+    const topo = cab("Dossiê da nova negociação · Tela de cálculo do orçamento");
+    const disp = H - 10 - topo;
+    const fatia = Math.min(disp, altTotal - y0);
+    const pxY = Math.round(y0 / mmPorPx), pxH = Math.max(1, Math.round(fatia / mmPorPx));
+    const parte = document.createElement("canvas");
+    parte.width = canvas.width; parte.height = pxH;
+    const cx = parte.getContext("2d");
+    cx.fillStyle = "#ffffff"; cx.fillRect(0, 0, parte.width, parte.height);
+    cx.drawImage(canvas, 0, pxY, canvas.width, pxH, 0, 0, canvas.width, pxH);
+    doc.addImage(parte.toDataURL("image/jpeg", 0.92), "JPEG", M, topo, larg, pxH * mmPorPx);
+    y0 += fatia; primeira = false;
+  }
+  // justificativa
+  doc.addPage();
+  let y = cab("Dossiê da nova negociação · Justificativa");
+  y += 4;
+  doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(MUT[0], MUT[1], MUT[2]);
+  doc.text("JUSTIFICATIVA PARA ABRIR A NOVA NEGOCIAÇÃO", M, y); y += 6;
+  doc.setFont("helvetica", "normal"); doc.setFontSize(12); doc.setTextColor(INK[0], INK[1], INK[2]);
+  const linhas = doc.splitTextToSize(pdfTxt(motivo), W - 2 * M);
+  for (const ln of linhas) {
+    if (y > H - 14) { doc.addPage(); y = cab("Dossiê da nova negociação · Justificativa (continuação)") + 4; doc.setFont("helvetica", "normal"); doc.setFontSize(12); doc.setTextColor(INK[0], INK[1], INK[2]); }
+    doc.text(ln, M, y); y += 5.6;
+  }
+  y += 6;
+  doc.setFontSize(9); doc.setTextColor(MUT[0], MUT[1], MUT[2]);
+  if (y > H - 20) { doc.addPage(); y = cab("Dossiê da nova negociação") + 4; doc.setFontSize(9); doc.setTextColor(MUT[0], MUT[1], MUT[2]); }
+  doc.text(pdfTxt(`Valor final da proposta invalidada: ${fmtBRL(prop.valor_final)}`), M, y); y += 4.5;
+  doc.text(pdfTxt(`Registrada por ${quem || "—"} em ${quando}.`), M, y);
+  // rodapé
+  const total = doc.getNumberOfPages();
+  for (let p = 1; p <= total; p++) {
+    doc.setPage(p);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(7); doc.setTextColor(MUT[0], MUT[1], MUT[2]);
+    doc.text("Documento confidencial · abertura protegida por senha · acesso restrito ao administrador e ao gestor comercial", M, H - 4);
+    doc.text(`Página ${p} de ${total}`, W - M, H - 4, { align: "right" });
+  }
+  return doc.output("blob");
+}
+
 function infoImagemPdf(dataUrl) {
   return new Promise((resolve) => {
     if (!dataUrl) return resolve(null);

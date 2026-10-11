@@ -1317,3 +1317,14 @@ alter table public.rotina_controle enable row level security;
 -- de Treinamento") é impresso logo após a descrição do último item do escopo. A assinatura usa o nome do vendedor
 -- cadastrado no orçamento (orcamentos.vendedor_id -> vendedores.nome); sem vendedor, usa o usuário que gerou a proposta.
 -- O nome do vendedor e a observação ficam gravados em orcamento_propostas.dados (dados.vendedor.nome, dados.observacoes).
+
+-- ---------------------------------------------------------------------
+-- Prod 1.56 — Nova negociação gera 2 PDFs (proposta "INVÁLIDA" + print do cálculo e justificativa protegido por senha)
+-- orcamento_propostas: senha_dossie_cripto bytea (senha em pgp_sym_encrypt_bytea), dossie_gerado_em timestamptz
+-- segredos_app (chave text pk, valor text): RLS ligado, sem policies e sem grant para anon/authenticated (só funções security definer leem);
+--   linha 'dossie_negociacao' = chave de criptografia (gerada com gen_random_bytes(32), nunca sai do banco)
+-- gerar_senha_dossie(p_proposta uuid) returns text: security definer; exige admin ou permissão "alterar" em orcamentos e proposta Válida;
+--   gera senha aleatória de 12 caracteres NO BANCO, grava criptografada e devolve uma única vez ao app (usada no PDF)
+-- ver_senha_dossie(p_proposta uuid) returns text: security definer; só admin ativo ou usuarios_sistema.aprovador_comercial ativo (gestor comercial)
+-- execute revogado de public/anon e concedido a authenticated nas duas funções.
+-- (os comandos executados estão no histórico do projeto; o PDF usa criptografia padrão do jsPDF — barreira de acesso, não segurança forte)
