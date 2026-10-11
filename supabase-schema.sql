@@ -1377,3 +1377,15 @@ alter table public.rotina_controle enable row level security;
 --   dos rótulos e garante a empresa do orçamento na lista ao abrir; relatório Excel ganhou a coluna "Negócios com o mesmo número".
 
 -- Prod 1.61 — (somente app) seletor de empresa: o nome da empresa fica na primeira linha, ao lado do número; o campo de pesquisa vem logo abaixo.
+
+-- ---------------------------------------------------------------------
+-- Prod 1.62 — Propostas importadas de outro sistema (Sistema 3S) + orçamento 26365
+-- orcamento_propostas.arquivo_externo text (caminho do PDF original no bucket) e origem text (ex.: 'Sistema 3S')
+-- Bucket privado 'propostas-externas' (só application/pdf, até 20 MB); caminho <orcamento_id>/proposta-3s-<numero>.pdf;
+--   policy propostas_externas_select (admin ou tem_permissao orcamentos 'consultar'); sem insert/update/delete pelo app (carga feita pelo servidor).
+-- itens_custo: novo item OPCIONAL "Importação de Custo do Sistema 3S" (unidade Manual, valor 0): usado para registrar o valor total de propostas vindas do 3S.
+-- Orçamento 26365: PDF "Gerar Proposta" do 3S guardado; proposta nº 26365-20261011-1209 (v1, Válida, R$ 4.155,00, sem aprovação, origem Sistema 3S);
+--   cálculo com todos os itens do treinamento zerados + item opcional "Importação de Custo do Sistema 3S" = R$ 4.155,00 (total do 3S: subtotal 5.705,00 - desconto 27,17%);
+--   % apoio, margem, imposto e desconto = 0; prazo 28 DIAS; validade 30 dias. O cálculo fica bloqueado até "Nova negociação".
+-- App: histórico de propostas mostra o selo da origem e "⬇ PDF (original)"; "Nova negociação" gera o PDF original com marca d'água INVÁLIDA (pdf-lib sob demanda).
+-- Função temporária 'importar-proposta-3s' usada só para enviar o PDF: encerrada (responde 410) e token invalidado.

@@ -34,7 +34,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.61 · 11/10/2026";
+const APP_VERSAO = "Prod 1.62 · 11/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -7468,7 +7468,7 @@ function orcPreencherPrazos(selecionado) {
   sel.value = selecionado || "";
 }
 
-const PROPOSTA_CAMPOS = "id, numero, versao, valor_final, gerado_por, created_at, status, requer_aprovacao, margem_final_valor, margem_final_perc, margem_minima_perc, margem_minima_valor, aprovado_em, aprovado_por, justificativa_aprovacao, invalidada_em, invalidada_por, motivo_invalidacao, dossie_gerado_em, dossie_arquivo";
+const PROPOSTA_CAMPOS = "id, numero, versao, valor_final, gerado_por, created_at, status, requer_aprovacao, margem_final_valor, margem_final_perc, margem_minima_perc, margem_minima_valor, aprovado_em, aprovado_por, justificativa_aprovacao, invalidada_em, invalidada_por, motivo_invalidacao, dossie_gerado_em, dossie_arquivo, arquivo_externo, origem";
 const escHtmlOrc = (t) => String(t == null ? "" : t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const propostaVigente = () => orcPropostas.find((p) => p.status !== "Inválida") || null; // a proposta Válida (só pode haver uma)
 const usuarioPodeAprovar = () => !!usuarioSistemaAtual && (usuarioSistemaAtual.role === "admin" || !!usuarioSistemaAtual.aprovador_comercial);
@@ -7515,7 +7515,7 @@ function orcAtualizarModoProposta() {
     + `: nº ${u.numero} · versão ${u.versao} · gerada em ${formatarDataHoraBr(u.created_at)}${u.gerado_por ? " por " + u.gerado_por : ""} · ${fmtBRL(u.valor_final)}`
     + (v ? " · itens bloqueados (use “Nova negociação” para alterar)" : " · em negociação: gere uma nova proposta");
   const hist = $("orc-proposta-hist");
-  hist.innerHTML = orcPropostas.map((p) => `<div class="flex items-center gap-3 py-0.5 flex-wrap"><span class="font-mono">${escHtmlOrc(p.numero)}</span><span>v${p.versao}</span><span>${formatarDataHoraBr(p.created_at)}</span><span>${escHtmlOrc(p.gerado_por || "")}</span><span class="font-semibold">${fmtBRL(p.valor_final)}</span><span class="${p.status === "Inválida" ? "text-slate-500" : "text-emerald-700 font-medium"}">${p.status === "Inválida" ? "Inválida" : "Válida"}</span><button type="button" data-prop-pdf="${p.id}" class="underline hover:text-amber-700">⬇ PDF</button>${p.dossie_arquivo ? `<button type="button" data-dossie-pdf="${p.id}" class="underline hover:text-amber-700" title="PDF do cálculo + justificativa da nova negociação (abre com senha)">🔒 PDF do cálculo e justificativa</button>` : ""}</div>`).join("");
+  hist.innerHTML = orcPropostas.map((p) => `<div class="flex items-center gap-3 py-0.5 flex-wrap"><span class="font-mono">${escHtmlOrc(p.numero)}</span><span>v${p.versao}</span><span>${formatarDataHoraBr(p.created_at)}</span><span>${escHtmlOrc(p.gerado_por || "")}</span><span class="font-semibold">${fmtBRL(p.valor_final)}</span><span class="${p.status === "Inválida" ? "text-slate-500" : "text-emerald-700 font-medium"}">${p.status === "Inválida" ? "Inválida" : "Válida"}</span>${p.origem ? `<span class="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-sky-100 text-sky-800" title="Proposta importada do ${escHtmlOrc(p.origem)}">${escHtmlOrc(p.origem)}</span>` : ""}<button type="button" data-prop-pdf="${p.id}" class="underline hover:text-amber-700" title="${p.arquivo_externo ? "PDF original emitido no " + escHtmlOrc(p.origem || "sistema de origem") : "Gera o PDF desta proposta"}">⬇ PDF${p.arquivo_externo ? " (original)" : ""}</button>${p.dossie_arquivo ? `<button type="button" data-dossie-pdf="${p.id}" class="underline hover:text-amber-700" title="PDF do cálculo + justificativa da nova negociação (abre com senha)">🔒 PDF do cálculo e justificativa</button>` : ""}</div>`).join("");
   orcAtualizarAvisoProposta();
 }
 
@@ -7674,14 +7674,14 @@ $("btn-neg-confirmar").addEventListener("click", async () => {
   btn.textContent = "Gerando PDFs…";
   try {
     // 1) proposta gravada + senha do PDF protegido (gerada e guardada criptografada no banco)
-    const { data: prop, error: e0 } = await supabase.from("orcamento_propostas").select("numero, versao, valor_final, dados").eq("id", v.id).single();
+    const { data: prop, error: e0 } = await supabase.from("orcamento_propostas").select("numero, versao, valor_final, dados, arquivo_externo, origem").eq("id", v.id).single();
     if (e0 || !prop) throw e0 || new Error("proposta não encontrada");
     const { data: senha, error: e1 } = await supabase.rpc("gerar_senha_dossie", { p_proposta: v.id });
     if (e1 || !senha) throw e1 || new Error("não foi possível gerar a senha do PDF protegido");
     const agoraIso = new Date().toISOString();
     const quem = usuarioSistemaAtual ? usuarioSistemaAtual.nome : null;
     // 2) os dois PDFs (se algo falhar aqui, a proposta continua válida)
-    const blobInvalida = await gerarPdfProposta(prop.dados, { marca: "INVÁLIDA" });
+    const blobInvalida = await blobDaPropostaGravada(prop, "INVÁLIDA");
     const canvas = await capturarTelaCalculoOrcamento();
     const blobDossie = await gerarPdfDossieNegociacao({ canvas, prop, motivo, quem, quandoIso: agoraIso, senha });
     // 3) guarda o PDF protegido no sistema (para o link no histórico) e invalida a proposta
@@ -7769,11 +7769,12 @@ function baixarBlobArquivo(blob, nome) {
 async function baixarPropostaPdf(id) {
   esconderErro("orc-form-erro");
   try {
-    const { data, error } = await supabase.from("orcamento_propostas").select("numero, dados, requer_aprovacao, aprovado_em, status").eq("id", id).single();
+    const { data, error } = await supabase.from("orcamento_propostas").select("numero, dados, requer_aprovacao, aprovado_em, status, arquivo_externo, origem").eq("id", id).single();
     if (error || !data) throw error || new Error("proposta não encontrada");
     // a marca d'água acompanha a situação ATUAL da aprovação (gera "NÃO APROVADA" até o gestor aprovar)
-    const blob = await gerarPdfProposta(data.dados, { marca: marcaDaProposta(data) });
-    baixarBlobArquivo(blob, `Proposta ${data.numero}.pdf`);
+    const marca = marcaDaProposta(data);
+    const blob = await blobDaPropostaGravada(data, marca);
+    baixarBlobArquivo(blob, `Proposta ${data.numero}${data.arquivo_externo ? " (" + (data.origem || "original") + ")" : ""}${marca === "INVÁLIDA" ? " - INVALIDA" : ""}.pdf`);
   } catch (e) {
     mostrarErro("orc-form-erro", "Não foi possível gerar o PDF: " + (e?.message || "erro desconhecido"));
   }
@@ -7938,6 +7939,50 @@ $("btn-orc-previa").addEventListener("click", gerarPreviaProposta);
 // ---------------------------------------------------------------------
 // PDF da proposta (jsPDF carregado sob demanda)
 // ---------------------------------------------------------------------
+// ---- Propostas importadas de outro sistema (ex.: 3S): o PDF original fica guardado no bucket privado 'propostas-externas' ----
+let pdfLibPromise = null;
+function carregarPdfLib() {
+  if (window.PDFLib) return Promise.resolve(window.PDFLib);
+  if (!pdfLibPromise) {
+    pdfLibPromise = new Promise((resolve, reject) => {
+      const sc = document.createElement("script");
+      sc.src = "https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js";
+      sc.onload = () => (window.PDFLib ? resolve(window.PDFLib) : reject(new Error("recurso de edição de PDF indisponível")));
+      sc.onerror = () => { pdfLibPromise = null; reject(new Error("não foi possível carregar o recurso de edição de PDF (verifique a conexão)")); };
+      document.head.appendChild(sc);
+    });
+  }
+  return pdfLibPromise;
+}
+// Carimba uma marca d'água diagonal (ex.: "INVÁLIDA") em todas as páginas de um PDF existente.
+async function carimbarPdfExterno(blob, marca) {
+  if (!marca) return blob;
+  const lib = await carregarPdfLib();
+  const doc = await lib.PDFDocument.load(await blob.arrayBuffer());
+  const fonte = await doc.embedFont(lib.StandardFonts.HelveticaBold);
+  for (const pg of doc.getPages()) {
+    const { width, height } = pg.getSize();
+    const tam = Math.min(width, height) * 0.16;
+    const w = fonte.widthOfTextAtSize(marca, tam);
+    const ang = Math.atan2(height, width); // diagonal da página
+    const cx = width / 2, cy = height / 2, alt = tam * 0.35;
+    pg.drawText(marca, {
+      x: cx - (w / 2) * Math.cos(ang) + alt * Math.sin(ang), y: cy - (w / 2) * Math.sin(ang) - alt * Math.cos(ang),
+      size: tam, font: fonte, color: lib.rgb(0.85, 0.1, 0.1), opacity: 0.28, rotate: lib.degrees(ang * 180 / Math.PI),
+    });
+  }
+  return new Blob([await doc.save()], { type: "application/pdf" });
+}
+// PDF de uma proposta gravada: o original guardado (importada) ou o gerado pelo sistema a partir do cálculo.
+async function blobDaPropostaGravada(p, marca) {
+  if (p.arquivo_externo) {
+    const { data, error } = await supabase.storage.from("propostas-externas").download(p.arquivo_externo);
+    if (error || !data) throw new Error("não foi possível baixar o PDF original da proposta" + (error?.message ? ": " + error.message : ""));
+    return carimbarPdfExterno(data, marca);
+  }
+  return gerarPdfProposta(p.dados, { marca });
+}
+
 let jsPdfPromise = null;
 function carregarJsPdf() {
   if (window.jspdf && window.jspdf.jsPDF) return Promise.resolve(window.jspdf.jsPDF);
