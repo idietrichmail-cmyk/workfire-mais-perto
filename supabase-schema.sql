@@ -1389,3 +1389,21 @@ alter table public.rotina_controle enable row level security;
 --   % apoio, margem, imposto e desconto = 0; prazo 28 DIAS; validade 30 dias. O cálculo fica bloqueado até "Nova negociação".
 -- App: histórico de propostas mostra o selo da origem e "⬇ PDF (original)"; "Nova negociação" gera o PDF original com marca d'água INVÁLIDA (pdf-lib sob demanda).
 -- Função temporária 'importar-proposta-3s' usada só para enviar o PDF: encerrada (responde 410) e token invalidado.
+
+-- ---------------------------------------------------------------------------
+-- 12/10/2026 - importação em lote das propostas do Sistema 3S (somente dados, sem mudança no app)
+-- * funções importar_proposta_3s(...) e lista_orcamentos_para_importar_3s() (security definer, sem acesso para anon/authenticated)
+-- * para cada orçamento sem cálculo e sem proposta: PDF do 3S no bucket propostas-externas, linhas do treinamento zeradas,
+--   item opcional "Importação de Custo do Sistema 3S" com o total da proposta (dividido pelas turmas), percentuais zerados,
+--   proposta Válida (origem 'Sistema 3S') no histórico. Orçamentos com total zero (desconto de 100%) ficaram sem proposta.
+-- * Edge Function temporária importar-propostas-3s encerrada (410); token prop_3s_token = 'encerrado'.
+-- * Observações do PDF (campo "Observações" da tela de edição da proposta) gravadas em orcamentos.observacoes.
+
+-- 12/10/2026 - painel de vínculos com o Bitrix estourava o limite de 8 s (statement timeout):
+-- índice orcamentos_empresa_id_idx e view bitrix_verificacao_detalhe reescrita (agrega os negócios por empresa uma única vez).
+-- Sem mudança no app.
+create index if not exists orcamentos_empresa_id_idx on public.orcamentos (empresa_id);
+-- (view recriada com CTE "vinc"; mesmas colunas, security_invoker = true)
+
+-- Prod 1.63 (12/10/2026): sem mudanças no banco. As chamadas às Edge Functions (Bitrix, convite de usuário) passam a usar
+-- o token renovado da sessão (supabase.auth.getSession) em vez do token guardado no login, que expirava (erro "Sessão inválida").

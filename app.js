@@ -34,7 +34,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.62 · 11/10/2026";
+const APP_VERSAO = "Prod 1.63 · 12/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -251,6 +251,15 @@ function confirmarExclusao(descricao) {
 // Estado geral
 // ---------------------------------------------------------
 let sessaoAtual = null;
+// Token de acesso válido para chamar as Edge Functions. O supabase-js renova a sessão sozinho (a cada ~1 hora);
+// guardar o token do login faria a chamada falhar com "Sessão inválida" depois de algum tempo com a página aberta.
+async function tokenAtualFuncoes() {
+  try {
+    const { data } = await supabase.auth.getSession();
+    if (data?.session?.access_token) { sessaoAtual = data.session; return data.session.access_token; }
+  } catch (e) { /* usa o último token conhecido */ }
+  return sessaoAtual?.access_token || SUPABASE_ANON_KEY;
+}
 let perfilAtual = null; // linha da tabela instrutores do usuário logado
 let listaInstrutoresAdmin = [];
 let mesCalendarioInstrutor = new Date();
@@ -476,7 +485,7 @@ async function enviarConviteUsuario(usuarioId, silenciosoSeOk = false) {
       headers: {
         "Content-Type": "application/json",
         apikey: SUPABASE_ANON_KEY,
-        Authorization: `Bearer ${sessaoAtual?.access_token || SUPABASE_ANON_KEY}`,
+        Authorization: `Bearer ${await tokenAtualFuncoes()}`,
       },
       body: JSON.stringify({ usuario_id: usuarioId }),
     });
@@ -3863,7 +3872,7 @@ async function sincronizarComBitrix() {
   try {
     const resp = await fetch(`${SUPABASE_URL}/functions/v1/sincronizar-bitrix`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${sessaoAtual?.access_token || SUPABASE_ANON_KEY}` },
+      headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${await tokenAtualFuncoes()}` },
       body: "{}",
     });
     const r = await resp.json().catch(() => ({}));
@@ -6121,7 +6130,7 @@ async function executarAcaoBitrixOrc(acao) {
   try {
     const resp = await fetch(`${SUPABASE_URL}/functions/v1/bitrix-negocios`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${sessaoAtual?.access_token || SUPABASE_ANON_KEY}` },
+      headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${await tokenAtualFuncoes()}` },
       body: JSON.stringify({ acao }),
     });
     const r = await resp.json().catch(() => ({}));
