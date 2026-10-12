@@ -1419,3 +1419,11 @@ create index if not exists orcamentos_empresa_id_idx on public.orcamentos (empre
 -- Edge Function bitrix-evento (verify_jwt=false; autorização por ?t=<segredos_app.bitrix_evento_token> ou x-cron-token): recebe o webhook de SAÍDA do Bitrix
 --   (ONCRMDEALADD/UPDATE/MOVETOCATEGORY/DELETE, ONCRMCOMPANYADD) e tem as ações varredura (pg_cron 'bitrix-evento-varredura', a cada 5 min), diagnostico e estatistica_cnpj.
 -- CNPJ no Bitrix: campo RQ_CNPJ dos requisitos da empresa (preset "Pessoa jurídica"); poucas empresas o têm preenchido.
+
+-- Prod 1.64 (12/10/2026): sem mudanças no banco. A tela do orçamento (seção "Vínculo com o Bitrix24") mostra o histórico de bitrix_movimentos
+-- (etapa/vínculo automático) e indica "(vínculo automático)"; ao alterar o vínculo manualmente o app grava bitrix_vinculo_auto = false (a sincronização não troca mais).
+
+-- 12/10/2026 (noite): bitrix_analisar_orcamentos reescrita para ser mais rápida (números de 5 dígitos pré-extraídos em t_neg.nums com índice GIN,
+--   busca por candidatos limitada à janela de ±180 dias, "aplicar" só grava o que muda). A análise ainda leva ~16 s (a API do Supabase corta em 8 s),
+--   por isso a Edge Function bitrix-negocios (v5) passa a chamar a análise por conexão direta ao banco (SUPABASE_DB_URL, statement_timeout 170 s),
+--   com a API como plano B. Corrige o "canceling statement due to statement timeout" ao usar "Vincular os seguros".
