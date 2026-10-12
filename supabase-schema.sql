@@ -1427,3 +1427,7 @@ create index if not exists orcamentos_empresa_id_idx on public.orcamentos (empre
 --   busca por candidatos limitada à janela de ±180 dias, "aplicar" só grava o que muda). A análise ainda leva ~16 s (a API do Supabase corta em 8 s),
 --   por isso a Edge Function bitrix-negocios (v5) passa a chamar a análise por conexão direta ao banco (SUPABASE_DB_URL, statement_timeout 170 s),
 --   com a API como plano B. Corrige o "canceling statement due to statement timeout" ao usar "Vincular os seguros".
+
+-- Prod 1.65 (12/10/2026): sem mudanças no banco. Os orçamentos importados do Sistema 3S já estão gravados com perc_apoio/margem/imposto = 0,
+-- margem_minima_perc/valor = 0 e valor_final = valor do PDF. A tela passa a usar a margem mínima GRAVADA no orçamento enquanto houver proposta vigente
+-- (antes recalculava com a margem mínima por turma do cadastro do treinamento e, ao salvar, somava esse valor ao final). Em "Nova negociação" volta a regra do treinamento.

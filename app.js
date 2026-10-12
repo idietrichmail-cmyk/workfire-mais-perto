@@ -34,7 +34,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.64 · 12/10/2026";
+const APP_VERSAO = "Prod 1.65 · 12/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -6537,6 +6537,7 @@ function orcAtualizarAbas() {
 // ---------------------------------------------------------
 let orcLinhasCalc = [];      // linhas exibidas/gravadas
 let orcCalcOrigem = "vazio"; // "vazio" | "cadastro" | "salvo"
+let orcMinSalvo = null;      // margem mínima gravada no orçamento ({ perc, valor }); vale enquanto houver proposta vigente (ex.: proposta importada do Sistema 3S, sem margem mínima)
 let orcCalcSalvoEm = null;
 let orcCalcSeq = 0;
 let orcCalcToken = 0;
@@ -6595,8 +6596,11 @@ function calcularOrcamento() {
   // Margem garantida: vale a MAIOR entre a margem pelo % aplicado e o valor mínimo de margem por turma
   // (R$) do cadastro do treinamento. Margem = valor da turma − custo − apoio − imposto.
   const tipo = listaTiposAtivos.find((t) => t.id === $("orc-tipo").value);
-  const minPerc = tipo ? Number(tipo.perc_margem_minima) || 0 : 0;
-  const minValor = tipo ? Number(tipo.valor_margem_minimo) || 0 : 0;
+  // Com proposta vigente (bloqueado), vale a margem mínima gravada no orçamento: nas propostas importadas do 3S o valor do PDF já é o final,
+  // então não se soma margem mínima do treinamento. Numa nova negociação volta a valer a regra do cadastro do treinamento.
+  const usaMinSalvo = !!orcMinSalvo && orcPropostaTravada;
+  const minPerc = usaMinSalvo ? orcMinSalvo.perc : (tipo ? Number(tipo.perc_margem_minima) || 0 : 0);
+  const minValor = usaMinSalvo ? orcMinSalvo.valor : (tipo ? Number(tipo.valor_margem_minimo) || 0 : 0);
   const valorTurmaPerc = valido ? custo / pctCusto : 0;
   const fatorLiquido = 1 - (apoio + imposto) / 100;                      // sobra após apoio e imposto
   const valorTurmaMinimo = valido && minValor > 0 && custo > 0 ? (custo + minValor) / fatorLiquido : 0;
@@ -6705,6 +6709,7 @@ async function aplicarCadastroNoCalculo() {
   $("orc-perc-imposto").value = tipo ? Number(tipo.perc_imposto) || 0 : 0;
   orcCalcOrigem = tipoId ? "cadastro" : "vazio";
   orcCalcSalvoEm = null;
+  orcMinSalvo = null;
   renderizarCalcOrcamento();
 }
 
@@ -6715,6 +6720,7 @@ function limparCalculoOrcamento(carregando = false) {
   orcLinhasCalc = [];
   orcCalcOrigem = "vazio";
   orcCalcSalvoEm = null;
+  orcMinSalvo = null;
   ["apoio", "margem", "imposto", "desconto"].forEach((k) => { $("orc-perc-" + k).value = 0; });
   orcDescontoModo = "percentual";
   $("orc-valor-desconto").value = 0;
@@ -6756,6 +6762,8 @@ async function carregarCalculoDoOrcamento(o) {
     $("orc-valor-desconto").value = Number(o.valor_desconto) || 0;
     orcCalcOrigem = "salvo";
     orcCalcSalvoEm = o.calculado_em || null;
+    orcMinSalvo = (o.margem_minima_perc != null || o.margem_minima_valor != null)
+      ? { perc: Number(o.margem_minima_perc) || 0, valor: Number(o.margem_minima_valor) || 0 } : null;
     renderizarCalcOrcamento();
     return;
   }
