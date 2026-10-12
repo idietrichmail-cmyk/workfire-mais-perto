@@ -34,7 +34,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.63 · 12/10/2026";
+const APP_VERSAO = "Prod 1.64 · 12/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -5988,7 +5988,38 @@ async function preencherVinculoBitrixOrc(o) {
   for (const id of ["orc-bx-negocio", "orc-bx-pipeline", "orc-bx-fase"]) $(id).disabled = !pode;
   $("orc-bx-aviso").classList.toggle("hidden", pode);
   $("orc-bx-negocio").placeholder = pode ? "Ex: 12345" : "—";
-  bxInfoOrc(o?.bitrix_atualizado_em ? `Última atualização do vínculo: ${escHtmlOrc(formatarDataHoraBr(o.bitrix_atualizado_em))}` : "");
+  const auto = o?.id_negocio_bitrix && o?.bitrix_vinculo_auto ? " (vínculo automático)" : "";
+  bxInfoOrc(o?.bitrix_atualizado_em ? `Última atualização do vínculo: ${escHtmlOrc(formatarDataHoraBr(o.bitrix_atualizado_em))}${auto}` : "");
+  carregarHistoricoBitrixOrc(o?.id || null);
+}
+
+// Histórico de movimentações (etapa/vínculo) vindas do Bitrix. Fica escondido quando não há registros ou o usuário não tem acesso.
+let bxHistSeq = 0;
+async function carregarHistoricoBitrixOrc(orcId) {
+  const det = $("orc-bx-historico");
+  const lista = $("orc-bx-historico-lista");
+  if (!det || !lista) return;
+  det.classList.add("hidden");
+  det.open = false;
+  lista.innerHTML = "";
+  if (!orcId) return;
+  const seq = ++bxHistSeq;
+  try {
+    const { data, error } = await supabase.from("bitrix_movimentos")
+      .select("id, ocorrido_em, tipo, negocio_id, pipeline_de, fase_de, pipeline_para, fase_para")
+      .eq("orcamento_id", orcId).order("ocorrido_em", { ascending: false }).limit(50);
+    if (seq !== bxHistSeq || error || !data || !data.length) return;
+    const lugar = (p, f) => escHtmlOrc([p, f].filter(Boolean).join(" › ") || "—");
+    lista.innerHTML = data.map((m) => {
+      let txt;
+      if (m.tipo === "etapa") txt = `Movido de <strong>${lugar(m.pipeline_de, m.fase_de)}</strong> para <strong>${lugar(m.pipeline_para, m.fase_para)}</strong>`;
+      else if (m.tipo === "vinculo") txt = `Vinculado automaticamente ao negócio <span class="font-mono">${escHtmlOrc(m.negocio_id)}</span> em <strong>${lugar(m.pipeline_para, m.fase_para)}</strong>`;
+      else txt = `Vínculo trocado automaticamente para o negócio <span class="font-mono">${escHtmlOrc(m.negocio_id)}</span> em <strong>${lugar(m.pipeline_para, m.fase_para)}</strong>`;
+      return `<li class="px-2 py-1 flex flex-wrap gap-x-2"><span class="text-slate-400 shrink-0">${escHtmlOrc(formatarDataHoraBr(m.ocorrido_em))}</span><span>${txt}</span></li>`;
+    }).join("");
+    $("orc-bx-historico-titulo").textContent = `Histórico de movimentações no Bitrix (${data.length}${data.length >= 50 ? "+" : ""})`;
+    det.classList.remove("hidden");
+  } catch { /* histórico é opcional */ }
 }
 
 // Ao informar o ID do negócio, busca na cópia dos negócios do Bitrix e preenche pipeline e fase.
@@ -6033,7 +6064,7 @@ function camposVinculoBitrixOrc() {
   const faseNome = !fase ? null : (fObj?.nome || (fase === orcBxOriginal.fase ? orcBxOriginal.faseNome : null) || fase);
   const campos = { id_negocio_bitrix: neg || null, bitrix_pipeline_id: pip || null, bitrix_pipeline_nome: pipNome, bitrix_fase_id: fase || null, bitrix_fase_nome: faseNome };
   const mudou = neg !== orcBxOriginal.neg || pip !== orcBxOriginal.pip || fase !== orcBxOriginal.fase;
-  if (mudou) campos.bitrix_atualizado_em = new Date().toISOString();
+  if (mudou) { campos.bitrix_atualizado_em = new Date().toISOString(); campos.bitrix_vinculo_auto = false; } // alteração manual: a sincronização nunca troca este vínculo
   return { campos };
 }
 function guardarVinculoBitrixOrc(linha) {
