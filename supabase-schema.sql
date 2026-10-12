@@ -1407,3 +1407,15 @@ create index if not exists orcamentos_empresa_id_idx on public.orcamentos (empre
 
 -- Prod 1.63 (12/10/2026): sem mudanças no banco. As chamadas às Edge Functions (Bitrix, convite de usuário) passam a usar
 -- o token renovado da sessão (supabase.auth.getSession) em vez do token guardado no login, que expirava (erro "Sessão inválida").
+
+-- ===== Sincronização Bitrix -> app em tempo real (12/10/2026) =====
+-- Banco: orcamentos.bitrix_vinculo_auto (true = vínculo criado automaticamente; pode ser trocado por um negócio mais novo; vínculo manual/antigo nunca é trocado);
+--   tabelas bitrix_movimentos (histórico de etapa/vínculo), bitrix_sync_estado (pontos de leitura + interruptor empresas_auto_incluir='nao'),
+--   bitrix_empresas_novas (conferência de empresas novas do Bitrix, modo simulação); RLS ligada.
+-- Função bitrix_processar_negocio(p_id, p_origem) (security definer, sem execução para anon/authenticated): atualiza funil/etapa dos orçamentos
+--   vinculados ao negócio (gravando histórico) e vincula automaticamente pelo número de 5 dígitos no título (mesmas regras de bitrix_analisar_orcamentos:
+--   exclui "Renovação", desempata pela empresa, vale o último cadastrado). Não altera o status Aprovado/Recusado do orçamento.
+-- bitrix_analisar_orcamentos passa a marcar bitrix_vinculo_auto = true quando cria o vínculo.
+-- Edge Function bitrix-evento (verify_jwt=false; autorização por ?t=<segredos_app.bitrix_evento_token> ou x-cron-token): recebe o webhook de SAÍDA do Bitrix
+--   (ONCRMDEALADD/UPDATE/MOVETOCATEGORY/DELETE, ONCRMCOMPANYADD) e tem as ações varredura (pg_cron 'bitrix-evento-varredura', a cada 5 min), diagnostico e estatistica_cnpj.
+-- CNPJ no Bitrix: campo RQ_CNPJ dos requisitos da empresa (preset "Pessoa jurídica"); poucas empresas o têm preenchido.
