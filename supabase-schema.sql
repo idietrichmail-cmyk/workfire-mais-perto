@@ -1398,3 +1398,9 @@ alter table public.rotina_controle enable row level security;
 --   proposta Válida (origem 'Sistema 3S') no histórico. Orçamentos com total zero (desconto de 100%) ficaram sem proposta.
 -- * Edge Function temporária importar-propostas-3s encerrada (410); token prop_3s_token = 'encerrado'.
 -- * Observações do PDF (campo "Observações" da tela de edição da proposta) gravadas em orcamentos.observacoes.
+
+-- 12/10/2026 - painel de vínculos com o Bitrix estourava o limite de 8 s (statement timeout):
+-- índice orcamentos_empresa_id_idx e view bitrix_verificacao_detalhe reescrita (agrega os negócios por empresa uma única vez).
+-- Sem mudança no app.
+create index if not exists orcamentos_empresa_id_idx on public.orcamentos (empresa_id);
+-- (view recriada com CTE "vinc"; mesmas colunas, security_invoker = true)
