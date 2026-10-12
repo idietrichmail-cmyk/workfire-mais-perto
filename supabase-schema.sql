@@ -1404,3 +1404,6 @@ alter table public.rotina_controle enable row level security;
 -- Sem mudança no app.
 create index if not exists orcamentos_empresa_id_idx on public.orcamentos (empresa_id);
 -- (view recriada com CTE "vinc"; mesmas colunas, security_invoker = true)
+
+-- Prod 1.63 (12/10/2026): sem mudanças no banco. As chamadas às Edge Functions (Bitrix, convite de usuário) passam a usar
+-- o token renovado da sessão (supabase.auth.getSession) em vez do token guardado no login, que expirava (erro "Sessão inválida").
