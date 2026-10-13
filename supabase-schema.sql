@@ -1490,3 +1490,16 @@ alter table public.orcamentos add column if not exists endereco_transporte text;
 -- "Local de embarque dos alunos: <endereço>" logo após esse item. Valores da proposta: linha 1 Valor por Grupo | Total (sem desconto);
 -- linha 2 (só com desconto) Valor desconto, % desconto | Valor (final); Total e Valor em preto e negrito.
 -- =====================================================================
+
+-- =====================================================================
+-- Prod 1.70 (13/10/2026) — aprovação da margem direto no orçamento + título do negócio no Bitrix começando com "Orç:<número>"
+-- Aprovação da margem abaixo do mínimo ANTES de gerar a proposta (administrador ou aprovador comercial), válida só para os valores aprovados:
+alter table public.orcamentos
+  add column if not exists aprovacao_margem_em timestamptz, add column if not exists aprovacao_margem_por text, add column if not exists aprovacao_margem_por_id uuid,
+  add column if not exists aprovacao_margem_justificativa text, add column if not exists aprovacao_margem_valor_final numeric, add column if not exists aprovacao_margem_margem_valor numeric;
+-- trigger trg_proteger_aprovacao_margem (before insert/update em orcamentos, função proteger_aprovacao_margem()): só administrador/aprovador comercial grava ou altera
+--   aprovacao_margem_*; limpar (nulo) é livre. proteger_aprovacao_proposta() passou a aceitar a proposta NOVA que herda exatamente a aprovação do orçamento
+--   (mesmo aprovado_em/por_id/justificativa, valor_final e margem_final_valor) mesmo quando criada por quem não é aprovador; ao gerar, o app limpa a aprovação do orçamento.
+-- Edge Function bitrix-responsavel (v3): além do responsável do card (ASSIGNED_BY_ID = vendedor do orçamento), o nome do negócio passa a "Orç:<número> - <nome que o usuário cadastrou>"
+--   quando não começa com o número do orçamento (aceita "ORÇ 26385 - ...", "Orçamento nº 26385 ...", "26385 ..." como já corretos). Só com x-cron-token: "simular" e "titulo_forcado" (testes).
+-- =====================================================================

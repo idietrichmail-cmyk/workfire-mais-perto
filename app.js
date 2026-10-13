@@ -34,7 +34,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.69 · 13/10/2026";
+const APP_VERSAO = "Prod 1.70 · 13/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -6552,6 +6552,12 @@ let orcDescontoModo = "percentual"; // "percentual" (digitou o %) ou "valor" (di
 let orcCalcPendentes = 0;    // cargas em andamento (não deixa salvar enquanto carrega)
 let orcCalcCarregandoInicial = false; // mostra "Carregando…" na tabela ao abrir um orçamento para edição
 let orcPropostas = [];       // histórico de propostas do orçamento aberto (mais recente primeiro, sem o snapshot)
+// Aprovação da margem dada no ORÇAMENTO, antes de gerar a proposta (vale só para os valores aprovados: valor final e margem por turma).
+// Ao gerar a proposta com esses mesmos valores, ela já nasce aprovada.
+let orcAprovPrevia = null;
+const lerAprovPrevia = (o) => (o && o.aprovacao_margem_em
+  ? { em: o.aprovacao_margem_em, por: o.aprovacao_margem_por || "", por_id: o.aprovacao_margem_por_id || null, justificativa: o.aprovacao_margem_justificativa || "", valor_final: Number(o.aprovacao_margem_valor_final), margem_valor: Number(o.aprovacao_margem_margem_valor) }
+  : null);
 let orcPropostaTravada = false; // há proposta gerada e o cálculo está bloqueado até acionar "Nova proposta"
 let orcPrazosPagamento = []; // cadastro de prazos de pagamento (ativos)
 let orcValidadeManual = false; // usuário digitou a validade; não sobrescreve com o padrão do treinamento
@@ -7098,6 +7104,7 @@ async function abrirNovoOrcamento() {
   atualizarBlocosEnderecoInCompanyOrc();
   atualizarBlocoHorarioPraticaOrc();
   orcPropostas = [];
+  orcAprovPrevia = null;
   orcPropostaTravada = false;
   mensagemEnvioBitrix("");
   limparCalculoOrcamento();
@@ -7159,6 +7166,7 @@ async function abrirEdicaoOrcamento(id) {
   atualizarBlocosEnderecoInCompanyOrc();
   atualizarBlocoHorarioPraticaOrc();
   orcPropostas = [];
+  orcAprovPrevia = lerAprovPrevia(o);
   orcPropostaTravada = false;
   mensagemEnvioBitrix("");
   limparCalculoOrcamento(true);
@@ -7630,6 +7638,12 @@ function orcAtualizarAvisoProposta() {
   av.classList.toggle("hidden", !msg);
 }
 
+// A aprovação dada no orçamento só vale enquanto o cálculo tiver os mesmos valores aprovados (valor final e margem por turma).
+function orcPreAprovacaoValida(c) {
+  const a = orcAprovPrevia;
+  return !!(a && c && c.precisaAprovacao && r2(c.final) === r2(a.valor_final) && r2(c.margemTurma) === r2(a.margem_valor));
+}
+
 // ---- Aprovação do gestor (aba 4), selo do cabeçalho e aviso do cálculo ----
 // Estado: a aprovação fica vinculada à PROPOSTA válida (que guarda o cálculo e a margem do momento em que foi gerada).
 function orcAtualizarAprovacao(c) {
@@ -7649,21 +7663,34 @@ function orcAtualizarAprovacao(c) {
 
   // aviso na aba de cálculo (valor ao vivo, antes de gerar proposta)
   const aviso = $("orc-aviso-aprovacao");
-  const mostrarAviso = c.precisaAprovacao && !v;
+  const previaOk = !v && orcPreAprovacaoValida(c);
+  const mostrarAviso = c.precisaAprovacao && !v && !previaOk;
   aviso.classList.toggle("hidden", !mostrarAviso);
+  $("btn-orc-aviso-aprovar").classList.toggle("hidden", !(mostrarAviso && usuarioPodeAprovar()));
   if (mostrarAviso) {
     const motivos = [];
     if (c.abaixoPerc) motivos.push(`${fmtPercOrc(c.margemPerc)} (mínimo ${fmtPercOrc(c.minPerc)})`);
     if (c.abaixoValor) motivos.push(`${fmtBRL(c.margemTurma)} por turma (mínimo ${fmtBRL(c.minValor)})`);
-    $("orc-aviso-aprovacao-texto").textContent = `Este orçamento precisa de aprovação do gestor: a margem final depois do desconto está abaixo do mínimo do treinamento — ${motivos.join(" e ")}. Gere a proposta e peça a aprovação na aba “Aprovação do gestor”; a proposta sai com a marca d'água NÃO APROVADA até lá.`;
+    $("orc-aviso-aprovacao-texto").textContent = `Este orçamento precisa de aprovação do gestor: a margem final depois do desconto está abaixo do mínimo do treinamento — ${motivos.join(" e ")}. O administrador ou um aprovador comercial pode liberar na aba “Aprovação do gestor” (antes ou depois de gerar a proposta); sem a aprovação, a proposta sai com a marca d'água NÃO APROVADA.`;
   }
 
+  $("btn-orc-aprovar").textContent = !v ? "✔ Aprovar margem" : "✔ Aprovar proposta";
   if (!v) {
-    if (c.precisaAprovacao) {
+    if (c.precisaAprovacao && previaOk) {
+      tag.textContent = "✔ Margem aprovada — pronta para gerar a proposta"; tag.classList.add("bg-emerald-100", "text-emerald-700"); tag.classList.remove("hidden");
+      caixaCor("border-emerald-200 bg-emerald-50 text-emerald-800");
+      est.innerHTML = `A margem abaixo do mínimo foi aprovada para os valores atuais (valor final ${fmtBRL(c.final)}). Ao gerar a proposta ela já sai <b>aprovada</b>, sem a marca d'água. Se o cálculo mudar, será preciso aprovar de novo.`;
+      feito.classList.remove("hidden");
+      feito.innerHTML = `<p><b>Aprovada por ${escHtmlOrc(orcAprovPrevia.por || "—")}</b> em ${formatarDataHoraBr(orcAprovPrevia.em)}</p><p class="text-xs uppercase tracking-wide text-emerald-700 mt-1">Justificativa</p><p class="whitespace-pre-wrap">${escHtmlOrc(orcAprovPrevia.justificativa || "")}</p>`;
+      margens.classList.remove("hidden");
+    } else if (c.precisaAprovacao) {
       tag.textContent = "⚠ Margem abaixo do mínimo — precisa de aprovação";
       tag.classList.add("bg-rose-100", "text-rose-700"); tag.classList.remove("hidden");
       caixaCor("border-amber-200 bg-amber-50 text-amber-900");
-      est.innerHTML = `A margem calculada está abaixo do mínimo do treinamento. A aprovação do gestor é feita <b>depois que a proposta for gerada</b> (o botão “Gerar proposta” grava o cálculo), e fica vinculada àquela proposta.`;
+      est.innerHTML = `A margem calculada está abaixo do mínimo do treinamento. O administrador ou um aprovador comercial pode <b>aprovar a margem agora</b>, aqui nesta aba (vale para os valores atuais; se o cálculo mudar, aprova-se de novo), e a proposta já sai aprovada. Sem aprovação, a proposta sai com a marca d'água NÃO APROVADA e é aprovada depois.${orcAprovPrevia ? "<br><span class=\"text-xs\">A aprovação anterior não vale mais porque o cálculo mudou.</span>" : ""}`;
+      margens.classList.remove("hidden");
+      if (usuarioPodeAprovar()) form.classList.remove("hidden");
+      else est.innerHTML += `<br><span class="text-xs">Somente o administrador ou um aprovador comercial pode aprovar.</span>`;
     } else {
       tag.classList.add("hidden");
       caixaCor("border-slate-200 bg-slate-50 text-slate-600");
@@ -7694,6 +7721,13 @@ function orcAtualizarAprovacao(c) {
     else est.innerHTML += `<br><span class="text-xs">Somente o administrador ou um aprovador comercial pode aprovar.</span>`;
   }
 
+  if (!v && c.precisaAprovacao) {
+    const card = (rot, val, sub) => `<div class="rounded-md border border-slate-200 px-3 py-2"><p class="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">${rot}</p><p class="text-sm font-semibold text-slate-800">${val}</p>${sub ? `<p class="text-[11px] text-slate-500">${sub}</p>` : ""}</div>`;
+    margens.innerHTML =
+      card("Valor final", fmtBRL(c.final), "depois do desconto") +
+      card("Margem final (por turma)", `${fmtBRL(c.margemTurma)} · ${fmtPercOrc(c.margemPerc)}`, "depois do desconto") +
+      card("Mínimo do treinamento", `${c.minPerc > 0 ? fmtPercOrc(c.minPerc) : "—"} · ${c.minValor > 0 ? fmtBRL(c.minValor) : "—"}`, "% e R$ por turma");
+  }
   if (v && v.requer_aprovacao) {
     const card = (rot, val, sub) => `<div class="rounded-md border border-slate-200 px-3 py-2"><p class="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">${rot}</p><p class="text-sm font-semibold text-slate-800">${val}</p>${sub ? `<p class="text-[11px] text-slate-500">${sub}</p>` : ""}</div>`;
     margens.innerHTML =
@@ -7721,17 +7755,35 @@ function orcAtualizarAprovacao(c) {
     }).join("") + `</tbody></table>`;
 }
 
+$("btn-orc-aviso-aprovar").addEventListener("click", () => irParaAbaOrc(4));
 $("btn-orc-aprovar").addEventListener("click", async () => {
   const v = propostaVigente();
   const erro = $("orc-apr-erro");
   erro.classList.add("hidden");
-  if (!v || !v.requer_aprovacao || v.aprovado_em) return;
+  if (v && (!v.requer_aprovacao || v.aprovado_em)) return;
   if (!usuarioPodeAprovar()) { erro.textContent = "Somente o administrador ou um aprovador comercial pode aprovar propostas."; erro.classList.remove("hidden"); return; }
   const just = $("orc-apr-justificativa").value.trim();
   if (just.length < 5) { erro.textContent = "Descreva a justificativa da aprovação (mínimo de 5 caracteres)."; erro.classList.remove("hidden"); return; }
   const btn = $("btn-orc-aprovar");
   btn.disabled = true;
   try {
+    if (!v) {
+      // Sem proposta válida: aprova a margem no próprio orçamento (valores atuais do cálculo); a proposta gerada depois já nasce aprovada.
+      const c = calcularOrcamento();
+      if (!c.precisaAprovacao) throw new Error("a margem atual não precisa de aprovação");
+      if (!editandoOrcamentoId) throw new Error("salve o orçamento antes de aprovar a margem");
+      const campos = {
+        aprovacao_margem_em: new Date().toISOString(), aprovacao_margem_por: usuarioSistemaAtual.nome, aprovacao_margem_por_id: usuarioSistemaAtual.id,
+        aprovacao_margem_justificativa: just, aprovacao_margem_valor_final: r2(c.final), aprovacao_margem_margem_valor: r2(c.margemTurma),
+      };
+      const { error: eAp } = await supabase.from("orcamentos").update(campos).eq("id", editandoOrcamentoId);
+      if (eAp) throw eAp;
+      orcAprovPrevia = lerAprovPrevia(campos);
+      $("orc-apr-justificativa").value = "";
+      orcAtualizarModoProposta();
+      renderizarCalcOrcamento();
+      return;
+    }
     const campos = { aprovado_em: new Date().toISOString(), aprovado_por: usuarioSistemaAtual.nome, aprovado_por_id: usuarioSistemaAtual.id, justificativa_aprovacao: just };
     const { data, error } = await supabase.from("orcamento_propostas").update(campos).eq("id", v.id).is("aprovado_em", null).is("invalidada_em", null).select(PROPOSTA_CAMPOS).maybeSingle();
     if (error) throw error;
@@ -7994,14 +8046,17 @@ async function gerarPropostaOrcamento() {
     const agora = new Date();
     const versao = orcPropostas.reduce((m, p) => Math.max(m, p.versao || 0), 0) + 1;
     let gravada = null, blob = null, dados = null;
+    // Margem já aprovada no orçamento para estes mesmos valores: a proposta nasce aprovada (e sai sem a marca d'água NÃO APROVADA).
+    const aprovPrev = calc.precisaAprovacao && orcPreAprovacaoValida(calc) ? orcAprovPrevia : null;
     for (let tent = 0; tent < 2 && !gravada; tent++) {
       const numero = numeroDaProposta(linha.numero, agora, tent > 0);
       dados = montarDadosProposta(linha, calc, agora, numero, versao);
-      blob = await gerarPdfProposta(dados, { marca: calc.precisaAprovacao ? "NÃO APROVADA" : null }); // se o PDF falhar, nada é gravado
+      blob = await gerarPdfProposta(dados, { marca: calc.precisaAprovacao && !aprovPrev ? "NÃO APROVADA" : null }); // se o PDF falhar, nada é gravado
       const { data, error } = await supabase.from("orcamento_propostas").insert({
         orcamento_id: linha.id, numero, versao, valor_final: dados.calculo.valor_final,
         gerado_por: dados.gerado_por, dados, status: "Válida",
         requer_aprovacao: !!calc.precisaAprovacao,
+        ...(aprovPrev ? { aprovado_em: aprovPrev.em, aprovado_por: aprovPrev.por, aprovado_por_id: aprovPrev.por_id, justificativa_aprovacao: aprovPrev.justificativa } : {}),
         margem_final_valor: dados.calculo.margem_final_valor, margem_final_perc: dados.calculo.margem_final_perc,
         margem_minima_perc: dados.calculo.margem_minima_perc, margem_minima_valor: dados.calculo.margem_minima_valor,
       }).select(PROPOSTA_CAMPOS).single();
@@ -8011,6 +8066,10 @@ async function gerarPropostaOrcamento() {
     }
     if (!gravada) throw new Error("não foi possível numerar a proposta");
     orcPropostas = [gravada, ...orcPropostas];
+    if (aprovPrev) { // a aprovação do orçamento foi usada por esta proposta
+      orcAprovPrevia = null;
+      supabase.from("orcamentos").update({ aprovacao_margem_em: null, aprovacao_margem_por: null, aprovacao_margem_por_id: null, aprovacao_margem_justificativa: null, aprovacao_margem_valor_final: null, aprovacao_margem_margem_valor: null }).eq("id", linha.id).then(() => {}, () => {});
+    }
     orcPropostaTravada = true;
     orcEditorSujo = false;
     orcAtualizarModoProposta();
@@ -8028,8 +8087,9 @@ async function gerarPropostaOrcamento() {
 }
 $("btn-orc-gerar-proposta").addEventListener("click", gerarPropostaOrcamento);
 
-// ---- Ao gravar um orçamento vinculado a um negócio do Bitrix, o vendedor do orçamento passa a ser o RESPONSÁVEL do card no Bitrix.
-// A função bitrix-responsavel confere o vínculo e o vendedor (vendedores.bitrix_user_id) e só grava quando o responsável é diferente.
+// ---- Ao gravar/gerar um orçamento vinculado a um negócio do Bitrix: (1) o vendedor do orçamento passa a ser o RESPONSÁVEL do card;
+// (2) o nome do negócio passa a começar com "Orç:<número>" (mantém o que o usuário cadastrou; se já começa com o número, não muda).
+// A função bitrix-responsavel confere o vínculo, o vendedor (vendedores.bitrix_user_id) e o título, e só grava o que for diferente.
 let orcRespTimer = null;
 function mensagemResponsavelBitrix(texto, cor) {
   const el = $("orc-bitrix-resp-msg");
@@ -8042,8 +8102,8 @@ function mensagemResponsavelBitrix(texto, cor) {
 async function atualizarResponsavelNoBitrix(linha) {
   if (!linha?.id) return null;
   const neg = String(linha.id_negocio_bitrix ?? "").trim();
-  if (!/^\d+$/.test(neg) || !linha.vendedor_id) { mensagemResponsavelBitrix(""); return null; }
-  mensagemResponsavelBitrix("Atualizando o responsável no Bitrix…");
+  if (!/^\d+$/.test(neg)) { mensagemResponsavelBitrix(""); return null; }
+  mensagemResponsavelBitrix("Atualizando o card no Bitrix…");
   try {
     const resp = await fetch(`${SUPABASE_URL}/functions/v1/bitrix-responsavel`, {
       method: "POST",
@@ -8052,13 +8112,17 @@ async function atualizarResponsavelNoBitrix(linha) {
     });
     const r = await resp.json().catch(() => ({}));
     if (!resp.ok || !r.ok) throw new Error(r.error || `erro ${resp.status}`);
-    if (r.motivo === "atualizado") mensagemResponsavelBitrix(`✔ Bitrix: responsável do negócio ${r.negocio_id} agora é ${r.vendedor || "o vendedor"}`, "text-emerald-700");
-    else if (r.motivo === "igual") mensagemResponsavelBitrix(`✔ Bitrix: ${r.vendedor || "o vendedor"} já é o responsável do negócio ${r.negocio_id}`, "text-emerald-700");
-    else if (r.motivo === "vendedor_sem_bitrix") mensagemResponsavelBitrix(`ℹ Responsável não alterado no Bitrix: ${r.vendedor || "o vendedor"} não tem usuário do Bitrix vinculado.`, "text-amber-700");
+    const partes = [];
+    let aviso = false;
+    if (r.motivo === "atualizado") partes.push(`responsável agora é ${r.vendedor || "o vendedor"}`);
+    else if (r.motivo === "vendedor_sem_bitrix") { partes.push(`responsável não alterado (${r.vendedor || "o vendedor"} não tem usuário do Bitrix vinculado)`); aviso = true; }
+    if (r.titulo && r.titulo.motivo === "atualizado") partes.push(`nome do negócio: ${r.titulo.para}`);
+    if (partes.length) mensagemResponsavelBitrix(`${aviso ? "ℹ" : "✔"} Bitrix (negócio ${r.negocio_id}): ${partes.join(" · ")}`, aviso ? "text-amber-700" : "text-emerald-700");
+    else if (r.motivo === "igual") mensagemResponsavelBitrix(`✔ Bitrix: card do negócio ${r.negocio_id} já está em dia`, "text-emerald-700");
     else mensagemResponsavelBitrix("");
     return r;
   } catch (e) {
-    mensagemResponsavelBitrix(`⚠ Responsável não atualizado no Bitrix: ${e?.message || "erro desconhecido"} — salve de novo para tentar outra vez.`, "text-rose-600");
+    mensagemResponsavelBitrix(`⚠ Card do Bitrix não atualizado: ${e?.message || "erro desconhecido"} — salve de novo para tentar outra vez.`, "text-rose-600");
     return null;
   }
 }

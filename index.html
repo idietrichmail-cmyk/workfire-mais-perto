@@ -1775,6 +1775,7 @@
         </div>
         <div id="orc-aviso-aprovacao" class="hidden mx-3 mb-3 flex items-start gap-2 rounded-md border border-rose-300 bg-rose-50 px-3 py-2 text-sm text-rose-700">
           <span aria-hidden="true">⚠</span><p id="orc-aviso-aprovacao-texto"></p>
+          <button type="button" id="btn-orc-aviso-aprovar" class="hidden shrink-0 ml-auto px-2.5 py-1 text-xs font-medium rounded-md border border-rose-300 bg-white text-rose-700 hover:bg-rose-100">Aprovar na aba do gestor</button>
         </div>
       </section>
       </div>
@@ -1790,7 +1791,7 @@
               <label for="orc-apr-justificativa" class="block text-xs font-medium text-slate-600">Justificativa da aprovação <span class="text-rose-500">*</span> <span class="font-normal text-slate-400">— explique por que a proposta é aprovada com a margem abaixo da desejada</span></label>
               <textarea id="orc-apr-justificativa" rows="4" maxlength="2000" class="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"></textarea>
               <div id="orc-apr-erro" class="hidden text-sm text-rose-600"></div>
-              <div class="text-right"><button type="button" id="btn-orc-aprovar" class="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-md">✔ Aprovar proposta</button></div>
+              <div class="text-right"><button type="button" id="btn-orc-aprovar" class="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-md">✔ Aprovar margem</button></div>
             </div>
             <div id="orc-apr-feito" class="hidden rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900 space-y-1"></div>
           </div>
@@ -2253,6 +2254,6 @@
 </div>
 
 <script src="config.js"></script>
-<script src="app.js?v=20261013c"></script>
+<script src="app.js?v=20261013d"></script>
 </body>
 </html>
