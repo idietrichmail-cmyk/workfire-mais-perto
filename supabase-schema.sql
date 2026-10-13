@@ -1459,3 +1459,14 @@ create index if not exists orcamentos_empresa_id_idx on public.orcamentos (empre
 --   bitrix-novo-negocio v1 (consultar / associar / criar; grava o número no campo orcamento_wfmp = UF_CRM_1791856801408 e comenta no card).
 -- Link do comentário: https://workfire-mais-perto.netlify.app/?bitrix_negocio=<id do negócio>  -> abre a tela "Novo negócio no Bitrix".
 -- Para ligar o aviso real no card: update bitrix_sync_estado set valor='sim' where chave='novos_negocios_ativo';
+
+-- =====================================================================
+-- 13/10/2026 — Rotinas em lote Bitrix (já executadas; registro)
+-- =====================================================================
+-- Edge Function bitrix-lote (x-cron-token): ações campos / gravar_campos / comentar_pdf / situacao.
+-- table public.bitrix_lote_itens(tarefa, orcamento_id, orcamento_numero, negocio_id, ok, status, detalhe, feito_em, pk(tarefa, orcamento_id))
+--   tarefa 'campos'     : gravou em cada negócio vinculado orçamento_wfmp (UF_CRM_1791856801408) = número e id_wfmp (UF_CRM_1791859128196) = id do orçamento. 1.229 negócios, 0 falhas.
+--   tarefa 'comentario' : comentário "Esta proposta faz parte do primeiro processo de integracao entre Bitrix e Workfire-mais-perto" + PDF da última versão da proposta.
+--                         1.210 ok; 18 orçamentos sem proposta; 1 pendente_app (orçamento 23779, proposta gerada no app: o PDF só é montado no navegador).
+-- Usuários criados (sem login até o primeiro acesso): Arthur (comercial4@), Blenda (vendas4@), Nelson (wfsantos@), Sérgio (comercial3@workfire.com.br)
+--   com consultar/incluir/alterar em empresas e orcamentos, e excluir = false em todos os módulos.
