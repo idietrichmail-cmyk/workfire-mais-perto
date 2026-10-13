@@ -34,7 +34,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.67 · 13/10/2026";
+const APP_VERSAO = "Prod 1.68 · 13/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -7472,6 +7472,7 @@ async function salvarOrcamento(opts = {}) {
   }
   orcEditorSujo = false;
   guardarVinculoBitrixOrc(linha);
+  atualizarResponsavelNoBitrix(linha); // sem await: não atrasa o salvamento; mostra o resultado ao lado do botão
 
   if (eraNovo) {
     await gerarTurmasParaOrcamento(linha, qtdTurmas);
@@ -7961,6 +7962,41 @@ async function gerarPropostaOrcamento() {
   }
 }
 $("btn-orc-gerar-proposta").addEventListener("click", gerarPropostaOrcamento);
+
+// ---- Ao gravar um orçamento vinculado a um negócio do Bitrix, o vendedor do orçamento passa a ser o RESPONSÁVEL do card no Bitrix.
+// A função bitrix-responsavel confere o vínculo e o vendedor (vendedores.bitrix_user_id) e só grava quando o responsável é diferente.
+let orcRespTimer = null;
+function mensagemResponsavelBitrix(texto, cor) {
+  const el = $("orc-bitrix-resp-msg");
+  if (!el) return;
+  clearTimeout(orcRespTimer);
+  el.textContent = texto || "";
+  el.className = `text-xs font-medium ${cor || "text-slate-600"}${texto ? "" : " hidden"}`;
+  if (texto && cor !== "text-rose-600" && cor !== "text-amber-700") orcRespTimer = setTimeout(() => mensagemResponsavelBitrix(""), 8000);
+}
+async function atualizarResponsavelNoBitrix(linha) {
+  if (!linha?.id) return null;
+  const neg = String(linha.id_negocio_bitrix ?? "").trim();
+  if (!/^\d+$/.test(neg) || !linha.vendedor_id) { mensagemResponsavelBitrix(""); return null; }
+  mensagemResponsavelBitrix("Atualizando o responsável no Bitrix…");
+  try {
+    const resp = await fetch(`${SUPABASE_URL}/functions/v1/bitrix-responsavel`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${await tokenAtualFuncoes()}` },
+      body: JSON.stringify({ orcamento_id: linha.id }),
+    });
+    const r = await resp.json().catch(() => ({}));
+    if (!resp.ok || !r.ok) throw new Error(r.error || `erro ${resp.status}`);
+    if (r.motivo === "atualizado") mensagemResponsavelBitrix(`✔ Bitrix: responsável do negócio ${r.negocio_id} agora é ${r.vendedor || "o vendedor"}`, "text-emerald-700");
+    else if (r.motivo === "igual") mensagemResponsavelBitrix(`✔ Bitrix: ${r.vendedor || "o vendedor"} já é o responsável do negócio ${r.negocio_id}`, "text-emerald-700");
+    else if (r.motivo === "vendedor_sem_bitrix") mensagemResponsavelBitrix(`ℹ Responsável não alterado no Bitrix: ${r.vendedor || "o vendedor"} não tem usuário do Bitrix vinculado.`, "text-amber-700");
+    else mensagemResponsavelBitrix("");
+    return r;
+  } catch (e) {
+    mensagemResponsavelBitrix(`⚠ Responsável não atualizado no Bitrix: ${e?.message || "erro desconhecido"} — salve de novo para tentar outra vez.`, "text-rose-600");
+    return null;
+  }
+}
 
 // ---- Envio da proposta ao Bitrix: valor e moeda do negócio + comentário "Nova proposta" + PDF anexado.
 // Só envia quando o orçamento já tem negócio vinculado ao Bitrix; sem vínculo, apenas avisa.

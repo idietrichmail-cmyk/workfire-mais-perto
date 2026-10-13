@@ -1470,3 +1470,13 @@ create index if not exists orcamentos_empresa_id_idx on public.orcamentos (empre
 --                         1.210 ok; 18 orçamentos sem proposta; 1 pendente_app (orçamento 23779, proposta gerada no app: o PDF só é montado no navegador).
 -- Usuários criados (sem login até o primeiro acesso): Arthur (comercial4@), Blenda (vendas4@), Nelson (wfsantos@), Sérgio (comercial3@workfire.com.br)
 --   com consultar/incluir/alterar em empresas e orcamentos, e excluir = false em todos os módulos.
+
+-- =====================================================================
+-- Prod 1.68 (13/10/2026) — vendedor do orçamento vira o RESPONSÁVEL do card no Bitrix
+-- Sem alteração de tabelas. Edge Function nova: bitrix-responsavel (verify_jwt false, autorização própria:
+-- usuário com incluir/alterar em Orçamentos, administrador, ou x-cron-token em testes com "simular": true).
+-- Corpo { orcamento_id }: se orcamentos.id_negocio_bitrix é numérico e o vendedor tem vendedores.bitrix_user_id,
+-- compara com ASSIGNED_BY_ID do negócio e, se diferente, faz crm.deal.update (ASSIGNED_BY_ID), atualiza
+-- bitrix_negocios.responsavel_bitrix_id e registra em bitrix_sync_log (origem 'bitrix-responsavel').
+-- Retornos: atualizado | igual | sem_vinculo | sem_vendedor | vendedor_sem_bitrix. O app chama após gravar o orçamento.
+-- =====================================================================
