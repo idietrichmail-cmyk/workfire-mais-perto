@@ -34,7 +34,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.68 · 13/10/2026";
+const APP_VERSAO = "Prod 1.69 · 13/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -2208,6 +2208,7 @@ const CRUD_CONFIG = {
     campos: [
       { id: "item", label: "Item", obrigatorio: true },
       { id: "descricao_impressao", label: "Descrição para impressão (item do escopo da proposta)", tipo: "textarea", previa: "item" },
+      { id: "observacao_nao_imprime", label: "Observação quando não imprime (entra nas observações da proposta quando este item NÃO é impresso no corpo do orçamento)", tipo: "textarea" },
       {
         id: "unidade_medida_id", label: "Unidade de medida", tipo: "select", obrigatorio: true,
         opcoesFn: () => [{ value: "", label: "— Selecione —" }].concat(
@@ -2224,7 +2225,7 @@ const CRUD_CONFIG = {
     cardTitulo: (i) => i.item,
     cardLinhas: (i) => {
       const un = itemCustoRefUnidades.find((u) => u.id === i.unidade_medida_id);
-      return [un && `📏 ${un.sigla} — ${un.descricao}`, `💰 ${fmtBRL(i.valor)}`, Number(i.valor_adicional_in_company) > 0 && `🏢 Adicional In Company: ${fmtBRL(i.valor_adicional_in_company)}`, i.opcional ? "☑️ Item opcional" : "Item obrigatório", i.descricao_impressao && `🖨️ ${i.descricao_impressao}`].filter(Boolean);
+      return [un && `📏 ${un.sigla} — ${un.descricao}`, `💰 ${fmtBRL(i.valor)}`, Number(i.valor_adicional_in_company) > 0 && `🏢 Adicional In Company: ${fmtBRL(i.valor_adicional_in_company)}`, i.opcional ? "☑️ Item opcional" : "Item obrigatório", i.descricao_impressao && `🖨️ ${i.descricao_impressao}`, i.observacao_nao_imprime && `📝 Se não imprimir: ${i.observacao_nao_imprime}`].filter(Boolean);
     },
     renderTabela: (lista, { podeAlterar, podeExcluir }) => {
       const un = (id) => { const u = itemCustoRefUnidades.find((x) => x.id === id); return u ? `${u.sigla} — ${u.descricao}` : "—"; };
@@ -4274,7 +4275,12 @@ function preencherContatoOrcDaEmpresa() {
 $("orc-empresa").addEventListener("change", () => {
   atualizarPreviewEnderecoEmpresaOrc();
   preencherContatoOrcDaEmpresa();
+  // endereço do transporte sugerido (vindo da empresa) acompanha a troca de empresa; o digitado pelo usuário não é mexido
+  const cEnd = $("orc-endereco-transporte");
+  if (cEnd && cEnd.dataset.auto === "1") { cEnd.value = ""; cEnd.dataset.auto = "0"; }
+  orcAtualizarTransporteEObs();
 });
+$("orc-endereco-transporte").addEventListener("input", () => { $("orc-endereco-transporte").dataset.auto = "0"; });
 $("orc-pra-mesmo-teoria").addEventListener("change", () => {
   atualizarBlocosEnderecoInCompanyOrc();
   atualizarBlocoHorarioPraticaOrc();
@@ -6642,7 +6648,7 @@ function calcularOrcamento() {
 async function orcCarregarRefsCalculo() {
   const [{ data: unidades, error: e1 }, { data: itens, error: e2 }] = await Promise.all([
     supabase.from("unidades_medida").select("id, sigla, base_calculo"),
-    supabase.from("itens_custo").select("id, item, descricao_impressao, unidade_medida_id, valor, opcional, status"),
+    supabase.from("itens_custo").select("id, item, descricao_impressao, observacao_nao_imprime, unidade_medida_id, valor, opcional, status"),
   ]);
   if (e1 || e2) throw (e1 || e2);
   return { unidades: unidades || [], itens: itens || [] };
@@ -6668,6 +6674,7 @@ async function linhasDoCadastroDoTreinamento(tipoId) {
       item_custo_id: v.item_custo_id,
       item: it.item || "(item removido)",
       descricao_impressao: it.descricao_impressao || null,
+      observacao_nao_imprime: it.observacao_nao_imprime || null,
       valor_cadastro: valor,
       valor_unitario: valor,
       unidade_sigla: un ? un.sigla : null,
@@ -6747,8 +6754,16 @@ async function carregarCalculoDoOrcamento(o) {
     return;
   }
   if (data && data.length) {
+    // Linhas gravadas antes do campo existir (observação nula) usam a observação atual do cadastro do item de custo.
+    const obsCadastro = {};
+    try {
+      const { data: cad } = await supabase.from("itens_custo").select("id, observacao_nao_imprime").in("id", [...new Set(data.map((r) => r.item_custo_id).filter(Boolean))]);
+      (cad || []).forEach((c) => { if (c.observacao_nao_imprime) obsCadastro[c.id] = c.observacao_nao_imprime; });
+    } catch { /* sem observação do cadastro */ }
+    if (token !== orcCalcToken) return;
     orcLinhasCalc = data.map((r) => ({
       chave: `s${++orcCalcSeq}`, item_custo_id: r.item_custo_id, item: r.item, descricao_impressao: r.descricao_impressao,
+      observacao_nao_imprime: r.observacao_nao_imprime != null ? r.observacao_nao_imprime : (obsCadastro[r.item_custo_id] || null),
       valor_cadastro: Number(r.valor_cadastro) || 0, valor_unitario: Number(r.valor_unitario) || 0,
       unidade_sigla: r.unidade_sigla, base_calculo: r.base_calculo,
       divisor: r.divisor != null ? Number(r.divisor) : null, unidade_divisor_sigla: r.unidade_divisor_sigla, base_divisor: r.base_divisor,
@@ -6775,6 +6790,22 @@ async function carregarCalculoDoOrcamento(o) {
   } catch (e) {
     mostrarErro("orc-form-erro", "Não foi possível carregar os itens de custo do treinamento: " + (e?.message || "erro desconhecido"));
   }
+}
+
+// Transporte e observações automáticas: com item de transporte impresso, mostra o campo do endereço de embarque (vazio = endereço da empresa);
+// as observações dos itens que não imprimem aparecem como prévia do que entra nas observações da proposta.
+function orcAtualizarTransporteEObs() {
+  const bloco = $("orc-transporte-bloco"), campo = $("orc-endereco-transporte");
+  if (!bloco || !campo) return;
+  const tem = orcTemTransporte(orcLinhasCalc);
+  bloco.classList.toggle("hidden", !tem);
+  if (tem && !campo.value.trim()) {
+    const emp = empresaSelecionadaOrc();
+    if (emp?.endereco) { campo.value = emp.endereco; campo.dataset.auto = "1"; }
+  }
+  const obs = observacoesDosItensNaoImpressos(orcLinhasCalc);
+  $("orc-obs-itens-bloco").classList.toggle("hidden", obs.length === 0);
+  $("orc-obs-itens-texto").textContent = obs.join("\n");
 }
 
 function renderizarCalcOrcamento() {
@@ -6896,6 +6927,7 @@ function recalcularOrcamentoTela() {
   atualizarNotaDockTurmas();
   orcAtualizarAvisoProposta();
   orcAtualizarAbas();
+  orcAtualizarTransporteEObs();
 }
 
 $("orc-calc-tbody").addEventListener("input", (ev) => {
@@ -6958,7 +6990,7 @@ async function orcAdicionarOpcional() {
     const valor = Number(it.valor) || 0;
     const maiorOrdem = orcLinhasCalc.reduce((m, l) => Math.max(m, l.ordem_impressao != null ? Number(l.ordem_impressao) : 0), 0);
     orcLinhasCalc.push({
-      chave: `c${++orcCalcSeq}`, item_custo_id: it.id, item: it.item, descricao_impressao: it.descricao_impressao || null,
+      chave: `c${++orcCalcSeq}`, item_custo_id: it.id, item: it.item, descricao_impressao: it.descricao_impressao || null, observacao_nao_imprime: it.observacao_nao_imprime || null,
       valor_cadastro: valor, valor_unitario: valor,
       unidade_sigla: un ? un.sigla : null, base_calculo: un ? un.base_calculo : null,
       divisor: v && v.divisor != null ? Number(v.divisor) : null, unidade_divisor_sigla: ud ? ud.sigla : null, base_divisor: ud ? ud.base_calculo : null,
@@ -6998,6 +7030,7 @@ async function salvarLinhasCalculoOrcamento(orcamentoId, calc) {
     ordem: idx,
     item: i.l.item,
     descricao_impressao: i.l.descricao_impressao || null,
+    observacao_nao_imprime: i.l.observacao_nao_imprime || null,
     valor_cadastro: r2(i.l.valor_cadastro),
     valor_unitario: r2(i.l.valor_unitario),
     unidade_sigla: i.l.unidade_sigla || null,
@@ -7057,6 +7090,7 @@ async function abrirNovoOrcamento() {
   $("orc-status").value = "Aberto";
   $("orc-observacoes").value = "";
   $("orc-observacao-ct").value = "";
+  $("orc-endereco-transporte").value = ""; $("orc-endereco-transporte").dataset.auto = "0";
   resetarEnderecoOrc("teo");
   resetarEnderecoOrc("pra");
   resetarHorarioOrc();
@@ -7117,6 +7151,7 @@ async function abrirEdicaoOrcamento(id) {
   $("orc-status").value = o.status;
   $("orc-observacoes").value = o.observacoes || "";
   $("orc-observacao-ct").value = o.observacao_ct || "";
+  $("orc-endereco-transporte").value = o.endereco_transporte || ""; $("orc-endereco-transporte").dataset.auto = "0";
   preencherEnderecoOrc("teo", o, "teoria");
   preencherEnderecoOrc("pra", o, "pratica");
   preencherHorarioOrc(o);
@@ -7401,6 +7436,7 @@ async function salvarOrcamento(opts = {}) {
     status: $("orc-status").value,
     observacoes: $("orc-observacoes").value.trim(),
     observacao_ct: $("orc-observacao-ct").value.trim() || null,
+    endereco_transporte: $("orc-endereco-transporte").value.trim() || (orcTemTransporte(orcLinhasCalc) ? (empresaSelecionadaOrc()?.endereco || null) : null),
     horario_inicio_teoria: horarioInicioTeoria,
     horario_inicio_pratica: horarioInicioPratica,
     endereco_teoria_mesmo_empresa: enderecoTeoria.mesmo_empresa,
@@ -7845,13 +7881,35 @@ async function baixarPropostaPdf(id) {
 }
 
 // Itens que vão impressos: marcados em "Imprime", na ordem de impressão deste orçamento, sem descrição "N/A".
-function itensParaImpressaoProposta(itens) {
+// Item de transporte: o nome do item contém "transporte". Só vale como "há transporte" quando o item é impresso no orçamento.
+const ehItemTransporte = (i) => /transporte/i.test(String(i.item || ""));
+function orcTemTransporte(itens) { return (itens || []).some((i) => i.imprime && ehItemTransporte(i)); }
+const TEXTO_EMBARQUE = "Local de embarque dos alunos: ";
+function itensParaImpressaoProposta(itens, enderecoTransporte) {
+  const end = String(enderecoTransporte || "").trim();
   return itens
     .map((i, idx) => ({ i, idx }))
     .filter(({ i }) => i.imprime)
     .sort((a, b) => (a.i.ordem_impressao ?? 1e9) - (b.i.ordem_impressao ?? 1e9) || a.idx - b.idx)
-    .map(({ i }) => String(i.descricao_impressao || i.item || "").trim())
+    .map(({ i }) => {
+      const t = String(i.descricao_impressao || i.item || "").trim();
+      // O endereço do transporte sai logo após o texto do item de transporte.
+      return t && end && ehItemTransporte(i) && !/^(n\/?a|-|—)$/i.test(t) ? `${t}\n${TEXTO_EMBARQUE}${end}` : t;
+    })
     .filter((t) => t && !/^(n\/?a|-|—)$/i.test(t));
+}
+// Observações dos itens que NÃO imprimem (campo "Observação quando não imprime" do item de custo), sem repetir textos.
+function observacoesDosItensNaoImpressos(itens) {
+  const vistos = new Set();
+  const out = [];
+  (itens || []).forEach((i) => {
+    if (i.imprime) return;
+    const t = String(i.observacao_nao_imprime || "").trim();
+    if (!t || vistos.has(t.toLowerCase())) return;
+    vistos.add(t.toLowerCase());
+    out.push(t);
+  });
+  return out;
 }
 
 function numeroDaProposta(numeroOrc, agora, comSegundos) {
@@ -7872,6 +7930,11 @@ function parcelasDaProposta(prazo, total) {
   });
 }
 
+// Endereço de embarque: o cadastrado no orçamento; se estiver vazio, o endereço da empresa.
+function enderecoTransporteDoOrcamento(linha, emp) {
+  return String((linha && linha.endereco_transporte) || (emp && emp.endereco) || "").trim();
+}
+
 function montarDadosProposta(linha, calc, agora, numero, versao) {
   const emp = listaEmpresasAtivas.find((e) => e.id === linha.empresa_id) || {};
   const ct = listaCentrosAtivos.find((c) => c.id === linha.centro_treinamento_id) || {};
@@ -7881,7 +7944,7 @@ function montarDadosProposta(linha, calc, agora, numero, versao) {
   const ate = new Date(agora.getTime());
   ate.setDate(ate.getDate() + dias);
   const itens = calc.itens.map((i) => ({
-    item: i.l.item, descricao_impressao: i.l.descricao_impressao || null, imprime: !!i.l.imprime, ordem_impressao: i.l.ordem_impressao ?? null,
+    item: i.l.item, descricao_impressao: i.l.descricao_impressao || null, observacao_nao_imprime: i.l.observacao_nao_imprime || null, imprime: !!i.l.imprime, ordem_impressao: i.l.ordem_impressao ?? null,
     opcional: !!i.l.opcional, valor_unitario: r2(i.l.valor_unitario), qtd_aplicavel: i.Q, valor_total: r2(i.total),
   }));
   return {
@@ -7891,6 +7954,8 @@ function montarDadosProposta(linha, calc, agora, numero, versao) {
     contato: { nome: linha.contato_nome || "", telefone: linha.contato_telefone || "", email: linha.contato_email || "" },
     vendedor: { id: linha.vendedor_id || null, nome: ((listaVendedoresOrc.find((v) => v.id === linha.vendedor_id) || {}).nome) || "" },
     observacoes: String(linha.observacoes || "").trim(),
+    observacoes_itens: observacoesDosItensNaoImpressos(itens),
+    endereco_transporte: orcTemTransporte(itens) ? enderecoTransporteDoOrcamento(linha, emp) : "",
     centro: { id: ct.id || null, nome: ct.nome || "", cidade: ct.cidade || "", endereco: ct.endereco || "", rodape_pagina: ct.texto_rodape_pagina || "", logotipo_esquerdo: ct.logotipo_esquerdo || null, logotipo_direito: ct.logotipo_direito || null },
     treinamento: { id: tipo.id || null, nome: tipo.nome || "", descricao_impressao: tipo.descricao_impressao || "", rodape: tipo.rodape || "" },
     quantidades: { alunos: calc.q.alunos, turmas: calc.q.turmas, alunos_por_turma: calc.q.alunosPorTurma, localidades: calc.q.localidades },
@@ -7902,7 +7967,7 @@ function montarDadosProposta(linha, calc, agora, numero, versao) {
       margem_minima_perc: calc.minPerc, margem_minima_valor: r2(calc.minValor),
     },
     itens,
-    itens_impressao: itensParaImpressaoProposta(itens),
+    itens_impressao: itensParaImpressaoProposta(itens, orcTemTransporte(itens) ? enderecoTransporteDoOrcamento(linha, emp) : ""),
     prazo_pagamento: prazo ? prazo.descricao : "",
     parcelas: parcelasDaProposta(prazo, r2(calc.final)),
     validade_dias: dias, validade_ate: formatarData(ate),
@@ -8280,6 +8345,7 @@ async function gerarPreviaProposta() {
       contato_email: $("orc-contato-email").value.trim(), centro_treinamento_id: $("orc-centro").value || null, tipo_treinamento_id: $("orc-tipo").value,
       prazo_pagamento_id: $("orc-prazo").value, validade_dias: dias,
       observacoes: $("orc-observacoes").value.trim(), vendedor_id: $("orc-vendedor").value || null,
+      endereco_transporte: $("orc-endereco-transporte").value.trim() || null,
     };
     const versao = orcPropostas.reduce((m, p) => Math.max(m, p.versao || 0), 0) + 1;
     const dados = montarDadosProposta(linha, calc, agora, `${numeroOrc}-PREVIA`, versao);
@@ -8612,7 +8678,10 @@ function construirPdfProposta(JsPDF, d, opts, ct, infoE, infoD, e) {
     y += linhas.length * leadIt + 1.2 * e;
   });
   // Observação registrada no orçamento: logo após a descrição do último item impresso
-  const obsOrc = String(d.observacoes || "").trim();
+  // + observações dos itens de custo que não foram impressos no corpo (ex.: transporte por conta do contratante), sem repetir texto já digitado
+  const obsOrcBase = String(d.observacoes || "").trim();
+  const obsExtras = (d.observacoes_itens || []).filter((t) => t && !obsOrcBase.toLowerCase().includes(String(t).toLowerCase()));
+  const obsOrc = [obsOrcBase, ...obsExtras].filter(Boolean).join("\n");
   if (obsOrc) {
     y += 0.8 * e;
     garantir(10);
@@ -8622,21 +8691,49 @@ function construirPdfProposta(JsPDF, d, opts, ct, infoE, infoD, e) {
   }
   y += 2 * e;
 
-  // Valores: uma linha só (total por grupo | total geral), caixa só com contorno (sem fundo preto)
-  garantir(32);
-  const hVal = 9.5, ym = y + 6.3;
-  traco(BORDA, 0.3); doc.roundedRect(M, y, CW, hVal, 1.8, 1.8, "S");
-  traco(LINE, 0.3); doc.line(M + CW / 2, y + 1.8, M + CW / 2, y + hVal - 1.8);
-  // "Total por grupo": rótulo e valor juntos, à esquerda. "Total geral": rótulo e valor juntos, justificados à direita.
-  const txtTG = pdfTxt(fmtBRL(d.calculo.valor_final_turma)), txtTT = pdfTxt(fmtBRL(d.calculo.valor_final));
-  fonte("bold", 7.5); const lwTG = doc.getTextWidth("TOTAL POR GRUPO") + "TOTAL POR GRUPO".length * 0.55 + 3;
-  cor(MUT); doc.text("TOTAL POR GRUPO", M + 4, ym, { charSpace: 0.4 });
-  fonte("bold", 10.5); cor(INK); doc.text(txtTG, M + 4 + lwTG, ym + 0.2);
-  fonte("bold", 12.5); const wTT = doc.getTextWidth(txtTT);
-  cor(ACC); doc.text(txtTT, W - M - 4, ym + 0.3, { align: "right" });
-  fonte("bold", 8.5); const lwTT = doc.getTextWidth("TOTAL GERAL") + "TOTAL GERAL".length * 0.55 + 3;
-  cor(ACC); doc.text("TOTAL GERAL", W - M - 4 - wTT - lwTT, ym, { charSpace: 0.4 });
-  y += hVal + 3.5;
+  // Valores: linha 1 = valor por grupo | total (sem desconto); linha 2 (só com desconto) = valor do desconto, % do desconto | valor final.
+  // "Total" e "Valor" saem em preto e negrito para destaque. Sem desconto, só a linha 1 (o total já é o valor final).
+  const PRETO = [0, 0, 0];
+  const valDesc = Number(d.calculo.valor_desconto) || 0;
+  const temDesc = valDesc > 0.004;
+  const vTotal = Number(d.calculo.valor_total) || Number(d.calculo.valor_final) || 0;
+  const vGrupo = Number(d.calculo.valor_turma) || (d.quantidades.turmas > 0 ? vTotal / d.quantidades.turmas : 0);
+  const pctDesc = Number(d.percentuais && d.percentuais.desconto) || (vTotal > 0 ? valDesc / vTotal * 100 : 0);
+  garantir(temDesc ? 42 : 32);
+  const hVal = 9.5;
+  const caixaVal = () => {
+    traco(BORDA, 0.3); doc.roundedRect(M, y, CW, hVal, 1.8, 1.8, "S");
+    traco(LINE, 0.3); doc.line(M + CW / 2, y + 1.8, M + CW / 2, y + hVal - 1.8);
+    return y + 6.3;
+  };
+  const rotuloVal = (txt, x, ym, c, tam) => {
+    fonte("bold", tam || 7.5);
+    const w = doc.getTextWidth(txt) + txt.length * 0.55 + 3;
+    cor(c); doc.text(txt, x, ym, { charSpace: 0.4 });
+    return w;
+  };
+  const rotuloEValorEsq = (rot, valor, x, ym, tamV) => {
+    const w = rotuloVal(rot, x, ym, MUT);
+    fonte("bold", tamV); cor(INK); doc.text(pdfTxt(valor), x + w, ym + 0.2);
+    fonte("bold", tamV); return w + doc.getTextWidth(pdfTxt(valor));
+  };
+  const rotuloEValorDir = (rot, valor, ym, c, tamV, tamR) => {
+    fonte("bold", tamV); const wV = doc.getTextWidth(pdfTxt(valor));
+    cor(c); doc.text(pdfTxt(valor), W - M - 4, ym + 0.3, { align: "right" });
+    fonte("bold", tamR); const wR = doc.getTextWidth(rot) + rot.length * 0.55 + 3;
+    cor(c); doc.text(rot, W - M - 4 - wV - wR, ym, { charSpace: 0.4 });
+  };
+  let ym = caixaVal();
+  rotuloEValorEsq("VALOR POR GRUPO", fmtBRL(vGrupo), M + 4, ym, 10.5);
+  rotuloEValorDir("TOTAL", fmtBRL(vTotal), ym, PRETO, 12.5, 8.5);
+  y += hVal + (temDesc ? 2 : 3.5);
+  if (temDesc) {
+    ym = caixaVal();
+    const w1 = rotuloEValorEsq("VALOR DESCONTO", "- " + fmtBRL(valDesc), M + 4, ym, 10);
+    rotuloEValorEsq("% DESCONTO", `${pctDesc.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}%`, M + 4 + w1 + 7, ym, 10);
+    rotuloEValorDir("VALOR", fmtBRL(Number(d.calculo.valor_final) || 0), ym, PRETO, 12.5, 8.5);
+    y += hVal + 3.5;
+  }
 
   // Quantidades e condições comerciais: cada caixa com rótulo e valor na MESMA linha (contorno fino, sem fundo)
   const hCel = 8;

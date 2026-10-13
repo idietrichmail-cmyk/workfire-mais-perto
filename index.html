@@ -1589,6 +1589,16 @@
                   <textarea id="orc-observacao-ct" rows="2" placeholder="Ex.: material especial, sala com projetor, aluno com restrição de acesso…" class="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"></textarea>
                   <p class="mt-0.5 text-[11px] text-slate-400">Aparece em todas as turmas deste orçamento na Agenda por Centro de Treinamento.</p></div>
               </div>
+              <div id="orc-obs-itens-bloco" class="hidden rounded-md border border-sky-200 bg-sky-50 px-3 py-2">
+                <p class="text-[10px] font-medium text-sky-700 uppercase tracking-wide">Observações automáticas dos itens que não imprimem</p>
+                <p id="orc-obs-itens-texto" class="mt-0.5 text-xs text-sky-900 whitespace-pre-line"></p>
+                <p class="mt-0.5 text-[11px] text-sky-700">Entram sozinhas nas observações da proposta (cadastradas em Itens de Custo → “Observação quando não imprime”).</p>
+              </div>
+              <div id="orc-transporte-bloco" class="hidden">
+                <label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide" for="orc-endereco-transporte">Endereço do transporte (local onde os alunos serão pegos)</label>
+                <input id="orc-endereco-transporte" type="text" maxlength="300" placeholder="Se ficar vazio, usa o endereço da empresa" class="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
+                <p class="mt-0.5 text-[11px] text-slate-400">Impresso na proposta logo após o item de transporte: “Local de embarque dos alunos: …”.</p>
+              </div>
         <!-- Endereço do treinamento in-company — Teoria (só aparece quando o formato da teoria é InCompany) -->
         <div id="orc-endereco-teoria-bloco" class="hidden border border-slate-200 rounded-lg p-3 space-y-3 bg-slate-50/60">
           <p class="text-xs font-medium text-slate-500 uppercase tracking-wide">Endereço do treinamento in-company — Teoria</p>
@@ -2243,6 +2253,6 @@
 </div>
 
 <script src="config.js"></script>
-<script src="app.js?v=20261013b"></script>
+<script src="app.js?v=20261013c"></script>
 </body>
 </html>

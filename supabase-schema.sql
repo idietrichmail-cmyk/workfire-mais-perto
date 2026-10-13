@@ -1480,3 +1480,13 @@ create index if not exists orcamentos_empresa_id_idx on public.orcamentos (empre
 -- bitrix_negocios.responsavel_bitrix_id e registra em bitrix_sync_log (origem 'bitrix-responsavel').
 -- Retornos: atualizado | igual | sem_vinculo | sem_vendedor | vendedor_sem_bitrix. O app chama após gravar o orçamento.
 -- =====================================================================
+
+-- =====================================================================
+-- Prod 1.69 (13/10/2026) — observação de item que não imprime, endereço do transporte e novo bloco de valores da proposta
+alter table public.itens_custo add column if not exists observacao_nao_imprime text;           -- texto que entra nas OBSERVAÇÕES da proposta quando o item NÃO imprime
+alter table public.orcamento_itens_custo add column if not exists observacao_nao_imprime text;  -- cópia gravada na linha do cálculo do orçamento (nula = usa a do cadastro ao abrir)
+alter table public.orcamentos add column if not exists endereco_transporte text;                -- local de embarque dos alunos; vazio = endereço da empresa (preenchido quando há item de transporte impresso)
+-- App: item cujo nome contém "transporte" e está marcado para imprimir = "há transporte"; a proposta imprime
+-- "Local de embarque dos alunos: <endereço>" logo após esse item. Valores da proposta: linha 1 Valor por Grupo | Total (sem desconto);
+-- linha 2 (só com desconto) Valor desconto, % desconto | Valor (final); Total e Valor em preto e negrito.
+-- =====================================================================
