@@ -1407,8 +1407,39 @@
     </div>
   </div>
 
+  <!-- Modal: Novo negócio criado no Bitrix (associar a um orçamento existente ou criar um novo) -->
+  <div id="modal-novo-negocio" class="hidden fixed inset-0 z-[70] bg-slate-900/60 flex items-center justify-center p-4">
+    <div class="bg-white rounded-lg shadow-xl w-full max-w-lg p-5 max-h-[90vh] overflow-y-auto">
+      <h3 class="font-serif text-lg text-slate-900">Novo negócio no Bitrix</h3>
+      <p id="nn-carregando" class="text-sm text-slate-500 mt-2">Consultando o Bitrix…</p>
+      <div id="nn-conteudo" class="hidden">
+        <div id="nn-resumo" class="mt-2 text-sm text-slate-700 bg-slate-50 border border-slate-200 rounded-md p-3 space-y-0.5"></div>
+        <div id="nn-aviso-estado" class="hidden mt-3 text-sm rounded-md p-3 border"></div>
+        <div id="nn-acoes">
+          <p class="text-sm text-slate-600 mt-3">Este negócio ainda não tem orçamento no workfire-mais-perto. O que deseja fazer?</p>
+          <div class="mt-2 space-y-2">
+            <label class="flex items-start gap-2 text-sm text-slate-800 cursor-pointer"><input type="radio" name="nn-modo" value="associar" class="mt-1" /><span><b>Associar a um orçamento já cadastrado</b></span></label>
+            <div id="nn-bloco-associar" class="hidden ml-6">
+              <label for="nn-numero" class="block text-xs font-medium text-slate-600">Número do orçamento</label>
+              <input id="nn-numero" autocomplete="off" inputmode="numeric" placeholder="Ex: 26385" class="mt-0.5 w-48 rounded-md border border-slate-300 px-2 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-amber-500" />
+            </div>
+            <label class="flex items-start gap-2 text-sm text-slate-800 cursor-pointer"><input type="radio" name="nn-modo" value="criar" class="mt-1" /><span><b>Criar um novo orçamento</b> <span class="text-slate-500">(o número é gerado automaticamente)</span></span></label>
+            <div id="nn-bloco-criar" class="hidden ml-6 text-sm text-slate-700 space-y-1.5"></div>
+          </div>
+        </div>
+      </div>
+      <p id="nn-erro" class="hidden text-sm text-rose-600 mt-3"></p>
+      <p id="nn-ok" class="hidden text-sm text-emerald-700 mt-3"></p>
+      <div class="flex justify-end gap-2 mt-4">
+        <button type="button" id="btn-nn-fechar" class="px-4 py-1.5 text-sm font-medium text-slate-600 border border-slate-300 rounded-md hover:bg-slate-50">Fechar</button>
+        <button type="button" id="btn-nn-abrir-orc" class="hidden px-4 py-1.5 text-sm font-medium text-sky-800 border border-sky-300 bg-sky-50 rounded-md hover:bg-sky-100">Abrir o orçamento</button>
+        <button type="button" id="btn-nn-confirmar" class="hidden px-4 py-1.5 text-sm font-medium text-white bg-amber-600 hover:bg-amber-700 rounded-md disabled:opacity-50">Confirmar</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Painel: Orçamento -->
-  <div id="painel-orcamento" class="hidden fixed left-0 right-0 bottom-0 z-40 flex flex-col bg-slate-100" style="top:0">
+  <div id="painel-orcamento"class="hidden fixed left-0 right-0 bottom-0 z-40 flex flex-col bg-slate-100" style="top:0">
     <!-- Cabeçalho do orçamento -->
     <div class="flex-none bg-white border-b border-slate-200 px-4 py-2 flex items-center gap-x-3 gap-y-1 flex-wrap">
       <h2 id="painel-orcamento-titulo" class="font-serif text-lg text-slate-900">Novo orçamento</h2>
@@ -1429,7 +1460,9 @@
       <div class="flex items-center gap-x-3 gap-y-1 flex-wrap">
         <span id="orc-proposta-texto" class="font-medium"></span>
         <span id="orc-proposta-aviso" class="hidden text-rose-600 font-semibold"></span>
+        <span id="orc-proposta-bitrix" class="hidden font-medium"></span>
         <span class="flex-1"></span>
+        <button type="button" id="btn-orc-proposta-bitrix" class="hidden underline hover:text-amber-700" title="Atualiza no Bitrix o valor do negócio, comenta “Nova proposta” e anexa o PDF da proposta válida">↻ Enviar ao Bitrix</button>
         <button type="button" id="btn-orc-proposta-pdf" class="underline hover:text-amber-700">⬇ Baixar PDF</button>
         <button type="button" id="btn-orc-proposta-hist" class="underline hover:text-amber-700">Histórico de propostas</button>
       </div>
@@ -1454,7 +1487,7 @@
         <div class="px-3 py-2.5">
           <div class="grid grid-cols-2 md:grid-cols-12 gap-x-3 gap-y-2">
             <div class="col-span-1 md:col-span-2"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Número</label>
-              <input id="orc-numero" class="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono" placeholder="Ex: ORC-2026-001" /></div>
+              <input id="orc-numero" class="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono" placeholder="Automático" title="Deixe em branco para o sistema numerar (260001, 260002…)." /></div>
             <div class="col-span-2 md:col-span-4"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Empresa</label>
               <select id="orc-empresa" class="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"></select></div>
             <div class="col-span-2 md:col-span-2"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Contato</label>
@@ -2209,6 +2242,6 @@
 </div>
 
 <script src="config.js"></script>
-<script src="app.js?v=20261012c"></script>
+<script src="app.js?v=20261013a"></script>
 </body>
 </html>

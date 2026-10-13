@@ -34,7 +34,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.65 · 12/10/2026";
+const APP_VERSAO = "Prod 1.67 · 13/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -1216,6 +1216,7 @@ async function entrarNoPainelAdmin() {
   mostrarMenuInicio();
   carregarSituacaoAprovacaoReembolso();
   if ($("app-versao-label")) $("app-versao-label").textContent = `Versão: ${APP_VERSAO}`;
+  nnAbrirSePendente(); // veio de um link “?bitrix_negocio=<id>” do comentário no card do Bitrix
 }
 
 // Descobre se o usuário logado participa do fluxo de aprovação de reembolso
@@ -7035,6 +7036,7 @@ async function abrirNovoOrcamento() {
   esconderErro("orc-form-erro");
   $("orc-numero").value = "";
   $("orc-numero").disabled = false;
+  $("orc-numero").placeholder = "Automático";
   await preencherVinculoBitrixOrc(null);
   preencherSelectEmpresa("orc-empresa", listaEmpresasAtivas, "— Selecione —");
   $("orc-contato-nome").value = "";
@@ -7063,6 +7065,7 @@ async function abrirNovoOrcamento() {
   atualizarBlocoHorarioPraticaOrc();
   orcPropostas = [];
   orcPropostaTravada = false;
+  mensagemEnvioBitrix("");
   limparCalculoOrcamento();
   atualizarQtdAlunosCalculado();
   orcAtualizarModoProposta();
@@ -7122,6 +7125,7 @@ async function abrirEdicaoOrcamento(id) {
   atualizarBlocoHorarioPraticaOrc();
   orcPropostas = [];
   orcPropostaTravada = false;
+  mensagemEnvioBitrix("");
   limparCalculoOrcamento(true);
   atualizarQtdAlunosCalculado();
   orcAtualizarModoProposta();
@@ -7295,7 +7299,8 @@ async function salvarOrcamento(opts = {}) {
   const tipoId = $("orc-tipo").value;
   const qtdTurmas = Number($("orc-qtd-turmas").value) || 0;
   const qtdLocalidades = Math.floor(Number($("orc-qtd-localidades").value) || 0);
-  if (!numero) return orcFalha(1, "Informe o número do orçamento.");
+  // orçamento novo com o número em branco recebe a numeração automática (260001, 260002…) logo antes de gravar
+  if (!numero && editandoOrcamentoId) return orcFalha(1, "Informe o número do orçamento.");
   if (!empresaId) return orcFalha(1, "Selecione a empresa.");
   if (!centroId) return orcFalha(1, "Selecione o centro de treinamento.");
   if (!tipoId) return orcFalha(1, "Selecione o treinamento.");
@@ -7420,10 +7425,19 @@ async function salvarOrcamento(opts = {}) {
     endereco_pratica_latitude: enderecoPratica.latitude,
     endereco_pratica_longitude: enderecoPratica.longitude,
   };
-  if (!editandoOrcamentoId) payload.numero = numero;
   const vinculoBx = camposVinculoBitrixOrc();
   if (vinculoBx.erro) return orcFalha(1, vinculoBx.erro);
   Object.assign(payload, vinculoBx.campos);
+  if (!editandoOrcamentoId) {
+    let numeroFinal = numero;
+    if (!numeroFinal) {
+      const { data: proximo, error: erroNum } = await supabase.rpc("proximo_numero_orcamento");
+      if (erroNum || !proximo) return orcFalha(1, "Não foi possível gerar o número automático do orçamento. Tente novamente.");
+      numeroFinal = String(proximo);
+      $("orc-numero").value = numeroFinal; // se o salvamento falhar, a nova tentativa reaproveita este número
+    }
+    payload.numero = numeroFinal;
+  }
 
   $("btn-salvar-orcamento").disabled = true;
   $("btn-salvar-orcamento").textContent = "Salvando…";
@@ -7543,6 +7557,7 @@ function orcAtualizarModoProposta() {
   const tem = orcPropostas.length > 0;
   const trav = orcPropostaTravada;
   $("btn-orc-nova-proposta").classList.toggle("hidden", !(editandoOrcamentoId && trav));
+  $("btn-orc-proposta-bitrix").classList.toggle("hidden", !(editandoOrcamentoId && trav));
   $("btn-orc-gerar-proposta").classList.toggle("hidden", trav);
   $("btn-orc-previa").classList.toggle("hidden", trav);
   $("btn-orc-gerar-proposta").disabled = orcGerandoProposta;
@@ -7935,6 +7950,7 @@ async function gerarPropostaOrcamento() {
     orcAtualizarModoProposta();
     renderizarCalcOrcamento();
     baixarBlobArquivo(blob, `Proposta ${gravada.numero}.pdf`);
+    enviarPropostaAoBitrix(gravada, blob); // sem esperar: o resultado aparece na faixa da proposta
     if (gravada.requer_aprovacao) irParaAbaOrc(4);
   } catch (e) {
     mostrarErro("orc-form-erro", "Não foi possível gerar a proposta: " + (e?.message || "erro desconhecido"));
@@ -7945,6 +7961,265 @@ async function gerarPropostaOrcamento() {
   }
 }
 $("btn-orc-gerar-proposta").addEventListener("click", gerarPropostaOrcamento);
+
+// ---- Envio da proposta ao Bitrix: valor e moeda do negócio + comentário "Nova proposta" + PDF anexado.
+// Só envia quando o orçamento já tem negócio vinculado ao Bitrix; sem vínculo, apenas avisa.
+function mensagemEnvioBitrix(texto, cor) {
+  const el = $("orc-proposta-bitrix");
+  if (!el) return;
+  el.textContent = texto || "";
+  el.className = `font-medium ${cor || "text-slate-600"}${texto ? "" : " hidden"}`;
+}
+async function blobParaBase64(blob) {
+  const u8 = new Uint8Array(await blob.arrayBuffer());
+  let bin = "";
+  for (let i = 0; i < u8.length; i += 0x8000) bin += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
+  return btoa(bin);
+}
+let orcEnviandoBitrix = false;
+async function enviarPropostaAoBitrix(proposta, blob) {
+  if (orcEnviandoBitrix || !proposta?.id) return;
+  if (!orcBxOriginal.neg) {
+    mensagemEnvioBitrix("ℹ Proposta não enviada ao Bitrix: este orçamento não tem negócio vinculado (preencha o “Vínculo com o Bitrix24”).", "text-amber-700");
+    return;
+  }
+  orcEnviandoBitrix = true;
+  const btn = $("btn-orc-proposta-bitrix");
+  if (btn) btn.disabled = true;
+  mensagemEnvioBitrix("Enviando ao Bitrix…");
+  try {
+    const pdf_base64 = await blobParaBase64(blob);
+    const resp = await fetch(`${SUPABASE_URL}/functions/v1/bitrix-proposta`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${await tokenAtualFuncoes()}` },
+      body: JSON.stringify({ proposta_id: proposta.id, pdf_base64, nome_arquivo: `Proposta ${proposta.numero}.pdf` }),
+    });
+    const r = await resp.json().catch(() => ({}));
+    if (r.motivo === "sem_vinculo") { mensagemEnvioBitrix("ℹ Proposta não enviada ao Bitrix: este orçamento não tem negócio vinculado.", "text-amber-700"); return; }
+    if (!resp.ok || !r.ok) throw new Error(r.error || `erro ${resp.status}`);
+    const partes = [`negócio ${r.negocio_id} atualizado`, `valor ${fmtBRL(r.valor)}`, "comentário “Nova proposta”", r.anexo ? "PDF anexado" : "PDF NÃO anexado"];
+    mensagemEnvioBitrix(`✔ Bitrix: ${partes.join(" · ")}`, r.anexo ? "text-emerald-700" : "text-amber-700");
+  } catch (e) {
+    mensagemEnvioBitrix(`⚠ Não enviado ao Bitrix: ${e?.message || "erro desconhecido"} — use “Enviar ao Bitrix” para tentar de novo.`, "text-rose-600");
+  } finally {
+    orcEnviandoBitrix = false;
+    if (btn) btn.disabled = false;
+  }
+}
+$("btn-orc-proposta-bitrix").addEventListener("click", async () => {
+  const v = propostaVigente();
+  if (!v || orcEnviandoBitrix) return;
+  mensagemEnvioBitrix("Preparando o PDF…");
+  try {
+    const { data: prop, error } = await supabase.from("orcamento_propostas").select("id, numero, dados, requer_aprovacao, aprovado_em, status, arquivo_externo, origem").eq("id", v.id).single();
+    if (error || !prop) throw error || new Error("proposta não encontrada");
+    const blob = await blobDaPropostaGravada(prop, marcaDaProposta(prop));
+    await enviarPropostaAoBitrix(prop, blob);
+  } catch (e) {
+    mensagemEnvioBitrix(`⚠ Não foi possível preparar o PDF: ${e?.message || "erro desconhecido"}`, "text-rose-600");
+  }
+});
+
+// ---------------------------------------------------------
+// Novo negócio criado no Bitrix: o comentário no card traz um link (?bitrix_negocio=<id>) que abre esta tela, onde o usuário escolhe
+// entre associar o negócio a um orçamento já cadastrado (digitando o número) ou criar um novo orçamento (numeração automática).
+// A função bitrix-novo-negocio confere a empresa, grava o vínculo e escreve o número no campo orçamento_wfmp do negócio.
+// ---------------------------------------------------------
+let nnNegocioId = null;
+let nnDados = null;
+let nnOrcAberto = null; // { id, numero } do orçamento criado/associado
+let nnPendenteMemoria = null;
+let nnOcupado = false;
+
+// Guarda o id do negócio vindo do link (sobrevive ao login) e limpa o endereço da página.
+function nnGuardarParametroDaUrl() {
+  let id = null;
+  try { const p = new URLSearchParams(location.search).get("bitrix_negocio"); if (/^\d{1,12}$/.test(p || "")) id = p; } catch (e) { /* sem URL */ }
+  if (!id) return;
+  nnPendenteMemoria = id;
+  try { sessionStorage.setItem("wf_bitrix_negocio", id); } catch (e) { /* sem storage */ }
+  try { history.replaceState(null, "", location.pathname + location.hash); } catch (e) { /* ignora */ }
+}
+nnGuardarParametroDaUrl();
+
+function nnAbrirSePendente() {
+  let id = nnPendenteMemoria;
+  try { id = sessionStorage.getItem("wf_bitrix_negocio") || id; sessionStorage.removeItem("wf_bitrix_negocio"); } catch (e) { /* sem storage */ }
+  nnPendenteMemoria = null;
+  if (id) nnAbrir(id);
+}
+
+function nnMostrarErro(msg) { const el = $("nn-erro"); el.textContent = msg || ""; el.classList.toggle("hidden", !msg); }
+function nnMostrarOk(msg) { const el = $("nn-ok"); el.textContent = msg || ""; el.classList.toggle("hidden", !msg); }
+
+async function nnChamar(acao, extra = {}) {
+  const resp = await fetch(`${SUPABASE_URL}/functions/v1/bitrix-novo-negocio`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${await tokenAtualFuncoes()}` },
+    body: JSON.stringify({ acao, negocio_id: Number(nnNegocioId), ...extra }),
+  });
+  const r = await resp.json().catch(() => ({}));
+  if (!resp.ok && !r.error) r.error = `erro ${resp.status}`;
+  return r;
+}
+
+async function nnAbrir(id) {
+  nnNegocioId = String(id);
+  nnDados = null;
+  nnOrcAberto = null;
+  nnMostrarErro(""); nnMostrarOk("");
+  $("nn-conteudo").classList.add("hidden");
+  $("nn-carregando").classList.remove("hidden");
+  $("nn-carregando").textContent = "Consultando o Bitrix…";
+  ["btn-nn-confirmar", "btn-nn-abrir-orc"].forEach((b) => $(b).classList.add("hidden"));
+  $("modal-novo-negocio").classList.remove("hidden");
+  if (!(podeFazer("orcamentos", "incluir") || podeFazer("orcamentos", "alterar"))) {
+    $("nn-carregando").classList.add("hidden");
+    return nnMostrarErro("Você não tem permissão para criar ou associar orçamentos. Peça a um usuário com acesso ao módulo Orçamentos.");
+  }
+  try {
+    const r = await nnChamar("consultar");
+    if (!r.ok) throw new Error(r.error || "não foi possível consultar o negócio");
+    nnDados = r;
+    nnRenderizar();
+  } catch (e) {
+    $("nn-carregando").classList.add("hidden");
+    nnMostrarErro(`Não foi possível consultar o negócio ${id}: ${e?.message || e}`);
+  }
+}
+
+function nnRenderizar() {
+  const r = nnDados; const n = r.negocio;
+  $("nn-carregando").classList.add("hidden");
+  $("nn-conteudo").classList.remove("hidden");
+  const linhas = [
+    `<div><b>Negócio ${escHtmlOrc(String(n.id))}</b> — ${escHtmlOrc(n.titulo || "(sem título)")}</div>`,
+    `<div class="text-xs text-slate-500">${escHtmlOrc(n.pipeline || "")} · ${escHtmlOrc(n.fase || "")}${n.valor != null ? " · " + escHtmlOrc(fmtBRL(n.valor)) : ""}</div>`,
+  ];
+  if (n.criado_por || n.responsavel) linhas.push(`<div class="text-xs text-slate-500">${n.criado_por ? "Criado por " + escHtmlOrc(n.criado_por) : ""}${n.criado_por && n.responsavel ? " · " : ""}${n.responsavel ? "Responsável: " + escHtmlOrc(n.responsavel) : ""}</div>`);
+  const eb = r.empresa_bitrix;
+  linhas.push(`<div class="text-xs text-slate-500">Empresa no Bitrix: ${eb ? escHtmlOrc(eb.titulo || "—") + (eb.cnpj ? " · CNPJ " + escHtmlOrc(eb.cnpj) : " · sem CNPJ cadastrado") : "nenhuma"}</div>`);
+  $("nn-resumo").innerHTML = linhas.join("");
+
+  const aviso = $("nn-aviso-estado");
+  const resolvido = r.registro && (r.registro.status === "associado" || r.registro.status === "criado");
+  const vinc = r.vinculados || [];
+  if (resolvido || vinc.length) {
+    const num = resolvido ? r.registro.orcamento_numero : vinc[0].numero;
+    nnOrcAberto = { id: vinc.length ? vinc[0].id : null, numero: num };
+    aviso.className = "mt-3 text-sm rounded-md p-3 border bg-emerald-50 border-emerald-200 text-emerald-800";
+    aviso.textContent = resolvido
+      ? `Este negócio já foi ${r.registro.status === "criado" ? "usado para criar" : "associado a"} o orçamento ${num}${r.registro.resolvido_por ? " por " + r.registro.resolvido_por : ""}.`
+      : `Este negócio já está vinculado ao orçamento ${vinc.map((x) => x.numero).join(", ")}.`;
+    aviso.classList.remove("hidden");
+    $("nn-acoes").classList.add("hidden");
+    $("btn-nn-abrir-orc").classList.toggle("hidden", !nnOrcAberto.id && !nnOrcAberto.numero);
+    $("btn-nn-confirmar").classList.add("hidden");
+    return;
+  }
+  aviso.classList.add("hidden");
+  $("nn-acoes").classList.remove("hidden");
+  document.querySelectorAll('input[name="nn-modo"]').forEach((x) => { x.checked = false; });
+  $("nn-numero").value = "";
+  $("nn-bloco-associar").classList.add("hidden");
+  $("nn-bloco-criar").classList.add("hidden");
+  $("btn-nn-confirmar").classList.add("hidden");
+  nnRenderizarEmpresa();
+}
+
+// Bloco "criar": resultado da conferência da empresa do Bitrix contra as empresas já cadastradas no app.
+function nnRenderizarEmpresa() {
+  const r = nnDados; const m = r.empresa || {}; const eb = r.empresa_bitrix;
+  const novaTxt = eb ? `Cadastrar “${escHtmlOrc(eb.titulo)}”${eb.cnpj ? " (CNPJ " + escHtmlOrc(eb.cnpj) + ")" : " (sem CNPJ no Bitrix — complete depois)"} como nova empresa` : "";
+  let html = "";
+  if (m.situacao === "sem_empresa_no_negocio") {
+    html = `<p class="text-amber-700">O negócio não tem empresa no Bitrix. O orçamento será criado sem empresa — escolha-a ao abri-lo.</p>`;
+  } else if (m.situacao === "encontrada") {
+    html = `<p class="text-emerald-700">✔ Empresa já cadastrada: <b>${escHtmlOrc(m.empresa.nome)}</b>${m.empresa.cnpj ? " · " + escHtmlOrc(m.empresa.cnpj) : ""} — será usada.</p>`;
+  } else if (m.situacao === "parecidas") {
+    html = `<p class="text-slate-700">Há empresas parecidas já cadastradas. Escolha qual usar:</p>` +
+      (m.parecidas || []).map((e) => `<label class="flex items-start gap-2 cursor-pointer"><input type="radio" name="nn-empresa" value="${escHtmlOrc(e.id)}" class="mt-1" /><span>${escHtmlOrc(e.nome)}${e.cnpj ? ` <span class="text-slate-500">· ${escHtmlOrc(e.cnpj)}</span>` : ""}</span></label>`).join("") +
+      `<label class="flex items-start gap-2 cursor-pointer"><input type="radio" name="nn-empresa" value="__nova__" class="mt-1" /><span>${novaTxt}</span></label>`;
+  } else {
+    html = `<p class="text-amber-700">A empresa do Bitrix ainda não está cadastrada no workfire-mais-perto.</p>` +
+      `<label class="flex items-start gap-2 cursor-pointer"><input type="radio" name="nn-empresa" value="__nova__" class="mt-1" checked /><span>${novaTxt}</span></label>`;
+  }
+  $("nn-bloco-criar").innerHTML = html;
+}
+
+document.querySelectorAll('input[name="nn-modo"]').forEach((el) => el.addEventListener("change", () => {
+  const modo = document.querySelector('input[name="nn-modo"]:checked')?.value;
+  $("nn-bloco-associar").classList.toggle("hidden", modo !== "associar");
+  $("nn-bloco-criar").classList.toggle("hidden", modo !== "criar");
+  $("btn-nn-confirmar").classList.toggle("hidden", !modo);
+  $("btn-nn-confirmar").textContent = modo === "criar" ? "Criar orçamento" : "Associar";
+  nnMostrarErro("");
+  if (modo === "associar") setTimeout(() => $("nn-numero").focus(), 0);
+}));
+
+function nnConcluir(r, textoOk) {
+  nnOrcAberto = { id: r.orcamento_id, numero: r.numero };
+  $("nn-acoes").classList.add("hidden");
+  $("btn-nn-confirmar").classList.add("hidden");
+  $("btn-nn-abrir-orc").classList.remove("hidden");
+  nnMostrarOk(textoOk + (r.campo_gravado ? ` O campo orçamento_wfmp do negócio ${nnNegocioId} foi atualizado no Bitrix.` : ""));
+  if (!r.campo_gravado) nnMostrarErro(`O orçamento foi gravado, mas o Bitrix não aceitou a atualização do campo orçamento_wfmp${r.aviso ? " (" + r.aviso + ")" : ""}. Preencha o campo manualmente no card.`);
+  if (moduloAtivo === "orcamentos") carregarPaginaOrcamentos();
+}
+
+$("btn-nn-confirmar").addEventListener("click", async () => {
+  if (nnOcupado || !nnDados) return;
+  const modo = document.querySelector('input[name="nn-modo"]:checked')?.value;
+  if (!modo) return;
+  nnMostrarErro(""); nnMostrarOk("");
+  const btn = $("btn-nn-confirmar");
+  let acao = modo; let extra = {};
+  if (modo === "associar") {
+    const numero = $("nn-numero").value.trim();
+    if (!numero) return nnMostrarErro("Digite o número do orçamento.");
+    extra = { numero };
+  } else {
+    const m = nnDados.empresa || {};
+    if (m.situacao === "parecidas" || m.situacao === "nao_encontrada") {
+      const esc = document.querySelector('input[name="nn-empresa"]:checked')?.value;
+      if (!esc) return nnMostrarErro("Escolha a empresa do orçamento.");
+      if (esc === "__nova__") extra = { cadastrar_empresa: true }; else extra = { empresa_id: esc };
+    }
+  }
+  nnOcupado = true; btn.disabled = true; const rotulo = btn.textContent; btn.textContent = "Gravando…";
+  try {
+    let r = await nnChamar(acao === "criar" ? "criar" : "associar", extra);
+    if (!r.ok && r.motivo === "ja_vinculado" && acao === "associar") {
+      if (confirm(`${r.error}\n\nDeseja mesmo vincular este orçamento a este negócio? O vínculo anterior será substituído.`)) r = await nnChamar("associar", { ...extra, substituir: true });
+      else { nnMostrarErro("Nada foi alterado."); return; }
+    }
+    if (!r.ok) throw new Error(r.error || "não foi possível concluir");
+    nnConcluir(r, acao === "criar"
+      ? `✔ Orçamento ${r.numero} criado${r.empresa_cadastrada ? " (empresa cadastrada)" : ""} e vinculado ao negócio.`
+      : `✔ Orçamento ${r.numero} associado ao negócio.`);
+  } catch (e) {
+    nnMostrarErro(e?.message || "erro desconhecido");
+  } finally {
+    nnOcupado = false; btn.disabled = false; btn.textContent = rotulo;
+  }
+});
+
+async function nnAbrirOrcamento() {
+  if (!nnOrcAberto) return;
+  const { id, numero } = nnOrcAberto;
+  $("modal-novo-negocio").classList.add("hidden");
+  if (!sairEditorOrcamentoPermitido()) return;
+  $("orc-busca").value = numero || "";
+  orcPagina = 1;
+  irParaModulo("orcamentos");
+  for (let i = 0; i < 25; i++) {
+    let alvo = listaOrcamentos.find((x) => (id ? x.id === id : x.numero === numero));
+    if (alvo) { abrirEdicaoOrcamento(alvo.id); return; }
+    await new Promise((res) => setTimeout(res, 300));
+  }
+}
+$("btn-nn-abrir-orc").addEventListener("click", nnAbrirOrcamento);
+$("btn-nn-fechar").addEventListener("click", () => $("modal-novo-negocio").classList.add("hidden"));
 
 // Prévia: PDF de rascunho (marca d'água "EM ELABORAÇÃO"), sem gravar proposta nem o orçamento.
 async function gerarPreviaProposta() {

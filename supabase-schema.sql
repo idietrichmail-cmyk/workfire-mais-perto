@@ -1431,3 +1431,31 @@ create index if not exists orcamentos_empresa_id_idx on public.orcamentos (empre
 -- Prod 1.65 (12/10/2026): sem mudanças no banco. Os orçamentos importados do Sistema 3S já estão gravados com perc_apoio/margem/imposto = 0,
 -- margem_minima_perc/valor = 0 e valor_final = valor do PDF. A tela passa a usar a margem mínima GRAVADA no orçamento enquanto houver proposta vigente
 -- (antes recalculava com a margem mínima por turma do cadastro do treinamento e, ao salvar, somava esse valor ao final). Em "Nova negociação" volta a regra do treinamento.
+
+-- Prod 1.66 (12/10/2026): envio da proposta ao Bitrix.
+-- Tabela bitrix_envios_proposta (histórico de cada envio: proposta, orçamento, negócio, valor enviado/anterior, moeda, id do comentário, se anexou o PDF, erro; RLS: admin ou consultar Orçamentos).
+-- Edge Function bitrix-proposta (verify_jwt=false; autoriza pelo token do usuário logado com permissão incluir/alterar em Orçamentos, ou x-cron-token em testes):
+--   ao gerar uma proposta o app envia { proposta_id, pdf_base64 }; a função atualiza OPPORTUNITY (valor final) + CURRENCY_ID=BRL do negócio vinculado,
+--   adiciona o comentário "Nova proposta" na linha do tempo (crm.timeline.comment.add com FILES = PDF da proposta). Sem negócio vinculado não envia nada.
+
+-- =====================================================================
+-- Prod 1.67 (13/10/2026) — Novo negócio no Bitrix: associar a orçamento existente ou criar novo + numeração automática
+-- (já aplicado no projeto; registro das alterações)
+-- =====================================================================
+-- Numeração automática dos NOVOS orçamentos criados no app: 260001, 260002… (os existentes vão até 26389 e não colidem).
+-- create sequence public.orcamento_numero_seq start 260001 minvalue 260001;
+-- function public.proximo_numero_orcamento() returns text  -- security definer; pula números já usados; execute só para authenticated/service_role
+-- No app: orçamento novo com o campo "Número" em branco recebe o próximo número ao salvar (pode-se digitar um número manualmente).
+--
+-- Pergunta ao criar negócio no Bitrix (funil Geral, criado por pessoa):
+-- table public.bitrix_novos_negocios(negocio_id pk, titulo, empresa_bitrix_id, criado_por_bitrix_id, responsavel_bitrix_id,
+--   status in ('pendente','associado','criado','ignorado','simulado'), orcamento_id, orcamento_numero, comentario_id, detalhe jsonb,
+--   criado_em, resolvido_em, resolvido_por)  -- RLS: leitura para admin / orcamentos.consultar
+-- bitrix_sync_estado: novos_negocios_ativo ('nao' = só simula, grava 'simulado'; 'sim' = posta o comentário no card),
+--   novos_negocios_ignorar_criadores ('36' = criador usado por formulários/robôs; lista separada por vírgula),
+--   novos_negocios_desde (só avalia negócios criados depois desta data).
+-- function public.bitrix_buscar_empresa(p_titulo, p_cnpj) returns jsonb  -- CNPJ -> nome exato -> nomes parecidos (só service_role)
+-- Edge Functions: bitrix-evento v4 (ONCRMDEALADD e varredura avaliam o negócio novo; ação "avaliar_novo" para testes),
+--   bitrix-novo-negocio v1 (consultar / associar / criar; grava o número no campo orcamento_wfmp = UF_CRM_1791856801408 e comenta no card).
+-- Link do comentário: https://workfire-mais-perto.netlify.app/?bitrix_negocio=<id do negócio>  -> abre a tela "Novo negócio no Bitrix".
+-- Para ligar o aviso real no card: update bitrix_sync_estado set valor='sim' where chave='novos_negocios_ativo';
