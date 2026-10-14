@@ -1526,3 +1526,20 @@ alter policy orcamento_itens_custo_delete on public.orcamento_itens_custo
 -- (created_at < último lote de cada orçamento) e cópias repetidas do mesmo item dentro do último lote. App: só o último lote é carregado e a
 -- gravação confere que as linhas antigas foram mesmo apagadas.
 -- ============================================================================
+
+-- ============================================================================
+-- Prod 1.73 (14/10/2026) — tela "Turmas por orçamento" lenta (orçamento 25141: demorava e não mostrava as turmas)
+-- Causas no banco: (1) turmas, turma_alunos e turma_localidades não tinham índice na coluna de ligação (orcamento_id / turma_id) -> varredura da
+-- tabela inteira; (2) as políticas de SELECT chamavam pode_acessar_tabela(auth.uid(), ...) uma vez por LINHA (11.200 empresas = 2,7 s;
+-- turmas de um orçamento = 1,1 s). Agora a chamada é avaliada uma vez por consulta (empresas: 2,7 s -> 0,07 s).
+create index if not exists turmas_orcamento_id_idx on public.turmas (orcamento_id);
+create index if not exists turma_localidades_turma_id_idx on public.turma_localidades (turma_id);
+create index if not exists turma_alunos_turma_id_idx on public.turma_alunos (turma_id);
+create index if not exists turmas_instrutor1_id_idx on public.turmas (instrutor1_id);
+create index if not exists turmas_instrutor2_id_idx on public.turmas (instrutor2_id);
+alter policy empresas_select on public.empresas using ((select pode_acessar_tabela((select auth.uid()), 'empresas'::text, 'select'::text)));
+alter policy orcamentos_select on public.orcamentos using ((select pode_acessar_tabela((select auth.uid()), 'orcamentos'::text, 'select'::text)));
+alter policy turmas_select on public.turmas using ((select pode_acessar_tabela((select auth.uid()), 'turmas'::text, 'select'::text)));
+-- App: a tela mostra "Carregando…", a lista de empresas (validação de CNPJ dos alunos) carrega em segundo plano e a consulta das turmas tenta de novo
+-- e avisa em caso de falha (antes um erro aparecia como "Nenhuma turma encontrada").
+-- ============================================================================

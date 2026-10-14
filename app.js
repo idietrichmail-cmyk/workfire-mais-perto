@@ -34,7 +34,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.72 · 14/10/2026";
+const APP_VERSAO = "Prod 1.73 · 14/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -9894,28 +9894,36 @@ async function excluirOrcamento(id, numeroInformado) {
 // ===========================================================
 // OPERAÇÃO: TURMAS POR ORÇAMENTO
 // ===========================================================
+let empresasValidacaoCarregadas = false;
 async function carregarTurmasInit() {
   $("admin-descricao-pagina").textContent = "Acompanhe e ajuste as turmas geradas automaticamente para cada orçamento.";
-  const [{ data: orcs }, { data: centros }, { data: insts }, { data: tipos }, { data: empresasTodas }] = await Promise.all([
+  // a tela já aparece com o aviso de carregamento; a lista de empresas (usada só para validar o CNPJ dos alunos) carrega em segundo plano
+  $("turma-orcamento-busca").value = "";
+  $("turma-orcamento-busca").disabled = true;
+  $("turma-orcamento-busca-info").textContent = "Carregando orçamentos…";
+  $("turma-orcamento-select").value = "";
+  $("turma-orcamento-info").classList.add("hidden");
+  $("turma-conteudo").classList.add("hidden");
+  turmaOrcamentoSelecionadoId = null;
+  empresasValidacaoCarregadas = false;
+  buscarTodos(() => supabase.from("empresas").select("id, nome, cnpj, cnpj_grupo_economico").order("id")).then(({ data, error }) => {
+    if (!error) { listaEmpresasParaValidacao = data || []; empresasValidacaoCarregadas = true; }
+  });
+  const [{ data: orcs, error: erroOrc }, { data: centros }, { data: insts }, { data: tipos }] = await Promise.all([
     // o servidor devolve no máximo 1000 linhas por consulta: busca em páginas para trazer TODOS os orçamentos
     buscarTodos(() => supabase.from("orcamentos").select("*, empresas(nome, cnpj, cnpj_grupo_economico), tipos_treinamento(nome)").order("created_at", { ascending: false }).order("id")),
     supabase.from("centros_treinamento").select("*").eq("status", "Ativo").order("nome"),
     supabase.from("instrutores").select("*").eq("status", "Ativo").order("nome"),
     supabase.from("tipos_treinamento").select("*").eq("status", "Ativo").order("nome"),
-    buscarTodos(() => supabase.from("empresas").select("id, nome, cnpj, cnpj_grupo_economico").order("id")),
   ]);
   listaOrcamentosParaTurma = orcs || [];
   listaCentrosAtivos = centros || [];
   listaInstrutoresAtivos = insts || [];
   listaTiposAtivos = tipos || [];
-  listaEmpresasParaValidacao = empresasTodas || [];
-
-  $("turma-orcamento-busca").value = "";
+  $("turma-orcamento-busca").disabled = false;
   preencherSelectOrcamentosTurma();
   $("turma-orcamento-select").value = "";
-  $("turma-orcamento-info").classList.add("hidden");
-  $("turma-conteudo").classList.add("hidden");
-  turmaOrcamentoSelecionadoId = null;
+  if (erroOrc) $("turma-orcamento-busca-info").textContent = "Não foi possível carregar todos os orçamentos. Saia desta tela e entre de novo.";
 }
 
 // Filtra os orçamentos pelo texto digitado (número do orçamento ou nome da empresa, sem diferenciar
@@ -9959,12 +9967,28 @@ $("turma-orcamento-select").addEventListener("change", () => {
   carregarTurmasDoOrcamento();
 });
 
+let turmaCargaSeq = 0;
 async function carregarTurmasDoOrcamento() {
-  const { data } = await supabase
-    .from("turmas")
-    .select("*, tipos_treinamento(nome), centros_treinamento(nome), instrutor1:instrutores!instrutor1_id(nome), instrutor2:instrutores!instrutor2_id(nome), empresas_transporte(nome)")
-    .eq("orcamento_id", turmaOrcamentoSelecionadoId)
-    .order("identificacao", { ascending: true });
+  const orcId = turmaOrcamentoSelecionadoId;
+  const seq = ++turmaCargaSeq;
+  $("turma-lista").innerHTML = `<tr><td colspan="7" class="text-center text-slate-500 text-sm py-16">Carregando turmas…</td></tr>`;
+  let data = null, error = null;
+  for (let tentativa = 1; tentativa <= 3; tentativa++) {
+    ({ data, error } = await supabase
+      .from("turmas")
+      .select("*, tipos_treinamento(nome), centros_treinamento(nome), instrutor1:instrutores!instrutor1_id(nome), instrutor2:instrutores!instrutor2_id(nome), empresas_transporte(nome)")
+      .eq("orcamento_id", orcId)
+      .order("identificacao", { ascending: true }));
+    if (!error) break;
+    if (tentativa < 3) await new Promise((r) => setTimeout(r, 600 * tentativa));
+  }
+  if (seq !== turmaCargaSeq || orcId !== turmaOrcamentoSelecionadoId) return; // o usuário já escolheu outro orçamento
+  if (error) {
+    turmasDoOrcamento = [];
+    $("turma-lista").innerHTML = `<tr><td colspan="7" class="text-center text-rose-600 text-sm py-16">Não foi possível carregar as turmas deste orçamento (${escHtmlOrc(error.message || "erro de conexão")}). <button type="button" id="btn-turma-recarregar" class="underline font-medium">Tentar de novo</button></td></tr>`;
+    $("btn-turma-recarregar").addEventListener("click", carregarTurmasDoOrcamento);
+    return;
+  }
   turmasDoOrcamento = (data || []).sort(compararIdentificacaoTurma);
   renderizarFiltroStatusTurma();
   renderizarListaTurmas();
@@ -11650,6 +11674,7 @@ function grupoDeEmpresa(emp) {
 function validarCnpjMesmoGrupoOrcamento(cnpjDigitado, grupoOrcamento) {
   const alvo = (cnpjDigitado || "").replace(/\D/g, "");
   if (alvo.length !== 14) return "Informe um CNPJ válido (14 dígitos).";
+  if (!empresasValidacaoCarregadas) return "O cadastro de empresas ainda está carregando. Aguarde alguns segundos e tente de novo.";
   const empresa = listaEmpresasParaValidacao.find((e) => e.cnpj && e.cnpj.replace(/\D/g, "") === alvo);
   if (!empresa) return "Esse CNPJ não corresponde a nenhuma empresa cadastrada.";
   const grupo = grupoDeEmpresa(empresa);
