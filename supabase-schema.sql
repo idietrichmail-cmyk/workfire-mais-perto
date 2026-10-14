@@ -1513,3 +1513,16 @@ alter table public.orcamentos
 --  * bitrix-responsavel (v6): novo parâmetro assumir_campos — logo após o usuário associar o card ao orçamento, orçamento_wfmp / id_wfmp passam a ser deste orçamento.
 --  * O vínculo em si continua sendo gravado por bitrix-novo-negocio (ação "associar", substituir:true) quando o orçamento é salvo.
 -- ============================================================================
+
+-- ============================================================================
+-- Prod 1.72 (14/10/2026) — itens duplicados no cálculo / proposta (ex.: orçamento 260007)
+-- Causa: ao salvar, o app insere o cálculo novo e apaga as linhas antigas de orcamento_itens_custo. A política de DELETE só liberava quem tem
+-- "excluir" no módulo; usuários comerciais (alterar sem excluir) tinham o DELETE ignorado SEM erro, as linhas se acumulavam e o cálculo seguinte
+-- carregava todas, multiplicando os itens (8 -> 56) e inflando custo, valor e proposta.
+-- Correção: a exclusão de linhas do cálculo passa a valer também para quem pode alterar o orçamento.
+alter policy orcamento_itens_custo_delete on public.orcamento_itens_custo
+  using (pode_acessar_tabela(auth.uid(), 'orcamento_itens_custo'::text, 'delete'::text) or pode_acessar_tabela(auth.uid(), 'orcamento_itens_custo'::text, 'update'::text));
+-- Limpeza feita em 14/10/2026 (cópia prévia em orcamento_itens_custo_bkp_20261014, com RLS ligado e sem políticas): linhas de gravações antigas
+-- (created_at < último lote de cada orçamento) e cópias repetidas do mesmo item dentro do último lote. App: só o último lote é carregado e a
+-- gravação confere que as linhas antigas foram mesmo apagadas.
+-- ============================================================================

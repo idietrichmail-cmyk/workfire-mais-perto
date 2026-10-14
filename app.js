@@ -34,7 +34,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.71 · 14/10/2026";
+const APP_VERSAO = "Prod 1.72 · 14/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -6760,6 +6760,12 @@ async function carregarCalculoDoOrcamento(o) {
     mostrarErro("orc-form-erro", orcCalcErro);
     return;
   }
+  if (data && data.length > 1) {
+    // Cada gravação insere o cálculo inteiro de uma vez (mesmo created_at). Se houver mais de uma gravação acumulada (resíduo de versões
+    // antigas), vale só a mais recente: carregar tudo duplicaria os itens do orçamento e da proposta.
+    const ultimo = data.reduce((m, r) => (r.created_at && r.created_at > m ? r.created_at : m), "");
+    if (ultimo) data = data.filter((r) => r.created_at === ultimo);
+  }
   if (data && data.length) {
     // Linhas gravadas antes do campo existir (observação nula) usam a observação atual do cadastro do item de custo.
     const obsCadastro = {};
@@ -7059,8 +7065,13 @@ async function salvarLinhasCalculoOrcamento(orcamentoId, calc) {
   }
   const ids = (antigas || []).map((x) => x.id);
   if (ids.length) {
-    const { error } = await supabase.from("orcamento_itens_custo").delete().in("id", ids);
+    // select("id") devolve as linhas realmente apagadas: sem permissão o banco apaga 0 linhas SEM dar erro, e as linhas antigas
+    // ficavam acumuladas (e eram carregadas de novo no próximo cálculo, multiplicando os itens da proposta).
+    const { data: apagadas, error } = await supabase.from("orcamento_itens_custo").delete().in("id", ids).select("id");
     if (error) throw error;
+    if ((apagadas || []).length < ids.length) {
+      throw new Error("as linhas anteriores do cálculo não puderam ser substituídas (sem permissão de alteração no banco). Avise o administrador");
+    }
   }
 }
 
