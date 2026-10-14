@@ -1543,3 +1543,15 @@ alter policy turmas_select on public.turmas using ((select pode_acessar_tabela((
 -- App: a tela mostra "Carregando…", a lista de empresas (validação de CNPJ dos alunos) carrega em segundo plano e a consulta das turmas tenta de novo
 -- e avisa em caso de falha (antes um erro aparecia como "Nenhuma turma encontrada").
 -- ============================================================================
+
+-- ============================================================================
+-- Otimização geral das políticas de segurança (RLS) — 14/10/2026 (sem mudança no app)
+-- pg_stat_statements mostrou empresas e orcamentos como as leituras mais caras (média 0,5 a 1,5 s por consulta; centenas de milhões de varreduras em
+-- usuarios_sistema só para checar permissão): as políticas chamavam auth.uid() / pode_acessar_tabela() / is_admin*() / tem_permissao() uma vez por LINHA.
+-- As 175 políticas que usavam auth.uid() foram reescritas para avaliar essas funções uma vez por consulta, no formato
+--   (select pode_acessar_tabela((select auth.uid()), 'tabela', 'acao'))   e   (select auth.uid())
+-- mesmo significado, só muda a forma de avaliar. Cópia das políticas anteriores em rls_policies_bkp_20261014 (RLS ligado, sem políticas).
+-- A função public._rls_initplan(text) usada na reescrita ficou no banco (auxiliar, só transforma texto). Teste após a mudança (consulta como cada perfil):
+-- administrador, comercial e usuário sem acesso ao módulo enxergam as mesmas quantidades de antes; instrutor segue limitado às próprias linhas.
+-- Resultado: consulta de orçamentos+empresas de 700-1500 ms para ~25 ms; lista de empresas 2,7 s -> 0,07 s.
+-- ============================================================================
