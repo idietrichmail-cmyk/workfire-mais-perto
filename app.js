@@ -34,7 +34,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.70 · 13/10/2026";
+const APP_VERSAO = "Prod 1.71 · 14/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -5985,6 +5985,7 @@ function bxInfoOrc(html, cor) {
 
 // Preenche os 3 campos ao abrir o orçamento (o = linha do orçamento, ou null para um novo).
 async function preencherVinculoBitrixOrc(o) {
+  orcBxPendente = null;
   await carregarListasBitrixOrc();
   const pode = usuarioPodeAprovar();
   const neg = String(o?.id_negocio_bitrix || "").replace(/\D/g, "");
@@ -7516,7 +7517,9 @@ async function salvarOrcamento(opts = {}) {
   }
   orcEditorSujo = false;
   guardarVinculoBitrixOrc(linha);
-  atualizarResponsavelNoBitrix(linha); // sem await: não atrasa o salvamento; mostra o resultado ao lado do botão
+  const tinhaPendente = !!orcBxPendente;
+  const associou = await associarBitrixPendente(linha); // card escolhido em “Buscar Bitrix”: vincula antes de acertar responsável/título/campos
+  if (!tinhaPendente || associou) atualizarResponsavelNoBitrix(linha, { assumir_campos: tinhaPendente }); // sem await: não atrasa o salvamento; mostra o resultado ao lado do botão
 
   if (eraNovo) {
     await gerarTurmasParaOrcamento(linha, qtdTurmas);
@@ -8099,7 +8102,7 @@ function mensagemResponsavelBitrix(texto, cor) {
   el.className = `text-xs font-medium ${cor || "text-slate-600"}${texto ? "" : " hidden"}`;
   if (texto && cor !== "text-rose-600" && cor !== "text-amber-700") orcRespTimer = setTimeout(() => mensagemResponsavelBitrix(""), 8000);
 }
-async function atualizarResponsavelNoBitrix(linha) {
+async function atualizarResponsavelNoBitrix(linha, extra = {}) {
   if (!linha?.id) return null;
   const neg = String(linha.id_negocio_bitrix ?? "").trim();
   if (!/^\d+$/.test(neg)) { mensagemResponsavelBitrix(""); return null; }
@@ -8108,7 +8111,7 @@ async function atualizarResponsavelNoBitrix(linha) {
     const resp = await fetch(`${SUPABASE_URL}/functions/v1/bitrix-responsavel`, {
       method: "POST",
       headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${await tokenAtualFuncoes()}` },
-      body: JSON.stringify({ orcamento_id: linha.id }),
+      body: JSON.stringify({ orcamento_id: linha.id, ...extra }),
     });
     const r = await resp.json().catch(() => ({}));
     if (!resp.ok || !r.ok) throw new Error(r.error || `erro ${resp.status}`);
@@ -8117,6 +8120,8 @@ async function atualizarResponsavelNoBitrix(linha) {
     if (r.motivo === "atualizado") partes.push(`responsável agora é ${r.vendedor || "o vendedor"}`);
     else if (r.motivo === "vendedor_sem_bitrix") { partes.push(`responsável não alterado (${r.vendedor || "o vendedor"} não tem usuário do Bitrix vinculado)`); aviso = true; }
     if (r.titulo && r.titulo.motivo === "atualizado") partes.push(`nome do negócio: ${r.titulo.para}`);
+    if (r.campos && r.campos.motivo === "atualizado") partes.push("campos orçamento_wfmp / id_wfmp preenchidos");
+    else if (r.campos && r.campos.motivo === "de_outro_orcamento") { partes.push("campos orçamento_wfmp / id_wfmp mantidos (o card já está correlacionado a outro orçamento)"); aviso = true; }
     if (partes.length) mensagemResponsavelBitrix(`${aviso ? "ℹ" : "✔"} Bitrix (negócio ${r.negocio_id}): ${partes.join(" · ")}`, aviso ? "text-amber-700" : "text-emerald-700");
     else if (r.motivo === "igual") mensagemResponsavelBitrix(`✔ Bitrix: card do negócio ${r.negocio_id} já está em dia`, "text-emerald-700");
     else mensagemResponsavelBitrix("");
@@ -8126,6 +8131,224 @@ async function atualizarResponsavelNoBitrix(linha) {
     return null;
   }
 }
+
+// ---------------------------------------------------------
+// "Buscar Bitrix" no orçamento: pesquisa os cards (negócios) do Bitrix pelo número do orçamento / nome / #ID, o usuário escolhe o card,
+// o app confere a empresa (usa a cadastrada, escolhe entre parecidas ou cadastra a do Bitrix), preenche empresa, contato, vendedor e vínculo do
+// orçamento e deixa o card pendente: o vínculo (bitrix-novo-negocio "associar") e os campos orçamento_wfmp / id_wfmp do card (bitrix-responsavel)
+// são gravados quando o orçamento é salvo.
+// ---------------------------------------------------------
+let orcBxPendente = null; // { negocio_id, pipeline_id, pipeline, fase_id, fase, titulo }
+let bbDetalhe = null;
+let bbOcupado = false;
+
+async function bbChamar(funcao, corpo) {
+  const resp = await fetch(`${SUPABASE_URL}/functions/v1/${funcao}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${await tokenAtualFuncoes()}` },
+    body: JSON.stringify(corpo),
+  });
+  const r = await resp.json().catch(() => ({}));
+  if (!resp.ok && !r.error) r.error = `erro ${resp.status}`;
+  return r;
+}
+function bbMensagem(texto, cor) {
+  const el = $("bb-msg");
+  el.textContent = texto || "";
+  el.className = `text-sm mt-3 ${cor || "text-slate-600"}${texto ? "" : " hidden"}`;
+}
+function bbErro(texto) { const el = $("bb-erro"); el.textContent = texto || ""; el.classList.toggle("hidden", !texto); }
+function bbPasso(detalhe) {
+  $("bb-passo-busca").classList.toggle("hidden", detalhe);
+  $("bb-passo-detalhe").classList.toggle("hidden", !detalhe);
+  $("btn-bb-voltar").classList.toggle("hidden", !detalhe);
+  $("btn-bb-usar").classList.toggle("hidden", !detalhe);
+  bbErro("");
+}
+
+function bbAbrir() {
+  bbDetalhe = null;
+  bbPasso(false);
+  bbMensagem("");
+  $("bb-lista").innerHTML = "";
+  $("bb-termo").value = $("orc-numero").value.trim();
+  $("modal-buscar-bitrix").classList.remove("hidden");
+  setTimeout(() => $("bb-termo").focus(), 0);
+  if ($("bb-termo").value.length >= 2) bbBuscar();
+}
+function bbFechar() { $("modal-buscar-bitrix").classList.add("hidden"); }
+
+async function bbBuscar() {
+  if (bbOcupado) return;
+  const termo = $("bb-termo").value.trim();
+  bbErro(""); $("bb-lista").innerHTML = "";
+  if (termo.length < 2) return bbMensagem("Digite o número do orçamento (ou parte do nome do negócio).", "text-amber-700");
+  bbOcupado = true; $("btn-bb-buscar").disabled = true;
+  bbMensagem("Pesquisando no Bitrix…");
+  try {
+    const r = await bbChamar("bitrix-buscar-negocio", { acao: "buscar", termo });
+    if (!r.ok) throw new Error(r.error || "não foi possível pesquisar");
+    if (!r.negocios.length) return bbMensagem(`Nenhum card encontrado para “${termo}”. Tente parte do nome do negócio ou o ID do card (#12345).`, "text-amber-700");
+    bbMensagem(r.total > r.mostrando ? `${r.total} cards encontrados — mostrando os ${r.mostrando} primeiros. Refine a busca se necessário.` : `${r.total} card${r.total > 1 ? "s" : ""} encontrado${r.total > 1 ? "s" : ""}. Clique no card que deseja associar.`);
+    $("bb-lista").innerHTML = r.negocios.map((n) => {
+      const sel = [];
+      if (n.motivos.includes("campo orçamento_wfmp")) sel.push(`<span class="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px]">campo orçamento = ${escHtmlOrc(n.campo_orcamento || "")}</span>`);
+      if (n.vinculado_a.length) sel.push(`<span class="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 text-[10px]">já vinculado ao orçamento ${escHtmlOrc(n.vinculado_a.join(", "))}</span>`);
+      if (n.encerrado) sel.push(`<span class="px-1.5 py-0.5 rounded bg-slate-200 text-slate-700 text-[10px]">encerrado</span>`);
+      return `<button type="button" data-bb-id="${n.id}" class="w-full text-left border border-slate-200 rounded-md p-2.5 hover:border-sky-400 hover:bg-sky-50">
+        <div class="text-sm text-slate-900"><span class="font-mono text-slate-500">#${n.id}</span> ${escHtmlOrc(n.titulo || "(sem título)")}</div>
+        <div class="text-xs text-slate-500">${escHtmlOrc(n.empresa || "sem empresa")} · ${escHtmlOrc(n.pipeline)} › ${escHtmlOrc(n.fase)}${n.responsavel ? " · " + escHtmlOrc(n.responsavel) : ""}${n.valor != null ? " · " + escHtmlOrc(fmtBRL(n.valor)) : ""}${n.criado_em ? " · criado em " + escHtmlOrc(formatarDataHoraBr(n.criado_em).slice(0, 10)) : ""}</div>
+        ${sel.length ? `<div class="flex flex-wrap gap-1 mt-1">${sel.join("")}</div>` : ""}
+      </button>`;
+    }).join("");
+    $("bb-lista").querySelectorAll("[data-bb-id]").forEach((b) => b.addEventListener("click", () => bbDetalhar(b.getAttribute("data-bb-id"))));
+  } catch (e) {
+    bbMensagem("");
+    bbErro(`Não foi possível pesquisar no Bitrix: ${e?.message || e}`);
+  } finally {
+    bbOcupado = false; $("btn-bb-buscar").disabled = false;
+  }
+}
+
+async function bbDetalhar(id) {
+  if (bbOcupado) return;
+  bbOcupado = true;
+  bbErro("");
+  bbMensagem(`Consultando o card ${id}…`);
+  try {
+    const r = await bbChamar("bitrix-buscar-negocio", { acao: "detalhar", negocio_id: Number(id) });
+    if (!r.ok) throw new Error(r.error || "não foi possível consultar o card");
+    bbDetalhe = r;
+    bbMensagem("");
+    bbRenderizarDetalhe();
+    bbPasso(true);
+  } catch (e) {
+    bbMensagem("");
+    bbErro(`Não foi possível consultar o card ${id}: ${e?.message || e}`);
+  } finally {
+    bbOcupado = false;
+  }
+}
+
+function bbRenderizarDetalhe() {
+  const r = bbDetalhe; const n = r.negocio; const eb = r.empresa_bitrix; const c = r.contato; const m = r.empresa || {};
+  const linhas = [
+    `<div><b>Card #${n.id}</b> — ${escHtmlOrc(n.titulo || "(sem título)")}</div>`,
+    `<div class="text-xs text-slate-500">${escHtmlOrc(n.pipeline || "")} › ${escHtmlOrc(n.fase || "")}${n.valor != null ? " · " + escHtmlOrc(fmtBRL(n.valor)) : ""}</div>`,
+    `<div class="text-xs text-slate-500">Empresa no Bitrix: ${eb ? escHtmlOrc(eb.titulo || "—") + (eb.cnpj ? " · CNPJ " + escHtmlOrc(eb.cnpj) : " · sem CNPJ cadastrado") : "nenhuma"}</div>`,
+    `<div class="text-xs text-slate-500">Contato: ${c && (c.nome || c.telefone || c.email) ? escHtmlOrc([c.nome, c.telefone, c.email].filter(Boolean).join(" · ")) : "não informado no card"}</div>`,
+    `<div class="text-xs text-slate-500">Vendedor (responsável do card): ${r.vendedor ? escHtmlOrc(r.vendedor.nome) : "responsável do card não corresponde a um vendedor cadastrado — o vendedor do orçamento não será alterado"}</div>`,
+  ];
+  $("bb-resumo").innerHTML = linhas.join("");
+
+  const avisos = [];
+  const numeroAtual = $("orc-numero").value.trim();
+  const outros = (r.vinculados || []).filter((v) => v.numero !== numeroAtual);
+  if (outros.length) avisos.push(`Este card já está vinculado ao orçamento ${outros.map((v) => v.numero).join(", ")}. Associar também a este orçamento é permitido, mas os campos orçamento_wfmp / id_wfmp do card passarão a apontar para este orçamento.`);
+  if (n.campo_orcamento && numeroAtual && n.campo_orcamento !== numeroAtual) avisos.push(`O campo orçamento_wfmp do card está com ${n.campo_orcamento}, diferente do número digitado (${numeroAtual}).`);
+  if (orcBxOriginal.neg && orcBxOriginal.neg !== String(n.id)) avisos.push(`Este orçamento já está vinculado ao card ${orcBxOriginal.neg}; o vínculo será substituído pelo card ${n.id}.`);
+  const av = $("bb-aviso");
+  av.className = `mt-3 text-sm rounded-md p-3 border bg-amber-50 border-amber-200 text-amber-800${avisos.length ? "" : " hidden"}`;
+  av.innerHTML = avisos.map((a) => `<div>${escHtmlOrc(a)}</div>`).join("");
+
+  const novaTxt = eb ? `Cadastrar “${escHtmlOrc(eb.titulo)}”${eb.cnpj ? " (CNPJ " + escHtmlOrc(eb.cnpj) + ")" : " (sem CNPJ no Bitrix — complete depois)"} como nova empresa` : "";
+  let html = "";
+  if (m.situacao === "sem_empresa_no_negocio") {
+    html = `<p class="text-amber-700">O card não tem empresa no Bitrix. A empresa do orçamento não será alterada.</p>`;
+  } else if (m.situacao === "encontrada") {
+    html = `<p class="text-emerald-700">✔ Empresa já cadastrada: <b>${escHtmlOrc(m.empresa.nome)}</b>${m.empresa.cnpj ? " · " + escHtmlOrc(m.empresa.cnpj) : ""} — será usada no orçamento.</p>`;
+  } else if (m.situacao === "parecidas") {
+    html = `<p class="text-slate-700">Há empresas parecidas já cadastradas. Escolha qual usar:</p>` +
+      (m.parecidas || []).map((e, i) => `<label class="flex items-start gap-2 cursor-pointer"><input type="radio" name="bb-empresa" value="${escHtmlOrc(e.id)}" class="mt-1"${i === 0 ? " checked" : ""} /><span>${escHtmlOrc(e.nome)}${e.cnpj ? ` <span class="text-slate-500">· ${escHtmlOrc(e.cnpj)}</span>` : ""}</span></label>`).join("") +
+      `<label class="flex items-start gap-2 cursor-pointer"><input type="radio" name="bb-empresa" value="__nova__" class="mt-1" /><span>${novaTxt}</span></label>`;
+  } else {
+    html = `<p class="text-amber-700">A empresa do Bitrix ainda não está cadastrada no workfire-mais-perto. Ela será cadastrada agora:</p>` +
+      `<label class="flex items-start gap-2 cursor-pointer"><input type="radio" name="bb-empresa" value="__nova__" class="mt-1" checked /><span>${novaTxt}</span></label>`;
+  }
+  $("bb-empresa").innerHTML = html;
+}
+
+// Aplica o card escolhido ao formulário do orçamento (nada é gravado no banco/Bitrix ainda, exceto o cadastro da empresa quando necessário).
+async function bbUsar() {
+  if (bbOcupado || !bbDetalhe) return;
+  const r = bbDetalhe; const n = r.negocio; const m = r.empresa || {};
+  bbErro("");
+  let escolha = null;
+  if (m.situacao === "encontrada") escolha = m.empresa.id;
+  else if (m.situacao === "parecidas" || m.situacao === "nao_encontrada") {
+    escolha = document.querySelector('input[name="bb-empresa"]:checked')?.value || null;
+    if (!escolha) return bbErro("Escolha a empresa do orçamento.");
+  }
+  bbOcupado = true; $("btn-bb-usar").disabled = true;
+  try {
+    let empresaId = null; let empresaCriada = false;
+    if (escolha === "__nova__") {
+      const rc = await bbChamar("bitrix-buscar-negocio", { acao: "cadastrar_empresa", negocio_id: n.id });
+      if (!rc.ok) throw new Error(rc.error || "não foi possível cadastrar a empresa");
+      empresaId = rc.empresa.id; empresaCriada = !!rc.criada;
+      listaEmpresasAtivas = [rc.empresa, ...listaEmpresasAtivas.filter((e) => e.id !== rc.empresa.id)];
+    } else if (escolha) {
+      empresaId = escolha;
+      if (!listaEmpresasAtivas.some((e) => e.id === empresaId)) {
+        const { data: emp } = await supabase.from("empresas").select("*").eq("id", empresaId).maybeSingle();
+        if (emp) listaEmpresasAtivas = [emp, ...listaEmpresasAtivas];
+      }
+    }
+    if (empresaId) {
+      definirEmpresaSelect("orc-empresa", empresaId);
+      $("orc-empresa").dispatchEvent(new Event("change")); // traz contato/endereço da empresa; abaixo o contato do card prevalece
+    }
+    const c = r.contato || {};
+    if (c.nome) $("orc-contato-nome").value = c.nome;
+    if (c.telefone) $("orc-contato-telefone").value = c.telefone;
+    if (c.email) $("orc-contato-email").value = c.email;
+    if (r.vendedor?.id) preencherSeletorVendedorOrc(r.vendedor.id);
+
+    orcBxPendente = { negocio_id: n.id, pipeline_id: n.pipeline_id, pipeline: n.pipeline, fase_id: n.fase_id, fase: n.fase, titulo: n.titulo };
+    mostrarNegocioBitrixOrc(String(n.id));
+    bxPreencherPipelines(n.pipeline_id, n.pipeline);
+    bxPreencherFases(n.pipeline_id, n.fase_id, n.fase);
+    bxInfoOrc(`Card #${escHtmlOrc(String(n.id))} (${escHtmlOrc(n.pipeline)} › ${escHtmlOrc(n.fase)}) selecionado no Bitrix — o vínculo e os campos de correlação do card são gravados ao salvar o orçamento.`, "text-sky-700");
+    orcEditorSujo = true;
+    bbFechar();
+    const extra = empresaCriada ? ` Empresa “${(listaEmpresasAtivas.find((e) => e.id === empresaId) || {}).nome || ""}” cadastrada.` : "";
+    mensagemResponsavelBitrix(`ℹ Card #${n.id} selecionado.${extra} Salve o orçamento para concluir o vínculo.`, "text-sky-700");
+  } catch (e) {
+    bbErro(`Não foi possível aplicar o card: ${e?.message || e}`);
+  } finally {
+    bbOcupado = false; $("btn-bb-usar").disabled = false;
+  }
+}
+
+// Depois que o orçamento foi gravado: associa o card (vínculo + comentário + campo orçamento_wfmp). Devolve true quando concluiu.
+async function associarBitrixPendente(linha) {
+  if (!orcBxPendente || !linha?.numero) return false;
+  const pend = orcBxPendente;
+  mensagemResponsavelBitrix("Associando o card do Bitrix…");
+  try {
+    const r = await bbChamar("bitrix-novo-negocio", { acao: "associar", negocio_id: Number(pend.negocio_id), numero: String(linha.numero), substituir: true });
+    if (!r.ok) throw new Error(r.error || "não foi possível associar");
+    linha.id_negocio_bitrix = String(pend.negocio_id);
+    linha.bitrix_pipeline_id = pend.pipeline_id; linha.bitrix_pipeline_nome = pend.pipeline;
+    linha.bitrix_fase_id = pend.fase_id; linha.bitrix_fase_nome = pend.fase;
+    guardarVinculoBitrixOrc(linha);
+    const cache = listaOrcamentos.find((x) => x.id === linha.id);
+    if (cache) Object.assign(cache, { id_negocio_bitrix: linha.id_negocio_bitrix, bitrix_pipeline_id: pend.pipeline_id, bitrix_pipeline_nome: pend.pipeline, bitrix_fase_id: pend.fase_id, bitrix_fase_nome: pend.fase });
+    orcBxPendente = null;
+    bxInfoOrc(`Orçamento vinculado ao card #${escHtmlOrc(String(pend.negocio_id))}.`, "text-emerald-700");
+    return true;
+  } catch (e) {
+    mensagemResponsavelBitrix(`⚠ Orçamento salvo, mas o card #${pend.negocio_id} não foi associado: ${e?.message || "erro desconhecido"} — clique em salvar de novo para tentar outra vez.`, "text-rose-600");
+    return false;
+  }
+}
+
+$("btn-orc-buscar-bitrix").addEventListener("click", bbAbrir);
+$("btn-bb-fechar").addEventListener("click", bbFechar);
+$("btn-bb-voltar").addEventListener("click", () => { bbPasso(false); bbDetalhe = null; });
+$("btn-bb-buscar").addEventListener("click", bbBuscar);
+$("bb-termo").addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); bbBuscar(); } });
+$("btn-bb-usar").addEventListener("click", bbUsar);
 
 // ---- Envio da proposta ao Bitrix: valor e moeda do negócio + comentário "Nova proposta" + PDF anexado.
 // Só envia quando o orçamento já tem negócio vinculado ao Bitrix; sem vínculo, apenas avisa.

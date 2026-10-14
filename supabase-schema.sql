@@ -1503,3 +1503,13 @@ alter table public.orcamentos
 -- Edge Function bitrix-responsavel (v3): além do responsável do card (ASSIGNED_BY_ID = vendedor do orçamento), o nome do negócio passa a "Orç:<número> - <nome que o usuário cadastrou>"
 --   quando não começa com o número do orçamento (aceita "ORÇ 26385 - ...", "Orçamento nº 26385 ...", "26385 ..." como já corretos). Só com x-cron-token: "simular" e "titulo_forcado" (testes).
 -- =====================================================================
+
+-- ============================================================================
+-- Prod 1.71 (14/10/2026) — "Buscar Bitrix" no orçamento
+-- Sem alteração de tabelas. Edge Functions (verify_jwt = false; autorização própria: token do cron ou usuário admin / com permissão incluir|alterar em orçamentos):
+--  * bitrix-buscar-negocio (nova): ações "buscar" {termo} (nome do negócio + campo orçamento_wfmp; "#ID" busca pelo id do card),
+--    "detalhar" {negocio_id} (negócio, empresa do Bitrix, conferência via bitrix_buscar_empresa, contato, vendedor, orçamentos já vinculados) e
+--    "cadastrar_empresa" {negocio_id} (usa a empresa existente pelo CNPJ ou cadastra com origem 'Bitrix').
+--  * bitrix-responsavel (v6): novo parâmetro assumir_campos — logo após o usuário associar o card ao orçamento, orçamento_wfmp / id_wfmp passam a ser deste orçamento.
+--  * O vínculo em si continua sendo gravado por bitrix-novo-negocio (ação "associar", substituir:true) quando o orçamento é salvo.
+-- ============================================================================

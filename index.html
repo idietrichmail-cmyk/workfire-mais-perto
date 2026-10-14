@@ -1438,6 +1438,34 @@
     </div>
   </div>
 
+  <!-- Modal: Buscar o card do Bitrix para o orçamento (pesquisa, associa, traz empresa/contato/vendedor) -->
+  <div id="modal-buscar-bitrix" class="hidden fixed inset-0 z-[70] bg-slate-900/60 flex items-center justify-center p-4">
+    <div class="bg-white rounded-lg shadow-xl w-full max-w-2xl p-5 max-h-[90vh] overflow-y-auto">
+      <h3 class="font-serif text-lg text-slate-900">Buscar card no Bitrix</h3>
+      <div id="bb-passo-busca">
+        <p class="text-sm text-slate-600 mt-1">Digite o número do orçamento (ou parte do nome do negócio). Use <span class="font-mono">#12345</span> para buscar pelo ID do card.</p>
+        <div class="flex gap-2 mt-2">
+          <input id="bb-termo" autocomplete="off" placeholder="Ex: 26385" class="flex-1 rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
+          <button type="button" id="btn-bb-buscar" class="px-4 py-1.5 text-sm font-medium text-white bg-sky-700 hover:bg-sky-800 rounded-md disabled:opacity-50">Buscar</button>
+        </div>
+        <p id="bb-msg" class="hidden text-sm mt-3"></p>
+        <div id="bb-lista" class="mt-3 space-y-2"></div>
+      </div>
+      <div id="bb-passo-detalhe" class="hidden">
+        <div id="bb-resumo" class="mt-2 text-sm text-slate-700 bg-slate-50 border border-slate-200 rounded-md p-3 space-y-0.5"></div>
+        <div id="bb-aviso" class="hidden mt-3 text-sm rounded-md p-3 border"></div>
+        <div id="bb-empresa" class="mt-3 text-sm text-slate-700 space-y-1.5"></div>
+        <p class="text-xs text-slate-500 mt-3">Ao confirmar, a empresa, o contato e o vendedor do orçamento são preenchidos com os dados do Bitrix. O vínculo com o card (e o preenchimento dos campos orçamento_wfmp / id_wfmp no card) é gravado quando você salvar o orçamento.</p>
+      </div>
+      <p id="bb-erro" class="hidden text-sm text-rose-600 mt-3"></p>
+      <div class="flex justify-end gap-2 mt-4">
+        <button type="button" id="btn-bb-fechar" class="px-4 py-1.5 text-sm font-medium text-slate-600 border border-slate-300 rounded-md hover:bg-slate-50">Cancelar</button>
+        <button type="button" id="btn-bb-voltar" class="hidden px-4 py-1.5 text-sm font-medium text-slate-700 border border-slate-300 rounded-md hover:bg-slate-50">← Voltar à lista</button>
+        <button type="button" id="btn-bb-usar" class="hidden px-4 py-1.5 text-sm font-medium text-white bg-amber-600 hover:bg-amber-700 rounded-md disabled:opacity-50">Associar e preencher o orçamento</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Painel: Orçamento -->
   <div id="painel-orcamento"class="hidden fixed left-0 right-0 bottom-0 z-40 flex flex-col bg-slate-100" style="top:0">
     <!-- Cabeçalho do orçamento -->
@@ -1488,7 +1516,8 @@
         <div class="px-3 py-2.5">
           <div class="grid grid-cols-2 md:grid-cols-12 gap-x-3 gap-y-2">
             <div class="col-span-1 md:col-span-2"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Número</label>
-              <input id="orc-numero" class="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono" placeholder="Automático" title="Deixe em branco para o sistema numerar (260001, 260002…)." /></div>
+              <input id="orc-numero" class="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono" placeholder="Automático" title="Deixe em branco para o sistema numerar (260001, 260002…)." />
+              <button type="button" id="btn-orc-buscar-bitrix" class="mt-1 w-full px-2 py-1 text-[11px] font-medium text-sky-800 bg-sky-50 border border-sky-300 rounded-md hover:bg-sky-100" title="Procura o card no Bitrix pelo número do orçamento (ou nome), associa e traz empresa, contato e vendedor.">🔎 Buscar Bitrix</button></div>
             <div class="col-span-2 md:col-span-4"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Empresa</label>
               <select id="orc-empresa" class="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"></select></div>
             <div class="col-span-2 md:col-span-2"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Contato</label>
@@ -2254,6 +2283,6 @@
 </div>
 
 <script src="config.js"></script>
-<script src="app.js?v=20261013d"></script>
+<script src="app.js?v=20261014a"></script>
 </body>
 </html>
