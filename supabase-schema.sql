@@ -1555,3 +1555,20 @@ alter policy turmas_select on public.turmas using ((select pode_acessar_tabela((
 -- administrador, comercial e usuário sem acesso ao módulo enxergam as mesmas quantidades de antes; instrutor segue limitado às próprias linhas.
 -- Resultado: consulta de orçamentos+empresas de 700-1500 ms para ~25 ms; lista de empresas 2,7 s -> 0,07 s.
 -- ============================================================================
+
+-- ============================================================
+-- 15/10/2026 — Correção de lentidão ("app parou de responder")
+-- As políticas SELECT dos instrutores (orcamentos/empresas/turmas/agendamentos/
+-- centros_treinamento/tipos_treinamento) usavam EXISTS com JOINs que se
+-- reaplicavam RLS entre si (recursão), gerando planos enormes: a lista de
+-- orçamentos levava ~3,5 s por usuário. Agora usam funções SECURITY DEFINER
+-- que devolvem os ids visíveis ao instrutor (sem recursão de RLS):
+--   rls_instrutores_do_usuario, rls_turmas_do_instrutor, rls_orcamentos_do_instrutor,
+--   rls_empresas_do_instrutor, rls_centros_do_instrutor, rls_tipos_do_instrutor
+-- Políticas alteradas: agendamentos_select_proprio_instrutor,
+-- centros_treinamento_select_instrutor, empresas_select_instrutor (agora inclui
+-- as empresas via turma), empresas_select_instrutor_via_turma (using false, obsoleta),
+-- orcamentos_select_instrutor, tipos_treinamento_select_instrutor,
+-- turmas_select_instrutor_proprio.
+-- Resultado: lista de orçamentos ~3,5 s -> ~20 ms (planejamento 2,4 ms).
+-- Instrutor continua vendo somente os próprios dados (testado: 6 orçamentos/6 turmas).
