@@ -1572,3 +1572,24 @@ alter policy turmas_select on public.turmas using ((select pode_acessar_tabela((
 -- turmas_select_instrutor_proprio.
 -- Resultado: lista de orçamentos ~3,5 s -> ~20 ms (planejamento 2,4 ms).
 -- Instrutor continua vendo somente os próprios dados (testado: 6 orçamentos/6 turmas).
+
+-- ============================================================
+-- 16/10/2026 — Prod 1.74: logotipos da proposta fora do instantâneo
+-- Cada "Gerar proposta" copiava os logotipos do centro (PNG de ~1 MB em base64) para
+-- orcamento_propostas.dados.centro; 38 propostas ocupavam ~37 MB. Agora:
+--   * a imagem é gravada uma única vez em proposta_imagens (hash = SHA-256 do data URL);
+--   * dados.centro guarda só logotipo_esquerdo_ref / logotipo_direito_ref;
+--   * o PDF resolve a referência ao ser (re)gerado. Propostas antigas (imagem inline) seguem válidas;
+--   * o cadastro do Centro de Treinamento reduz e comprime os logotipos (máx. 1000 × 240 px;
+--     JPEG quando não há transparência) e otimiza sozinho os logotipos pesados já gravados ao abrir o cadastro.
+create table if not exists public.proposta_imagens (
+  hash text primary key,
+  data text not null,
+  created_at timestamptz not null default now()
+);
+alter table public.proposta_imagens enable row level security;
+create policy proposta_imagens_select on public.proposta_imagens for select to authenticated
+  using ((select pode_acessar_tabela((select auth.uid()), 'orcamento_propostas', 'select')));
+create policy proposta_imagens_insert on public.proposta_imagens for insert to authenticated
+  with check ((select pode_acessar_tabela((select auth.uid()), 'orcamento_propostas', 'insert')));
+-- (sem update/delete: a imagem é imutável, identificada pelo hash)

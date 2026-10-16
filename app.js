@@ -34,7 +34,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.73 · 14/10/2026";
+const APP_VERSAO = "Prod 1.74 · 16/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -3120,7 +3120,7 @@ function renderCampoHtml(campo, valor, item) {
           <button type="button" data-imagem-remover class="text-xs text-rose-600 hover:text-rose-800 ${tem ? "" : "hidden"}">Remover</button>
         </div>
       </div>
-      <p data-imagem-msg class="text-[11px] mt-1 text-slate-400">PNG ou JPG; é reduzida automaticamente (até 800 px no maior lado).</p>
+      <p data-imagem-msg class="text-[11px] mt-1 text-slate-400">PNG ou JPG; é reduzida e comprimida automaticamente (até 1000 × 240 px — suficiente para a proposta).</p>
     </div>`;
   }
   if (campo.tipo === "checkbox") {
@@ -3475,6 +3475,7 @@ function ligarBotoesAcaoCampos(cfg) {
   });
   ligarMascaras(cfg);
   ligarPreviasTextoProposta(cfg);
+  otimizarImagensDoFormulario();
   if (cfg.aoMontarForm) cfg.aoMontarForm(crudItemEmEdicao);
 }
 
@@ -3547,26 +3548,56 @@ function cpfValido(valor) {
 }
 
 // Campo de imagem (logotipos): reduz no navegador e guarda como data URL no próprio registro.
-function reduzirImagemArquivo(arquivo, maxLado) {
+// O logotipo sai na proposta numa caixa de 90 × 16,8 mm: 1000 × 240 px já dá ~300 dpi; acima disso só pesa.
+// Sem transparência → JPEG (ou PNG quando ele sai pequeno, p.ex. cores chapadas); com transparência → PNG.
+const LOGO_MAX_W = 1000, LOGO_MAX_H = 240, LOGO_ALVO_BYTES = 150000;
+function codificarLogo(img) {
+  const esc = Math.min(1, LOGO_MAX_W / img.width, LOGO_MAX_H / img.height);
+  const w = Math.max(1, Math.round(img.width * esc));
+  const h = Math.max(1, Math.round(img.height * esc));
+  const cv = document.createElement("canvas");
+  cv.width = w; cv.height = h;
+  const ctx = cv.getContext("2d", { willReadFrequently: true });
+  ctx.drawImage(img, 0, 0, w, h);
+  let transparente = false;
+  try {
+    const px = ctx.getImageData(0, 0, w, h).data;
+    for (let i = 3; i < px.length; i += 4) if (px[i] < 250) { transparente = true; break; }
+  } catch (e) { transparente = true; } // não deu para ler os pixels: PNG preserva tudo
+  const png = cv.toDataURL("image/png");
+  if (transparente || png.length <= 60000) return { dataUrl: png, w, h };
+  return { dataUrl: cv.toDataURL("image/jpeg", 0.9), w, h };
+}
+function carregarImagemUrl(url) {
   return new Promise((resolve, reject) => {
-    const url = URL.createObjectURL(arquivo);
     const img = new Image();
-    img.onload = () => {
-      URL.revokeObjectURL(url);
-      const esc = Math.min(1, maxLado / Math.max(img.width, img.height));
-      const w = Math.max(1, Math.round(img.width * esc));
-      const h = Math.max(1, Math.round(img.height * esc));
-      const cv = document.createElement("canvas");
-      cv.width = w; cv.height = h;
-      const ctx = cv.getContext("2d");
-      const png = /png|webp/i.test(arquivo.type);
-      if (!png) { ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, w, h); }
-      ctx.drawImage(img, 0, 0, w, h);
-      resolve({ dataUrl: png ? cv.toDataURL("image/png") : cv.toDataURL("image/jpeg", 0.88), w, h });
-    };
-    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("imagem inválida")); };
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("imagem inválida"));
     img.src = url;
   });
+}
+async function reduzirImagemArquivo(arquivo) {
+  const url = URL.createObjectURL(arquivo);
+  try { return codificarLogo(await carregarImagemUrl(url)); } finally { URL.revokeObjectURL(url); }
+}
+const tamanhoLegivel = (n) => (n >= 1048576 ? (n / 1048576).toFixed(1).replace(".", ",") + " MB" : Math.max(1, Math.round(n / 1024)) + " KB");
+// Logotipos já gravados e pesados (ex.: PNG de 1 MB): ao abrir o cadastro, reduz sozinho; basta salvar.
+async function otimizarImagensDoFormulario() {
+  for (const caixa of document.querySelectorAll("#crud-campos [data-imagem-campo]")) {
+    const campo = caixa.querySelector("input[type=hidden]");
+    const atual = campo ? campo.value : "";
+    if (!atual || atual.length <= LOGO_ALVO_BYTES) continue;
+    try {
+      const r = await codificarLogo(await carregarImagemUrl(atual));
+      if (r.dataUrl.length > atual.length * 0.8) continue; // não compensa
+      campo.value = r.dataUrl;
+      const prev = caixa.querySelector("[data-imagem-prev]");
+      prev.src = r.dataUrl; prev.classList.remove("hidden");
+      const msg = caixa.querySelector("[data-imagem-msg]");
+      msg.textContent = `Logotipo otimizado: de ${tamanhoLegivel(atual.length)} para ${tamanhoLegivel(r.dataUrl.length)} (${r.w}×${r.h}px), sem perder qualidade na proposta. Salve o cadastro para gravar.`;
+      msg.className = "text-[11px] mt-1 text-emerald-600";
+    } catch (e) { /* mantém a imagem como está */ }
+  }
 }
 document.addEventListener("change", async (e) => {
   const inp = e.target.closest ? e.target.closest("[data-imagem-arquivo]") : null;
@@ -3577,7 +3608,7 @@ document.addEventListener("change", async (e) => {
   if (!arquivo) return;
   if (arquivo.size > 8 * 1024 * 1024) { msg.textContent = "Arquivo muito grande (máx. 8 MB)."; msg.className = "text-[11px] mt-1 text-rose-600"; return; }
   try {
-    const r = await reduzirImagemArquivo(arquivo, 800);
+    const r = await reduzirImagemArquivo(arquivo);
     caixa.querySelector("input[type=hidden]").value = r.dataUrl;
     const prev = caixa.querySelector("[data-imagem-prev]");
     prev.src = r.dataUrl; prev.classList.remove("hidden");
@@ -8041,6 +8072,61 @@ function montarDadosProposta(linha, calc, agora, numero, versao) {
   };
 }
 
+// Logotipos da proposta: cada imagem é gravada uma única vez em proposta_imagens (chave = SHA-256) e o
+// instantâneo da proposta guarda só a referência (logotipo_*_ref). Propostas antigas, com a imagem dentro
+// de dados.centro, continuam funcionando.
+const LOGOS_PROPOSTA = ["logotipo_esquerdo", "logotipo_direito"];
+const cacheImagensProposta = new Map();
+async function sha256Hex(texto) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(texto));
+  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+// Devolve uma cópia dos dados com os logotipos trocados por referência. Se algo falhar, devolve os dados originais (a proposta não pode deixar de ser gerada).
+async function dadosCompactosDaProposta(dados) {
+  try {
+    const ct = dados && dados.centro;
+    if (!ct || !crypto || !crypto.subtle) return dados;
+    const linhas = [];
+    const novoCt = { ...ct };
+    for (const campo of LOGOS_PROPOSTA) {
+      const v = ct[campo];
+      if (!v || typeof v !== "string") continue;
+      const hash = await sha256Hex(v);
+      linhas.push({ hash, data: v });
+      novoCt[campo] = null;
+      novoCt[campo + "_ref"] = hash;
+    }
+    if (!linhas.length) return dados;
+    const { error } = await supabase.from("proposta_imagens").upsert(linhas, { onConflict: "hash", ignoreDuplicates: true });
+    if (error) return dados;
+    linhas.forEach((l) => cacheImagensProposta.set(l.hash, l.data));
+    return { ...dados, centro: novoCt };
+  } catch (e) {
+    return dados;
+  }
+}
+// Reconstrói os logotipos (data URL) de uma proposta gravada a partir das referências.
+async function resolverLogosDaProposta(ct) {
+  const saida = { ...ct };
+  const faltam = [];
+  for (const campo of LOGOS_PROPOSTA) {
+    const ref = saida[campo + "_ref"];
+    if (saida[campo] || !ref) continue;
+    if (cacheImagensProposta.has(ref)) saida[campo] = cacheImagensProposta.get(ref);
+    else faltam.push(ref);
+  }
+  if (faltam.length) {
+    const { data, error } = await supabase.from("proposta_imagens").select("hash, data").in("hash", [...new Set(faltam)]);
+    if (error) throw new Error("não foi possível carregar o logotipo da proposta: " + (error.message || "erro desconhecido"));
+    (data || []).forEach((r) => cacheImagensProposta.set(r.hash, r.data));
+    for (const campo of LOGOS_PROPOSTA) {
+      const ref = saida[campo + "_ref"];
+      if (!saida[campo] && ref && cacheImagensProposta.has(ref)) saida[campo] = cacheImagensProposta.get(ref);
+    }
+  }
+  return saida;
+}
+
 async function gerarPropostaOrcamento() {
   if (orcGerandoProposta || orcPropostaTravada) return;
   esconderErro("orc-form-erro");
@@ -8066,9 +8152,10 @@ async function gerarPropostaOrcamento() {
       const numero = numeroDaProposta(linha.numero, agora, tent > 0);
       dados = montarDadosProposta(linha, calc, agora, numero, versao);
       blob = await gerarPdfProposta(dados, { marca: calc.precisaAprovacao && !aprovPrev ? "NÃO APROVADA" : null }); // se o PDF falhar, nada é gravado
+      const dadosGravar = await dadosCompactosDaProposta(dados); // logotipos viram referência (1 cópia só no banco)
       const { data, error } = await supabase.from("orcamento_propostas").insert({
         orcamento_id: linha.id, numero, versao, valor_final: dados.calculo.valor_final,
-        gerado_por: dados.gerado_por, dados, status: "Válida",
+        gerado_por: dados.gerado_por, dados: dadosGravar, status: "Válida",
         requer_aprovacao: !!calc.precisaAprovacao,
         ...(aprovPrev ? { aprovado_em: aprovPrev.em, aprovado_por: aprovPrev.por, aprovado_por_id: aprovPrev.por_id, justificativa_aprovacao: aprovPrev.justificativa } : {}),
         margem_final_valor: dados.calculo.margem_final_valor, margem_final_perc: dados.calculo.margem_final_perc,
@@ -8852,7 +8939,7 @@ const dataBrDeIso = (s) => (s ? String(s).slice(0, 10).split("-").reverse().join
 // blocos pretos/preenchidos (economiza tinta ao imprimir).
 async function gerarPdfProposta(d, opts = {}) {
   const JsPDF = await carregarJsPdf();
-  const ct = d.centro || {};
+  const ct = await resolverLogosDaProposta(d.centro || {});
   const [infoE, infoD] = await Promise.all([infoImagemPdf(ct.logotipo_esquerdo), infoImagemPdf(ct.logotipo_direito)]);
   let doc;
   for (const esc of [1, 0.97, 0.94, 0.91, 0.88, 0.85, 0.82, 0.79, 0.76, 0.73, 0.7, 0.67, 0.64]) {
