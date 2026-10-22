@@ -1586,6 +1586,8 @@
               <input id="orc-qtd-alunos-turma" type="number" readonly class="mt-0.5 w-full rounded-md border border-slate-300 bg-slate-100 text-slate-500 px-2 py-1.5 text-sm" /></div>
             <div class="col-span-1 md:col-span-2"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide" title="Locais do cliente onde os alunos vão treinar">Localidades</label>
               <input id="orc-qtd-localidades" type="number" min="1" step="1" class="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" /></div>
+            <div id="orc-distancia-wrap" class="hidden col-span-1 md:col-span-2"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide" title="Distância do cliente até o Centro de Treinamento, em km. Obrigatória porque o treinamento tem item calculado por distância">Distância ao CT (km)</label>
+              <input id="orc-distancia-km" type="number" min="0" step="0.1" inputmode="decimal" placeholder="km" class="mt-0.5 w-full rounded-md border border-amber-400 bg-amber-50 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" /></div>
             <div class="col-span-1 md:col-span-2"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Data</label>
               <input id="orc-data" type="date" class="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" /></div>
             <div class="col-span-1 md:col-span-2"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide" title="Validade da proposta em dias (padrão vem do cadastro do treinamento)">Validade (dias)</label>
@@ -2283,6 +2285,6 @@
 </div>
 
 <script src="config.js"></script>
-<script src="app.js?v=20261016a"></script>
+<script src="app.js?v=20261022a"></script>
 </body>
 </html>

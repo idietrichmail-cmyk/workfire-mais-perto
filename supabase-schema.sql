@@ -1099,7 +1099,7 @@ alter table instrutores
 -- migração tipos_treinamento_percentuais (aplicada em 04/10/2026):
 --   tipos_treinamento.perc_apoio, perc_margem, perc_imposto numeric(5,2) not null default 0, cada um com check entre 0 e 100.
 -- migração orcamento_calculo_tela_cheia (aplicada em 05/10/2026):
---   unidades_medida.base_calculo text (turma | alunos_por_turma | qtde_turmas | localidades | manual) — de onde vem a quantidade do item;
+--   unidades_medida.base_calculo text (turma | alunos_por_turma | qtde_turmas | localidades | distancia | manual) — de onde vem a quantidade do item;
 --   unidade "Qtde Turmas" criada; orcamentos: perc_apoio/perc_margem/perc_imposto/perc_desconto numeric(5,2) (0..100) e
 --   custo_turma, valor_turma, valor_total, valor_desconto, valor_final, valor_por_aluno, valor_final_aluno, calculado_em;
 --   tabela orcamento_itens_custo (linhas do cálculo, copiadas dos itens de custo do treinamento; on delete cascade no orçamento;
@@ -1593,3 +1593,16 @@ create policy proposta_imagens_select on public.proposta_imagens for select to a
 create policy proposta_imagens_insert on public.proposta_imagens for insert to authenticated
   with check ((select pode_acessar_tabela((select auth.uid()), 'orcamento_propostas', 'insert')));
 -- (sem update/delete: a imagem é imutável, identificada pelo hash)
+
+-- ============================================================
+-- 22/10/2026 — Prod 1.75: distância do cliente até o Centro de Treinamento no orçamento
+--   * unidades_medida.base_calculo aceita também 'distancia' (km digitado no orçamento);
+--   * orcamentos.distancia_km numeric(8,1): preenchida quando o treinamento tem item (ou divisor) com unidade de distância;
+--   * unidade "Distância" (base 'distancia') criada no cadastro de unidades de medida.
+alter table unidades_medida drop constraint unidades_medida_base_calculo_check;
+alter table unidades_medida add constraint unidades_medida_base_calculo_check
+  check (base_calculo is null or base_calculo = any (array['turma','alunos_por_turma','qtde_turmas','localidades','distancia','manual']));
+alter table orcamentos add column if not exists distancia_km numeric(8,1);
+insert into unidades_medida (sigla, descricao, base_calculo, status)
+select 'Distância', 'Distância em km entre o cliente e o Centro de Treinamento (digitada no orçamento)', 'distancia', 'Ativo'
+where not exists (select 1 from unidades_medida where base_calculo = 'distancia');

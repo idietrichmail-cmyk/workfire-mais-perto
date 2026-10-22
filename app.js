@@ -34,7 +34,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.74 · 16/10/2026";
+const APP_VERSAO = "Prod 1.75 · 22/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -363,6 +363,7 @@ const BASES_CALCULO = [
   { value: "alunos_por_turma", label: "Alunos por turma" },
   { value: "qtde_turmas", label: "Quantidade de turmas do orçamento" },
   { value: "localidades", label: "Quantidade de localidades do orçamento" },
+  { value: "distancia", label: "Distância do cliente ao Centro de Treinamento (km, digitada no orçamento)" },
   { value: "manual", label: "Digitada no orçamento (manual)" },
 ];
 const rotuloBaseCalculo = (v) => (BASES_CALCULO.find((b) => b.value === v) || {}).label || "";
@@ -6477,6 +6478,7 @@ function atualizarNecessitaDoisInstrutores() {
 $("orc-qtd-turmas").addEventListener("input", atualizarQtdAlunosCalculado);
 $("orc-qtd-alunos").addEventListener("input", atualizarQtdAlunosCalculado);
 $("orc-qtd-localidades").addEventListener("input", atualizarQtdAlunosCalculado);
+$("orc-distancia-km").addEventListener("input", atualizarQtdAlunosCalculado);
 $("orc-validade-dias").addEventListener("input", () => { orcValidadeManual = true; });
 $("orc-tipo").addEventListener("change", () => {
   if (!orcValidadeManual || !$("orc-validade-dias").value) {
@@ -6603,7 +6605,24 @@ function orcQuantidades() {
   const alunos = Math.max(0, Math.floor(Number($("orc-qtd-alunos").value) || 0));
   const turmas = Math.max(1, Math.floor(Number($("orc-qtd-turmas").value)) || 1);
   const localidades = Math.max(1, Math.floor(Number($("orc-qtd-localidades").value)) || 1);
-  return { alunos, turmas, localidades, alunosPorTurma: Math.ceil(alunos / turmas) };
+  const distancia = orcDistanciaDigitada();
+  return { alunos, turmas, localidades, distancia, alunosPorTurma: Math.ceil(alunos / turmas) };
+}
+
+// Distância (km) do cliente até o Centro de Treinamento, digitada no orçamento. Vale 0 se estiver em branco.
+function orcDistanciaDigitada() {
+  const el = $("orc-distancia-km");
+  const n = Number(String(el ? el.value : "").replace(",", "."));
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+// Alguma linha do cálculo usa a distância (como quantidade do item ou como referência do divisor)?
+function orcUsaDistancia(linhas) {
+  return (linhas || []).some((l) => l.base_calculo === "distancia" || (Number(l.divisor) > 0 && l.base_divisor === "distancia"));
+}
+// O campo Distância só aparece quando o treinamento tem algum item com unidade de medida de distância.
+function orcAtualizarCampoDistancia() {
+  const wrap = $("orc-distancia-wrap");
+  if (wrap) wrap.classList.toggle("hidden", !orcUsaDistancia(orcLinhasCalc));
 }
 
 function orcQtdDaBase(base, q) {
@@ -6612,6 +6631,7 @@ function orcQtdDaBase(base, q) {
     case "alunos_por_turma": return q.alunosPorTurma;
     case "qtde_turmas": return q.turmas;
     case "localidades": return q.localidades;
+    case "distancia": return q.distancia || 0;
     default: return null; // "manual" ou sem base definida: quantidade digitada
   }
 }
@@ -6853,6 +6873,7 @@ function orcAtualizarTransporteEObs() {
 }
 
 function renderizarCalcOrcamento() {
+  orcAtualizarCampoDistancia();
   const th = "px-2 py-1.5 font-medium whitespace-nowrap";
   const cinza = "orc-det bg-slate-100";
   $("orc-calc-thead").innerHTML = `<tr class="bg-slate-50 text-left text-slate-500 uppercase tracking-wide text-[10px]">
@@ -6869,7 +6890,7 @@ function renderizarCalcOrcamento() {
   } else {
     const campo = "w-24 rounded border border-slate-300 bg-white px-1.5 py-0.5 text-right text-xs";
     corpo.innerHTML = orcLinhasCalc.map((l) => {
-      const manual = orcQtdDaBase(l.base_calculo, { alunosPorTurma: 0, turmas: 0, localidades: 0 }) == null;
+      const manual = orcQtdDaBase(l.base_calculo, { alunosPorTurma: 0, turmas: 0, localidades: 0, distancia: 0 }) == null;
       const trava = orcPropostaTravada ? " disabled" : "";
       return `<tr data-orc-linha="${l.chave}">
         <td class="px-2 py-1 font-semibold text-slate-800 whitespace-nowrap" title="${(l.descricao_impressao || "").replace(/"/g, "&quot;")}">${l.item}${l.opcional ? ` <span class="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800">opcional</span>${orcPropostaTravada ? "" : ` <button type="button" data-orc-remover="${l.chave}" class="text-rose-500 hover:text-rose-700 text-xs" title="Tirar este item opcional do cálculo">✕</button>`}` : ""}</td>
@@ -7131,6 +7152,7 @@ async function abrirNovoOrcamento() {
   preencherSelect("orc-formato-pratica", FORMATOS_PRATICA.map((f) => ({ id: f, nome: f })), "id", (i) => i.nome, "— Selecione —");
   $("orc-qtd-turmas").value = "1";
   $("orc-qtd-localidades").value = "1";
+  $("orc-distancia-km").value = "";
   $("orc-qtd-alunos").value = "";
   $("orc-data").value = formatarData(new Date());
   $("orc-validade-dias").value = "";
@@ -7189,6 +7211,7 @@ async function abrirEdicaoOrcamento(id) {
   $("orc-formato-pratica").value = o.formato_pratica || "";
   $("orc-qtd-turmas").value = o.qtd_turmas || "";
   $("orc-qtd-localidades").value = o.qtd_localidades || 1;
+  $("orc-distancia-km").value = o.distancia_km != null ? String(o.distancia_km) : "";
   $("orc-qtd-alunos").value = o.qtd_alunos || ((Number(o.qtd_turmas) || 0) * (Number(o.qtd_alunos_por_turma) || 0)) || "";
   $("orc-data").value = o.data || "";
   {
@@ -7392,6 +7415,7 @@ async function salvarOrcamento(opts = {}) {
   if (!tipoId) return orcFalha(1, "Selecione o treinamento.");
   if (qtdTurmas < 1) return orcFalha(1, "Informe a quantidade de turmas (mínimo 1).");
   if (qtdLocalidades < 1) return orcFalha(1, "Informe a quantidade de localidades do cliente onde os alunos vão treinar (mínimo 1).");
+  if (orcUsaDistancia(orcLinhasCalc) && !(orcDistanciaDigitada() > 0)) return orcFalha(1, "Este treinamento tem item calculado por distância: informe a distância do cliente até o Centro de Treinamento, em km.");
   const qtdAlunos = Math.floor(Number($("orc-qtd-alunos").value) || 0);
   if (qtdAlunos < 1) return orcFalha(1, "Informe a quantidade de alunos (mínimo 1).");
   if (orcCalcPendentes > 0) return orcFalha(2, "Aguarde: os itens de custo ainda estão sendo carregados.");
@@ -7462,6 +7486,7 @@ async function salvarOrcamento(opts = {}) {
     formato_pratica: $("orc-formato-pratica").value || null,
     qtd_turmas: qtdTurmas,
     qtd_localidades: qtdLocalidades,
+    distancia_km: orcUsaDistancia(orcLinhasCalc) ? orcDistanciaDigitada() : null,
     qtd_alunos_por_turma: qtdAlunosPorTurma || null,
     qtd_alunos: qtdAlunos,
     perc_apoio: calc.apoio,
@@ -7611,7 +7636,7 @@ $("btn-salvar-orcamento").addEventListener("click", () => salvarOrcamento());
 //  - nº da proposta = nº do orçamento + data + hora (ex.: 4080-20261005-1432);
 //  - com proposta gerada o cálculo fica bloqueado; "Nova proposta" libera para alterar e gerar outra versão.
 // =====================================================================
-const CAMPOS_TRAVA_PROPOSTA = ["orc-tipo", "orc-qtd-alunos", "orc-qtd-turmas", "orc-qtd-localidades", "orc-perc-apoio", "orc-perc-margem", "orc-perc-imposto", "orc-perc-desconto", "orc-valor-desconto", "orc-prazo", "orc-validade-dias", "btn-orc-restaurar", "btn-orc-opcional"];
+const CAMPOS_TRAVA_PROPOSTA = ["orc-tipo", "orc-qtd-alunos", "orc-qtd-turmas", "orc-qtd-localidades", "orc-distancia-km", "orc-perc-apoio", "orc-perc-margem", "orc-perc-imposto", "orc-perc-desconto", "orc-valor-desconto", "orc-prazo", "orc-validade-dias", "btn-orc-restaurar", "btn-orc-opcional"];
 
 function orcPreencherPrazos(selecionado) {
   const sel = $("orc-prazo");
@@ -8055,7 +8080,7 @@ function montarDadosProposta(linha, calc, agora, numero, versao) {
     endereco_transporte: orcTemTransporte(itens) ? enderecoTransporteDoOrcamento(linha, emp) : "",
     centro: { id: ct.id || null, nome: ct.nome || "", cidade: ct.cidade || "", endereco: ct.endereco || "", rodape_pagina: ct.texto_rodape_pagina || "", logotipo_esquerdo: ct.logotipo_esquerdo || null, logotipo_direito: ct.logotipo_direito || null },
     treinamento: { id: tipo.id || null, nome: tipo.nome || "", descricao_impressao: tipo.descricao_impressao || "", rodape: tipo.rodape || "" },
-    quantidades: { alunos: calc.q.alunos, turmas: calc.q.turmas, alunos_por_turma: calc.q.alunosPorTurma, localidades: calc.q.localidades },
+    quantidades: { alunos: calc.q.alunos, turmas: calc.q.turmas, alunos_por_turma: calc.q.alunosPorTurma, localidades: calc.q.localidades, distancia_km: calc.q.distancia },
     percentuais: { apoio: calc.apoio, margem: calc.margem, imposto: calc.imposto, desconto: r2(calc.desconto), desconto_modo: orcDescontoModo },
     calculo: {
       custo_turma: r2(calc.custo), valor_turma: r2(calc.valorTurma), valor_total: r2(calc.total), valor_desconto: r2(calc.valorDesc),
