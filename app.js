@@ -34,7 +34,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.75 · 22/10/2026";
+const APP_VERSAO = "Prod 1.77 · 22/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -1830,6 +1830,10 @@ const CRUD_CONFIG = {
     tabela: "empresas",
     titulo: "Empresa",
     descricao: "Empresas clientes que contratam treinamentos.",
+    painelTelaCheia: true,
+    camposExtraHtml: () => htmlSecaoContatosEmpresa(),
+    aoMontarForm: (item) => iniciarSecaoContatosEmpresa(item),
+    aoSalvar: aoSalvarEmpresaCrud,
     buscaPlaceholder: "Buscar por nome, nome fantasia ou CNPJ",
     ordenarPor: "nome",
     // Lista paginada no servidor: só 30 empresas por vez (a busca também roda no servidor).
@@ -1851,10 +1855,13 @@ const CRUD_CONFIG = {
           return count > 0 ? null : "Esse CNPJ do grupo econômico não corresponde a nenhuma empresa já cadastrada.";
         },
       },
-      { id: "contato_nome", label: "Nome do contato" },
-      { id: "contato_email", label: "E-mail do contato", tipo: "email" },
-      { id: "contato_telefone", label: "Telefone do contato" },
+      { id: "contato_nome", label: "Contato principal — nome" },
+      { id: "contato_cargo", label: "Contato principal — cargo" },
+      { id: "contato_depto", label: "Contato principal — departamento" },
+      { id: "contato_email", label: "Contato principal — e-mail", tipo: "email" },
+      { id: "contato_telefone", label: "Contato principal — telefone" },
       { id: "endereco", label: "Endereço" },
+      { id: "emite_ordem_compra", label: "Emite ordem de compra / pedido de compra", tipo: "checkbox" },
       { id: "status", label: "Status", tipo: "select", opcoes: ["Ativo", "Inativo"], padrao: "Ativo" },
     ],
     campoBusca: (i) => `${i.nome} ${i.nome_fantasia || ""} ${i.cnpj || ""}`,
@@ -2226,7 +2233,7 @@ const CRUD_CONFIG = {
     cardTitulo: (i) => i.item,
     cardLinhas: (i) => {
       const un = itemCustoRefUnidades.find((u) => u.id === i.unidade_medida_id);
-      return [un && `📏 ${un.sigla} — ${un.descricao}`, `💰 ${fmtBRL(i.valor)}`, Number(i.valor_adicional_in_company) > 0 && `🏢 Adicional In Company: ${fmtBRL(i.valor_adicional_in_company)}`, i.opcional ? "☑️ Item opcional" : "Item obrigatório", i.descricao_impressao && `🖨️ ${i.descricao_impressao}`, i.observacao_nao_imprime && `📝 Se não imprimir: ${i.observacao_nao_imprime}`].filter(Boolean);
+      return [i.descricao_impressao && escC(i.descricao_impressao), un && `📏 ${un.sigla} — ${un.descricao}`, `💰 ${fmtBRL(i.valor)}`, Number(i.valor_adicional_in_company) > 0 && `🏢 Adicional In Company: ${fmtBRL(i.valor_adicional_in_company)}`, i.opcional ? "☑️ Item opcional" : "Item obrigatório", i.descricao_impressao && `🖨️ ${i.descricao_impressao}`, i.observacao_nao_imprime && `📝 Se não imprimir: ${i.observacao_nao_imprime}`].filter(Boolean);
     },
     renderTabela: (lista, { podeAlterar, podeExcluir }) => {
       const un = (id) => { const u = itemCustoRefUnidades.find((x) => x.id === id); return u ? `${u.sigla} — ${u.descricao}` : "—"; };
@@ -2235,8 +2242,7 @@ const CRUD_CONFIG = {
       <table class="w-full text-xs bg-white border border-slate-200 rounded-lg">
         <thead>
           <tr class="bg-slate-50 text-left text-slate-500 uppercase tracking-wide text-[10px]">
-            <th class="px-3 py-2 font-medium">Item</th>
-            <th class="px-3 py-2 font-medium">Descrição para impressão</th>
+            <th class="px-3 py-2 font-medium">Item · descrição para impressão</th>
             <th class="px-3 py-2 font-medium">Unidade</th>
             <th class="px-3 py-2 font-medium text-right">Valor</th>
             <th class="px-3 py-2 font-medium text-right">Adic. In Company</th>
@@ -2248,9 +2254,9 @@ const CRUD_CONFIG = {
         <tbody class="divide-y divide-slate-100">
           ${lista.map((i) => `
           <tr class="hover:bg-slate-50">
-            <td class="px-3 py-2 text-slate-800 font-medium">${i.item || "—"}</td>
-            <td class="px-3 py-2 text-slate-600"><div class="max-w-[320px] whitespace-pre-line">${i.descricao_impressao || "—"}</div></td>
-            <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${un(i.unidade_medida_id)}</td>
+            <td class="px-3 py-2 align-top"><div class="text-slate-800 font-medium">${escC(i.item) || "—"}</div>
+              ${i.descricao_impressao ? `<div class="mt-0.5 max-w-[620px] whitespace-pre-line text-[11px] leading-snug text-slate-500">${escC(i.descricao_impressao)}</div>` : `<div class="mt-0.5 text-[11px] text-slate-300">sem descrição para impressão</div>`}</td>
+            <td class="px-3 py-2 text-slate-600 whitespace-nowrap align-top">${un(i.unidade_medida_id)}</td>
             <td class="px-3 py-2 text-slate-700 text-right whitespace-nowrap">${fmtBRL(i.valor)}</td>
             <td class="px-3 py-2 text-slate-700 text-right whitespace-nowrap">${fmtBRL(i.valor_adicional_in_company || 0)}</td>
             <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${i.opcional ? "Sim" : "Não"}</td>
@@ -3429,7 +3435,7 @@ function ajustarLarguraPainelCrud(cfg) {
 function organizarCamposTelaCheia(cfg) {
   if (!cfg.painelTelaCheia) return;
   [...$("crud-campos").children].forEach((el) => {
-    const largo = el.querySelector("textarea") || el.id === "treino-itens-custo-bloco" || el.querySelector("[data-imagem-campo]");
+    const largo = el.querySelector("textarea") || el.id === "treino-itens-custo-bloco" || el.id === "empresa-contatos-bloco" || el.querySelector("[data-imagem-campo]");
     if (largo) el.classList.add("col-span-full");
     else if (el.tagName === "LABEL" && el.querySelector("input[type=checkbox]")) el.classList.add("md:col-span-2");
     else if (el.querySelector("select") && /Tipo de treinamento/.test(el.textContent)) el.classList.add("md:col-span-2");
@@ -4303,7 +4309,84 @@ function preencherContatoOrcDaEmpresa() {
   $("orc-contato-nome").value = emp?.contato_nome || "";
   $("orc-contato-telefone").value = emp?.contato_telefone || "";
   $("orc-contato-email").value = emp?.contato_email || "";
+  orcCarregarContatosEmpresa(emp ? emp.id : null, { selecionar: emp?.contato_nome ? "principal" : "" });
 }
+
+// ---- Contato da empresa no orçamento: escolher um contato cadastrado na empresa ou cadastrar um novo (subtela).
+let orcContatosEmpresa = [];     // contatos da tabela empresa_contatos (o principal vem dos campos da empresa)
+let orcContatosToken = 0;
+let orcContatoSelAnterior = "";
+const normC = (t) => String(t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
+
+// Qual opção da lista corresponde ao contato que está digitado nos campos do orçamento?
+function orcContatoCasado() {
+  const emp = empresaSelecionadaOrc(); if (!emp) return "";
+  const nome = normC($("orc-contato-nome").value), email = normC($("orc-contato-email").value);
+  if (!nome) return "";
+  if (normC(emp.contato_nome) === nome && (!email || !normC(emp.contato_email) || normC(emp.contato_email) === email)) return "principal";
+  const c = orcContatosEmpresa.find((x) => normC(x.nome) === nome && (!email || !normC(x.email) || normC(x.email) === email));
+  return c ? c.id : "";
+}
+function orcRenderSelectContato(selecionar) {
+  const sel = $("orc-contato-sel"); if (!sel) return;
+  const emp = empresaSelecionadaOrc();
+  const rotulo = (c) => `${escHtmlOrc(c.nome)}${c.cargo ? " · " + escHtmlOrc(c.cargo) : ""}`;
+  const opts = [`<option value="">— Selecione o contato —</option>`];
+  if (emp && (emp.contato_nome || "").trim()) opts.push(`<option value="principal">★ ${rotulo({ nome: emp.contato_nome, cargo: emp.contato_cargo })} (principal)</option>`);
+  orcContatosEmpresa.forEach((c) => opts.push(`<option value="${c.id}">${rotulo(c)}</option>`));
+  if (emp) opts.push(`<option value="__novo">➕ Novo contato…</option>`);
+  sel.innerHTML = opts.join("");
+  sel.disabled = !emp;
+  const alvo = selecionar === "casar" ? orcContatoCasado() : (selecionar || "");
+  sel.value = [...sel.options].some((o) => o.value === alvo) ? alvo : "";
+  orcContatoSelAnterior = sel.value;
+}
+async function orcCarregarContatosEmpresa(empresaId, { selecionar } = {}) {
+  const token = ++orcContatosToken;
+  orcContatosEmpresa = [];
+  orcRenderSelectContato(selecionar);   // mostra já o principal; os demais chegam em seguida
+  if (!empresaId) return;
+  const { data } = await supabase.from("empresa_contatos").select("id, nome, cargo, depto, email, telefone").eq("empresa_id", empresaId).order("nome");
+  if (token !== orcContatosToken) return;
+  orcContatosEmpresa = data || [];
+  orcRenderSelectContato(selecionar === "principal" ? "principal" : (selecionar || "casar"));
+}
+function orcPreencherCamposContato(c) {
+  $("orc-contato-nome").value = c.nome || "";
+  $("orc-contato-telefone").value = c.telefone || "";
+  $("orc-contato-email").value = c.email || "";
+}
+function orcAbrirNovoContato() {
+  const emp = empresaSelecionadaOrc();
+  if (!emp) return alert("Selecione a empresa antes de cadastrar um contato.");
+  abrirModalContatoEmpresa({
+    titulo: "Novo contato da empresa", empresaNome: emp.nome, contato: null, mostrarPrincipal: false,
+    aoCancelar: () => { $("orc-contato-sel").value = orcContatoSelAnterior; },
+    aoSalvar: async (d) => {
+      const temPrincipal = !!(emp.contato_nome || "").trim();
+      // grava já ao clicar em Salvar; sem contato principal na empresa, este passa a ser o principal
+      let r = await contatoEmpresaSalvarRpc(emp.id, null, d, !temPrincipal);
+      let principal = !temPrincipal;
+      if (temPrincipal && r.contato_id && confirm(`Deseja que "${d.nome}" passe a ser o contato principal da empresa ${emp.nome}?\n\nO principal atual (${emp.contato_nome}) continua na lista de contatos da empresa.`)) {
+        r = await contatoEmpresaSalvarRpc(emp.id, r.contato_id, d, true);
+        principal = true;
+      }
+      if (principal) Object.assign(emp, { contato_nome: d.nome, contato_cargo: d.cargo || null, contato_depto: d.depto || null, contato_email: d.email || null, contato_telefone: d.telefone || null });
+      orcPreencherCamposContato(d);
+      orcEditorSujo = true;
+      await orcCarregarContatosEmpresa(emp.id, { selecionar: "casar" });
+      return null;
+    },
+  });
+}
+$("orc-contato-sel").addEventListener("change", () => {
+  const sel = $("orc-contato-sel"), v = sel.value, emp = empresaSelecionadaOrc();
+  if (v === "__novo") { sel.value = orcContatoSelAnterior; orcAbrirNovoContato(); return; }
+  if (v === "principal" && emp) orcPreencherCamposContato({ nome: emp.contato_nome, telefone: emp.contato_telefone, email: emp.contato_email });
+  else if (v) { const c = orcContatosEmpresa.find((x) => x.id === v); if (c) orcPreencherCamposContato(c); }
+  orcContatoSelAnterior = v;
+  orcEditorSujo = true;
+});
 $("orc-empresa").addEventListener("change", () => {
   atualizarPreviewEnderecoEmpresaOrc();
   preencherContatoOrcDaEmpresa();
@@ -5090,6 +5173,242 @@ async function salvarCrud() {
 }
 
 $("btn-salvar-crud").addEventListener("click", salvarCrud);
+
+// ===========================================================
+// CONTATOS DA EMPRESA
+// O contato principal fica nos campos da própria empresa (contato_*); os demais ficam na tabela empresa_contatos.
+// Marcar "principal" em outro contato TROCA os dois (função salvar_contato_empresa, no banco).
+// ===========================================================
+const escC = (t) => String(t == null ? "" : t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+const CAMPOS_CONTATO_PRINCIPAL = ["contato_nome", "contato_cargo", "contato_depto", "contato_email", "contato_telefone"];
+let empContatos = [];            // contatos da tabela (o principal não entra aqui) da empresa em edição
+let empContatosEmpresaId = null; // null = empresa ainda não cadastrada
+
+async function contatoEmpresaSalvarRpc(empresaId, contatoId, d, principal) {
+  const { data, error } = await supabase.rpc("salvar_contato_empresa", {
+    p_empresa_id: empresaId, p_contato_id: contatoId || null,
+    p_nome: d.nome, p_cargo: d.cargo || null, p_depto: d.depto || null, p_email: d.email || null, p_telefone: d.telefone || null,
+    p_principal: !!principal,
+  });
+  if (error) throw new Error(error.message || "Não foi possível salvar o contato.");
+  return data || {};
+}
+
+// ---- janela (subtela) do contato: usada no cadastro de empresas e no orçamento
+let contatoModalCfg = null;
+function abrirModalContatoEmpresa(cfg) {
+  contatoModalCfg = cfg;
+  const c = cfg.contato || {};
+  $("mce-titulo").textContent = cfg.titulo || "Contato";
+  $("mce-empresa").textContent = cfg.empresaNome || "";
+  $("mce-nome").value = c.nome || "";
+  $("mce-cargo").value = c.cargo || "";
+  $("mce-depto").value = c.depto || "";
+  $("mce-email").value = c.email || "";
+  $("mce-telefone").value = c.telefone || "";
+  $("mce-principal").checked = false;
+  $("mce-principal-bloco").classList.toggle("hidden", !cfg.mostrarPrincipal);
+  $("mce-erro").classList.add("hidden");
+  $("btn-mce-salvar").disabled = false;
+  $("modal-contato-empresa").classList.remove("hidden");
+  $("mce-nome").focus();
+}
+function fecharModalContatoEmpresa(cancelado) {
+  $("modal-contato-empresa").classList.add("hidden");
+  const cfg = contatoModalCfg; contatoModalCfg = null;
+  if (cancelado && cfg && cfg.aoCancelar) cfg.aoCancelar();
+}
+async function salvarModalContatoEmpresa() {
+  const cfg = contatoModalCfg; if (!cfg) return;
+  const erro = (t) => { const el = $("mce-erro"); el.textContent = t; el.classList.remove("hidden"); };
+  const d = {
+    nome: $("mce-nome").value.trim(), cargo: $("mce-cargo").value.trim(), depto: $("mce-depto").value.trim(),
+    email: $("mce-email").value.trim(), telefone: $("mce-telefone").value.trim(), principal: $("mce-principal").checked,
+  };
+  if (!d.nome) return erro("Informe o nome do contato.");
+  if (d.email && !/^\S+@\S+\.\S+$/.test(d.email)) return erro("Informe um e-mail válido ou deixe em branco.");
+  $("btn-mce-salvar").disabled = true;
+  try {
+    const msg = await cfg.aoSalvar(d);
+    if (msg) { erro(msg); return; }
+    fecharModalContatoEmpresa(false);
+  } catch (e) {
+    erro((e && e.message) || "Não foi possível salvar o contato.");
+  } finally {
+    $("btn-mce-salvar").disabled = false;
+  }
+}
+$("btn-mce-salvar").addEventListener("click", salvarModalContatoEmpresa);
+$("btn-mce-cancelar").addEventListener("click", () => fecharModalContatoEmpresa(true));
+
+// ---- seção "Contatos da empresa" dentro do cadastro de empresas
+function htmlSecaoContatosEmpresa() {
+  const btn = "text-xs font-medium rounded-md px-3 py-1.5";
+  return `
+  <div id="empresa-contatos-bloco" class="pt-4 mt-2 border-t border-slate-200">
+    <div class="flex items-center justify-between gap-2 mb-1 flex-wrap">
+      <p class="text-xs font-medium text-slate-500 uppercase tracking-wide">Contatos da empresa</p>
+      <div class="flex gap-2">
+        <button type="button" id="btn-emp-contato-bitrix" class="hidden ${btn} text-sky-800 bg-sky-50 border border-sky-300 hover:bg-sky-100" title="Procura no Bitrix a empresa com o mesmo CNPJ e traz os contatos que ainda não estão aqui (só leitura no Bitrix).">⬇ Importar contatos do Bitrix</button>
+        <button type="button" id="btn-emp-contato-add" class="hidden ${btn} text-white bg-slate-900 hover:bg-slate-800">+ Adicionar contato</button>
+      </div>
+    </div>
+    <p class="text-[11px] text-slate-400 mb-3">O contato principal é o dos campos acima. Marque “Principal” em outro contato para trocar: o principal atual passa para esta tabela.</p>
+    <div id="empresa-contatos-lista" class="overflow-x-auto"></div>
+    <p id="empresa-contatos-msg" class="hidden text-xs mt-2"></p>
+  </div>`;
+}
+
+function empContatosMsg(texto, cor) {
+  const el = $("empresa-contatos-msg"); if (!el) return;
+  el.textContent = texto || "";
+  el.className = `text-xs mt-2 ${cor || "text-slate-500"}${texto ? "" : " hidden"}`;
+}
+
+function renderizarContatosEmpresa() {
+  const cont = $("empresa-contatos-lista"); if (!cont) return;
+  if (!empContatosEmpresaId) {
+    cont.innerHTML = `<p class="text-sm text-slate-400">Cadastre a empresa para incluir outros contatos. Ao cadastrar, os contatos da empresa de mesmo CNPJ no Bitrix são importados automaticamente.</p>`;
+    return;
+  }
+  const v = (c) => ($("crud-campo-" + c)?.value || "").trim();
+  const th = "px-2 py-1.5 font-medium text-left whitespace-nowrap", td = "px-2 py-1.5 text-slate-700";
+  const principal = v("contato_nome") ? `<tr class="bg-amber-50">
+      <td class="${td} text-center"><input type="checkbox" checked disabled title="Contato principal (campos acima)" /></td>
+      <td class="${td} font-medium">${escC(v("contato_nome"))} <span class="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800">principal</span></td>
+      <td class="${td}">${escC(v("contato_cargo")) || "—"}</td><td class="${td}">${escC(v("contato_depto")) || "—"}</td>
+      <td class="${td}">${escC(v("contato_email")) || "—"}</td><td class="${td} whitespace-nowrap">${escC(v("contato_telefone")) || "—"}</td>
+      <td class="${td} text-right text-[11px] text-slate-400">campos acima</td></tr>` : "";
+  const outros = empContatos.map((c) => `<tr class="border-t border-slate-100">
+      <td class="${td} text-center"><input type="checkbox" data-emp-principal="${c.id}" title="Tornar este contato o principal" class="rounded border-slate-300" /></td>
+      <td class="${td} font-medium">${escC(c.nome)}</td><td class="${td}">${escC(c.cargo) || "—"}</td><td class="${td}">${escC(c.depto) || "—"}</td>
+      <td class="${td}">${escC(c.email) || "—"}</td><td class="${td} whitespace-nowrap">${escC(c.telefone) || "—"}</td>
+      <td class="${td} text-right whitespace-nowrap"><button type="button" data-emp-editar="${c.id}" class="text-slate-500 hover:text-slate-800 mr-2" title="Editar">✏️</button><button type="button" data-emp-excluir="${c.id}" class="text-rose-500 hover:text-rose-700" title="Excluir">🗑️</button></td></tr>`).join("");
+  cont.innerHTML = `<table class="w-full text-xs bg-white border border-slate-200 rounded-lg">
+    <thead><tr class="bg-slate-50 text-slate-500 uppercase tracking-wide text-[10px]"><th class="${th} text-center">Principal</th><th class="${th}">Nome</th><th class="${th}">Cargo</th><th class="${th}">Depto</th><th class="${th}">E-mail</th><th class="${th}">Telefone</th><th class="${th}"></th></tr></thead>
+    <tbody>${principal}${outros || `<tr><td colspan="7" class="px-2 py-3 text-center text-slate-400">Nenhum outro contato cadastrado.</td></tr>`}</tbody></table>`;
+}
+
+async function empRecarregarContatos() {
+  if (!empContatosEmpresaId) return;
+  const id = empContatosEmpresaId;
+  const { data, error } = await supabase.from("empresa_contatos").select("*").eq("empresa_id", id).order("nome");
+  if (id !== empContatosEmpresaId) return;
+  if (error) { empContatosMsg("Não foi possível carregar os contatos da empresa.", "text-rose-600"); return; }
+  empContatos = data || [];
+  renderizarContatosEmpresa();
+}
+
+// O principal editado nos campos ainda não foi salvo? (a troca de principal é feita no banco, com o que está salvo)
+function empPrincipalAlterado() {
+  const it = crudItemEmEdicao || {};
+  return CAMPOS_CONTATO_PRINCIPAL.some((c) => String(($("crud-campo-" + c)?.value || "")).trim() !== String(it[c] || "").trim());
+}
+function empAplicarPrincipalNoForm(c) {
+  const mapa = { contato_nome: c.nome, contato_cargo: c.cargo, contato_depto: c.depto, contato_email: c.email, contato_telefone: c.telefone };
+  for (const [campo, valor] of Object.entries(mapa)) {
+    const el = $("crud-campo-" + campo); if (el) el.value = valor || "";
+    if (crudItemEmEdicao) crudItemEmEdicao[campo] = valor || null;
+  }
+}
+
+function empAbrirContato(contato) {
+  if (!empContatosEmpresaId) return;
+  const nomeEmpresa = ($("crud-campo-nome")?.value || "").trim();
+  abrirModalContatoEmpresa({
+    titulo: contato ? "Editar contato" : "Novo contato", empresaNome: nomeEmpresa, contato, mostrarPrincipal: true,
+    aoSalvar: async (d) => {
+      if (d.principal && empPrincipalAlterado()) return "Salve a empresa antes de trocar o contato principal (os campos do principal foram alterados).";
+      const r = await contatoEmpresaSalvarRpc(empContatosEmpresaId, contato ? contato.id : null, d, d.principal);
+      if (d.principal) empAplicarPrincipalNoForm(d);
+      await empRecarregarContatos();
+      return null;
+    },
+  });
+}
+
+async function empTrocarPrincipal(contatoId, caixa) {
+  const c = empContatos.find((x) => x.id === contatoId); if (!c) return;
+  const voltar = () => { if (caixa) caixa.checked = false; };
+  if (empPrincipalAlterado()) { voltar(); return alert("Salve a empresa antes de trocar o contato principal (os campos do principal foram alterados)."); }
+  const atual = (crudItemEmEdicao?.contato_nome || "").trim();
+  if (!confirm(`Tornar "${c.nome}" o contato principal da empresa?${atual ? `\n\nO principal atual (${atual}) passa para a tabela de contatos.` : ""}`)) return voltar();
+  try {
+    await contatoEmpresaSalvarRpc(empContatosEmpresaId, c.id, c, true);
+    empAplicarPrincipalNoForm(c);
+    await empRecarregarContatos();
+    empContatosMsg(`"${c.nome}" agora é o contato principal.`, "text-teal-700");
+  } catch (e) {
+    voltar();
+    empContatosMsg((e && e.message) || "Não foi possível trocar o contato principal.", "text-rose-600");
+  }
+}
+
+async function empExcluirContato(contatoId) {
+  const c = empContatos.find((x) => x.id === contatoId); if (!c) return;
+  if (!confirm(`Excluir o contato "${c.nome}" desta empresa?`)) return;
+  const { data, error } = await supabase.from("empresa_contatos").delete().eq("id", contatoId).select("id");
+  if (error || !data || data.length === 0) return empContatosMsg("Não foi possível excluir o contato (sem permissão ou já excluído).", "text-rose-600");
+  await empRecarregarContatos();
+}
+
+// Importa do Bitrix (somente leitura lá) os contatos da empresa de mesmo CNPJ. Não duplica contatos já existentes.
+async function importarContatosBitrixDaEmpresa(empresaId) {
+  try {
+    const r = await bbChamar("bitrix-contatos", { acao: "importar_empresa", empresa_id: empresaId });
+    if (!r || r.ok === false) return { erro: (r && r.error) || "falha ao consultar o Bitrix" };
+    return r;
+  } catch (e) {
+    return { erro: (e && e.message) || "falha ao consultar o Bitrix" };
+  }
+}
+function textoResultadoImportacaoContatos(r) {
+  if (r.erro) return `Não foi possível importar do Bitrix: ${r.erro}`;
+  if (!r.encontrada) return r.motivo || "Nenhuma empresa com esse CNPJ no Bitrix.";
+  if (!r.novos) return `Empresa encontrada no Bitrix (${r.contatos_no_bitrix || 0} contato(s)); nenhum contato novo para importar.`;
+  return `${r.novos} contato(s) importado(s) do Bitrix${r.principal_definido ? " (um deles virou o contato principal, por a empresa não ter principal)" : ""}.`;
+}
+async function empImportarBitrix() {
+  if (!empContatosEmpresaId) return;
+  const btn = $("btn-emp-contato-bitrix"); btn.disabled = true;
+  empContatosMsg("Consultando o Bitrix…", "text-slate-500");
+  try {
+    const r = await importarContatosBitrixDaEmpresa(empContatosEmpresaId);
+    empContatosMsg(textoResultadoImportacaoContatos(r), r.erro ? "text-rose-600" : "text-teal-700");
+    if (r.principal_definido) {
+      const { data: e } = await supabase.from("empresas").select("contato_nome, contato_cargo, contato_depto, contato_email, contato_telefone").eq("id", empContatosEmpresaId).maybeSingle();
+      if (e) empAplicarPrincipalNoForm({ nome: e.contato_nome, cargo: e.contato_cargo, depto: e.contato_depto, email: e.contato_email, telefone: e.contato_telefone });
+    }
+    await empRecarregarContatos();
+  } finally { btn.disabled = false; }
+}
+
+async function iniciarSecaoContatosEmpresa(item) {
+  empContatos = [];
+  empContatosEmpresaId = item ? item.id : null;
+  const lista = $("empresa-contatos-lista"); if (!lista) return;
+  CAMPOS_CONTATO_PRINCIPAL.forEach((c) => { const el = $("crud-campo-" + c); if (el) el.addEventListener("input", renderizarContatosEmpresa); });
+  $("btn-emp-contato-add").addEventListener("click", () => empAbrirContato(null));
+  $("btn-emp-contato-bitrix").addEventListener("click", empImportarBitrix);
+  lista.addEventListener("change", (ev) => { const cx = ev.target.closest("[data-emp-principal]"); if (cx && cx.checked) empTrocarPrincipal(cx.getAttribute("data-emp-principal"), cx); });
+  lista.addEventListener("click", (ev) => {
+    const ed = ev.target.closest("[data-emp-editar]"), ex = ev.target.closest("[data-emp-excluir]");
+    if (ed) empAbrirContato(empContatos.find((x) => x.id === ed.getAttribute("data-emp-editar")) || null);
+    else if (ex) empExcluirContato(ex.getAttribute("data-emp-excluir"));
+  });
+  $("btn-emp-contato-add").classList.toggle("hidden", !item);
+  $("btn-emp-contato-bitrix").classList.toggle("hidden", !item);
+  renderizarContatosEmpresa();
+  if (item) await empRecarregarContatos();
+}
+
+// Empresa nova: procura no Bitrix a empresa de mesmo CNPJ e importa os contatos dela.
+async function aoSalvarEmpresaCrud(linha, { novo }) {
+  if (!novo) return;
+  const r = await importarContatosBitrixDaEmpresa(linha.id);
+  if (r.erro) return alert(`Empresa cadastrada. Os contatos do Bitrix não puderam ser importados agora (${r.erro}). Use “Importar contatos do Bitrix” na edição da empresa.`);
+  if (r.encontrada && r.novos) alert(`Empresa cadastrada. ${textoResultadoImportacaoContatos(r)}`);
+}
 
 async function excluirCrud(id) {
   const cfg = CRUD_CONFIG[crudModuloId];
@@ -7145,6 +7464,7 @@ async function abrirNovoOrcamento() {
   $("orc-contato-nome").value = "";
   $("orc-contato-telefone").value = "";
   $("orc-contato-email").value = "";
+  orcCarregarContatosEmpresa(null);
   preencherSeletorVendedorOrc("");
   preencherSelect("orc-centro", listaCentrosAtivos, "id", (i) => i.nome, "— Selecione —");
   preencherSelect("orc-tipo", listaTiposAtivos, "id", (i) => i.nome, "— Selecione —");
@@ -7200,6 +7520,7 @@ async function abrirEdicaoOrcamento(id) {
   $("orc-contato-nome").value = o.contato_nome || "";
   $("orc-contato-telefone").value = o.contato_telefone || "";
   $("orc-contato-email").value = o.contato_email || "";
+  orcCarregarContatosEmpresa(o.empresa_id || null, { selecionar: "casar" });
   preencherSeletorVendedorOrc(o.vendedor_id || "");
   preencherSelect("orc-centro", listaCentrosAtivos, "id", (i) => i.nome, "— Selecione —");
   $("orc-centro").value = o.centro_treinamento_id || "";
@@ -8409,6 +8730,14 @@ async function bbUsar() {
       const rc = await bbChamar("bitrix-buscar-negocio", { acao: "cadastrar_empresa", negocio_id: n.id });
       if (!rc.ok) throw new Error(rc.error || "não foi possível cadastrar a empresa");
       empresaId = rc.empresa.id; empresaCriada = !!rc.criada;
+      // empresa nova: traz os contatos da empresa de mesmo CNPJ no Bitrix (só leitura lá); se falhar, segue sem eles
+      if (empresaCriada) {
+        const ri = await importarContatosBitrixDaEmpresa(empresaId);
+        if (!ri.erro && ri.principal_definido) {
+          const { data: ne } = await supabase.from("empresas").select("*").eq("id", empresaId).maybeSingle();
+          if (ne) rc.empresa = ne;
+        }
+      }
       listaEmpresasAtivas = [rc.empresa, ...listaEmpresasAtivas.filter((e) => e.id !== rc.empresa.id)];
     } else if (escolha) {
       empresaId = escolha;
@@ -8425,6 +8754,7 @@ async function bbUsar() {
     if (c.nome) $("orc-contato-nome").value = c.nome;
     if (c.telefone) $("orc-contato-telefone").value = c.telefone;
     if (c.email) $("orc-contato-email").value = c.email;
+    if (empresaId) await orcCarregarContatosEmpresa(empresaId, { selecionar: "casar" }); // marca na lista o contato que veio do card
     if (r.vendedor?.id) preencherSeletorVendedorOrc(r.vendedor.id);
 
     orcBxPendente = { negocio_id: n.id, pipeline_id: n.pipeline_id, pipeline: n.pipeline, fase_id: n.fase_id, fase: n.fase, titulo: n.titulo };

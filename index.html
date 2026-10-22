@@ -1466,6 +1466,35 @@
     </div>
   </div>
 
+  <!-- Modal: contato da empresa (cadastro de empresas e orçamento) -->
+  <div id="modal-contato-empresa" class="hidden fixed inset-0 z-[80] bg-slate-900/60 flex items-center justify-center p-4">
+    <div class="bg-white rounded-lg shadow-xl w-full max-w-lg p-5 max-h-[90vh] overflow-y-auto">
+      <h3 id="mce-titulo" class="font-serif text-lg text-slate-900">Novo contato</h3>
+      <p class="text-xs text-slate-500 mt-0.5">Empresa: <span id="mce-empresa" class="font-medium text-slate-700"></span></p>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-3 mt-3">
+        <div class="sm:col-span-2"><label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Nome *</label>
+          <input id="mce-nome" autocomplete="off" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" /></div>
+        <div><label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Cargo</label>
+          <input id="mce-cargo" autocomplete="off" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" /></div>
+        <div><label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Departamento</label>
+          <input id="mce-depto" autocomplete="off" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" /></div>
+        <div><label class="text-xs font-medium text-slate-500 uppercase tracking-wide">E-mail</label>
+          <input id="mce-email" type="email" autocomplete="off" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" /></div>
+        <div><label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Telefone</label>
+          <input id="mce-telefone" autocomplete="off" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" /></div>
+        <label id="mce-principal-bloco" class="sm:col-span-2 flex items-start gap-2 text-sm text-slate-700">
+          <input type="checkbox" id="mce-principal" class="mt-0.5 rounded border-slate-300" />
+          <span>Contato principal da empresa <span class="block text-[11px] text-slate-400">O principal atual passa para a tabela de contatos.</span></span>
+        </label>
+      </div>
+      <p id="mce-erro" class="hidden text-sm text-rose-600 mt-3"></p>
+      <div class="flex justify-end gap-2 mt-4">
+        <button type="button" id="btn-mce-cancelar" class="px-4 py-1.5 text-sm font-medium text-slate-600 border border-slate-300 rounded-md hover:bg-slate-50">Cancelar</button>
+        <button type="button" id="btn-mce-salvar" class="px-4 py-1.5 text-sm font-medium text-white bg-amber-600 hover:bg-amber-700 rounded-md disabled:opacity-50">Salvar</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Painel: Orçamento -->
   <div id="painel-orcamento"class="hidden fixed left-0 right-0 bottom-0 z-40 flex flex-col bg-slate-100" style="top:0">
     <!-- Cabeçalho do orçamento -->
@@ -1520,6 +1549,8 @@
               <button type="button" id="btn-orc-buscar-bitrix" class="mt-1 w-full px-2 py-1 text-[11px] font-medium text-sky-800 bg-sky-50 border border-sky-300 rounded-md hover:bg-sky-100" title="Procura o card no Bitrix pelo número do orçamento (ou nome), associa e traz empresa, contato e vendedor.">🔎 Buscar Bitrix</button></div>
             <div class="col-span-2 md:col-span-4"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Empresa</label>
               <select id="orc-empresa" class="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"></select></div>
+            <div class="col-span-2 md:col-span-3"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide" title="Contatos cadastrados na empresa. Escolha um deles ou cadastre um novo.">Contato da empresa</label>
+              <select id="orc-contato-sel" disabled class="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 disabled:bg-slate-100"></select></div>
             <div class="col-span-2 md:col-span-2"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Contato</label>
               <input id="orc-contato-nome" class="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" /></div>
             <div class="col-span-1 md:col-span-2"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Telefone</label>
@@ -2285,6 +2316,6 @@
 </div>
 
 <script src="config.js"></script>
-<script src="app.js?v=20261022a"></script>
+<script src="app.js?v=20261022c"></script>
 </body>
 </html>

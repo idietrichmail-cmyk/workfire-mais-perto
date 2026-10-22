@@ -1606,3 +1606,24 @@ alter table orcamentos add column if not exists distancia_km numeric(8,1);
 insert into unidades_medida (sigla, descricao, base_calculo, status)
 select 'Distância', 'Distância em km entre o cliente e o Centro de Treinamento (digitada no orçamento)', 'distancia', 'Ativo'
 where not exists (select 1 from unidades_medida where base_calculo = 'distancia');
+
+-- ============================================================
+-- 22/10/2026 — Prod 1.76: contatos da empresa, "emite ordem de compra" e importação de contatos do Bitrix
+-- (objetos já aplicados no banco; registrados aqui como referência)
+--   * empresas: contato_cargo, contato_depto (do contato PRINCIPAL, que continua nos campos da empresa)
+--     e emite_ordem_compra boolean not null default false (empresa emite ordem/pedido de compra);
+--   * empresa_contatos (id, empresa_id -> empresas, nome*, cargo, depto, email, telefone, origem, bitrix_contact_id, created_at, updated_at):
+--     os DEMAIS contatos da empresa; índice único parcial (empresa_id, bitrix_contact_id) onde bitrix_contact_id não é nulo;
+--   * RLS de empresa_contatos via pode_acessar_tabela(): módulo 'empresas' = own (inclui/altera/exclui);
+--     módulo 'orcamentos' = edita (quem edita orçamentos inclui e altera contatos; não exclui);
+--   * salvar_contato_empresa(p_empresa_id, p_contato_id, p_nome, p_cargo, p_depto, p_email, p_telefone, p_principal) — SECURITY DEFINER:
+--     p_principal = true TROCA: o principal atual vira uma linha de empresa_contatos (origem 'Ex-principal') e o contato escolhido
+--     passa para os campos da empresa (a linha dele sai da tabela). Exige permissão de incluir/alterar em Empresas ou Orçamentos;
+--   * bitrix_empresa_cnpj (company_id bigint PK, cnpj_digitos, atualizado_em) e bitrix_varredura_estado (andamento da varredura):
+--     usadas pela Edge Function bitrix-contatos (SOMENTE LEITURA no Bitrix), que:
+--       - importar_empresa {empresa_id}: ao cadastrar empresa nova (e no botão "Importar contatos do Bitrix"), acha a empresa do Bitrix
+--         pelo CNPJ e grava os contatos que ainda não existem; se a empresa não tem principal, o principal do Bitrix passa a ser o principal;
+--       - varredura: percorre o Bitrix e carrega os contatos das empresas com CNPJ correspondente (executada em 22/10/2026:
+--         7.204 empresas lidas, 5.300 com CNPJ, 3.699 contatos lidos, 1.050 importados para 965 empresas).
+
+-- 22/10/2026 — Prod 1.77: lista de Itens de Custo mostra a descrição para impressão logo abaixo do nome do item (somente tela; sem alteração no banco).
