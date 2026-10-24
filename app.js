@@ -9,6 +9,8 @@
 
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const $ = (id) => document.getElementById(id);
+// Escapa texto vindo de cadastros/Bitrix/planilhas antes de colocá-lo dentro de HTML (evita injeção de código na tela).
+const escH = (v) => String(v == null ? "" : v).replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
 
 // O Supabase devolve no máximo 1.000 linhas por consulta; esta função busca
 // todas as páginas. Recebe uma função que monta a consulta (precisa ter
@@ -34,7 +36,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.77 · 22/10/2026";
+const APP_VERSAO = "Prod 1.78 · 24/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -535,7 +537,7 @@ function preencherCentroPrincipalForm(valor) {
   if (!sel) return;
   const centros = (centrosParaInstrutor || []).filter((c) => c.status === "Ativo" || c.id === valor);
   sel.innerHTML = `<option value="">— Não definido —</option>` +
-    centros.map((c) => `<option value="${c.id}" ${c.id === valor ? "selected" : ""}>${c.nome}</option>`).join("");
+    centros.map((c) => `<option value="${c.id}" ${c.id === valor ? "selected" : ""}>${escH(c.nome)}</option>`).join("");
   sel.value = valor || "";
 }
 
@@ -551,7 +553,7 @@ function renderizarAptidoesForm() {
   cont.innerHTML = visiveis.map((c) => `
     <label class="flex items-start gap-2 text-sm text-slate-700">
       <input type="checkbox" data-aptidao="${c.id}" class="mt-0.5" ${aptidoesSelecionadas.has(c.id) ? "checked" : ""} />
-      <span>${c.codigo} — ${c.descricao}${c.status !== "Ativo" ? ` <span class="text-[10px] text-rose-500">(tipo inativo)</span>` : ""}</span>
+      <span>${escH(c.codigo)} — ${escH(c.descricao)}${c.status !== "Ativo" ? ` <span class="text-[10px] text-rose-500">(tipo inativo)</span>` : ""}</span>
     </label>`).join("");
   cont.querySelectorAll("[data-aptidao]").forEach((el) =>
     el.addEventListener("change", () => {
@@ -1099,9 +1101,9 @@ $("btn-inste-buscar-cep").addEventListener("click", buscarCepInstrutor);
 function renderizarDadosInstrutor() {
   const box = $("inst-dados");
   box.innerHTML = "";
-  box.innerHTML += `<p class="flex items-center gap-1.5">✉️ ${perfilAtual.email}</p>`;
-  if (perfilAtual.telefone) box.innerHTML += `<p class="flex items-center gap-1.5">📞 ${perfilAtual.telefone}</p>`;
-  if (perfilAtual.carga_horaria) box.innerHTML += `<p>Carga horária: ${perfilAtual.carga_horaria}h/mês</p>`;
+  box.innerHTML += `<p class="flex items-center gap-1.5">✉️ ${escH(perfilAtual.email)}</p>`;
+  if (perfilAtual.telefone) box.innerHTML += `<p class="flex items-center gap-1.5">📞 ${escH(perfilAtual.telefone)}</p>`;
+  if (perfilAtual.carga_horaria) box.innerHTML += `<p>Carga horária: ${escH(perfilAtual.carga_horaria)}h/mês</p>`;
 
   if (perfilAtual.documento_url) {
     $("inst-doc-bloco").classList.remove("hidden");
@@ -1435,19 +1437,19 @@ function renderizarListaAdmin() {
     <div class="bg-white rounded-lg border border-slate-200 border-t-4 ${inst.status === "Ativo" ? "border-t-teal-600" : "border-t-rose-400"} p-4 flex flex-col gap-2 shadow-sm">
       <div class="flex items-start justify-between">
         <div>
-          <p class="font-mono text-[11px] text-slate-400">${inst.codigo || ""}</p>
-          <p class="font-serif text-lg text-slate-900 leading-tight">${inst.nome}</p>
+          <p class="font-mono text-[11px] text-slate-400">${escH(inst.codigo || "")}</p>
+          <p class="font-serif text-lg text-slate-900 leading-tight">${escH(inst.nome)}</p>
         </div>
-        <span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${inst.status === "Ativo" ? "bg-teal-50 text-teal-700" : "bg-rose-50 text-rose-600"}">${inst.status}</span>
+        <span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${inst.status === "Ativo" ? "bg-teal-50 text-teal-700" : "bg-rose-50 text-rose-600"}">${escH(inst.status)}</span>
       </div>
-      <p class="text-sm text-amber-700 font-medium">🏷️ ${inst.especialidade || "—"}</p>
+      <p class="text-sm text-amber-700 font-medium">🏷️ ${escH(inst.especialidade || "—")}</p>
       <div class="text-xs text-slate-500 space-y-1 mt-1">
-        ${inst.email ? `<p>✉️ ${inst.email}</p>` : ""}
-        ${inst.telefone ? `<p>📞 ${inst.telefone}</p>` : ""}
-        ${inst.carga_horaria ? `<p>Carga horária: ${inst.carga_horaria}h/mês</p>` : ""}
-        <p>📌 ${c.disponivel} disponíveis · 📘 ${c.agendado} agendados${c.aguardando > 0 ? ` · ⏳ ${c.aguardando} aguardando` : ""}</p>
+        ${inst.email ? `<p>✉️ ${escH(inst.email)}</p>` : ""}
+        ${inst.telefone ? `<p>📞 ${escH(inst.telefone)}</p>` : ""}
+        ${inst.carga_horaria ? `<p>Carga horária: ${escH(inst.carga_horaria)}h/mês</p>` : ""}
+        <p>📌 ${escH(c.disponivel)} disponíveis · 📘 ${escH(c.agendado)} agendados${c.aguardando > 0 ? ` · ⏳ ${escH(c.aguardando)} aguardando` : ""}</p>
         <p>${inst.user_id ? "✅ Já criou senha no app" : "⏳ Aguardando primeiro acesso"}</p>
-        ${inst.centro_treinamento_principal_id ? `<p class="text-slate-500">🏫 CT principal: ${(centrosParaInstrutor.find((c) => c.id === inst.centro_treinamento_principal_id) || {}).nome || "—"}</p>` : ""}
+        ${inst.centro_treinamento_principal_id ? `<p class="text-slate-500">🏫 CT principal: ${escH((centrosParaInstrutor.find((c) => c.id === inst.centro_treinamento_principal_id) || {}).nome || "—")}</p>` : ""}
         ${rotulosAptidoes(inst.id).length ? `<p class="text-slate-500">🗃️ Apto: ${rotulosAptidoes(inst.id).join(", ")}</p>` : ""}
         ${inst.reset_senha_liberado_em ? `<p class="text-teal-700">🔓 Redefinição de senha liberada</p>`
           : (inst.reset_senha_solicitado_em ? `<p class="text-amber-700 font-medium">🔑 Redefinição de senha SOLICITADA</p>` : "")}
@@ -1535,7 +1537,7 @@ function preencherSelectGestorDireto(valorAtual, excluirId) {
   if (!sel) return;
   const opcoes = usuariosSistemaRefGestores.filter((u) => u.id !== excluirId);
   sel.innerHTML = `<option value="">— Selecione —</option>` +
-    opcoes.map((u) => `<option value="${u.id}" ${u.id === valorAtual ? "selected" : ""}>${u.nome}</option>`).join("");
+    opcoes.map((u) => `<option value="${u.id}" ${u.id === valorAtual ? "selected" : ""}>${escH(u.nome)}</option>`).join("");
 }
 
 $("btn-novo-instrutor").addEventListener("click", async () => {
@@ -1638,17 +1640,17 @@ function renderizarLogConfirmacaoInstrutor() {
   el.innerHTML = logConfirmacaoInstrutorLista.map((l) => {
     const dataHora = new Date(l.criado_em);
     const horaFmt = isNaN(dataHora) ? "" : dataHora.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
-    const turmaLabel = l.turmas?.identificacao ? `Turma ${l.turmas.identificacao}` : "";
-    const quemLabel = l.usuarios_sistema?.nome ? ` · por ${l.usuarios_sistema.nome}` : "";
+    const turmaLabel = l.turmas?.identificacao ? `Turma ${escH(l.turmas.identificacao)}` : "";
+    const quemLabel = l.usuarios_sistema?.nome ? ` · por ${escH(l.usuarios_sistema.nome)}` : "";
     const corResposta = l.resposta === "confirmado" || l.resposta === "aprovado" ? "text-teal-700" : (l.resposta === "negado" || l.resposta === "rejeitado" ? "text-rose-600" : "text-slate-700");
-    const respostaLabel = l.resposta ? ` — <span class="font-medium ${corResposta}">${l.resposta}</span>` : "";
+    const respostaLabel = l.resposta ? ` — <span class="font-medium ${corResposta}">${escH(l.resposta)}</span>` : "";
     return `
     <div class="text-xs bg-white border border-slate-200 rounded-md px-2.5 py-2">
       <div class="flex items-start justify-between gap-2">
         <div class="flex-1">
-          <p class="font-medium text-slate-700">${LOG_CONFIRMACAO_TIPO_LABEL[l.tipo_evento] || l.tipo_evento}${respostaLabel}</p>
+          <p class="font-medium text-slate-700">${escH(LOG_CONFIRMACAO_TIPO_LABEL[l.tipo_evento] || l.tipo_evento)}${respostaLabel}</p>
           <p class="text-slate-500 mt-0.5">${[turmaLabel, `Data do treinamento: ${formatarDataBr(l.data_treinamento)}`].filter(Boolean).join(" · ")}</p>
-          ${l.justificativa ? `<p class="text-slate-400 italic mt-0.5">"${l.justificativa}"</p>` : ""}
+          ${l.justificativa ? `<p class="text-slate-400 italic mt-0.5">"${escH(l.justificativa)}"</p>` : ""}
           <p class="text-slate-400 mt-0.5">${horaFmt}${quemLabel}</p>
         </div>
         ${podeExcluirLog ? `<button data-log-excluir="${l.id}" class="text-slate-400 hover:text-rose-600 text-xs shrink-0" title="Excluir registro">🗑️</button>` : ""}
@@ -1885,11 +1887,11 @@ const CRUD_CONFIG = {
         <tbody class="divide-y divide-slate-100">
           ${lista.map((i) => `
           <tr class="hover:bg-slate-50">
-            <td class="px-3 py-2 text-slate-800 font-medium">${i.nome || "—"}</td>
-            <td class="px-3 py-2 text-slate-600">${i.nome_fantasia || "—"}</td>
-            <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${i.cnpj || "—"}</td>
-            <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${i.cnpj_grupo_economico || "—"}</td>
-            <td class="px-3 py-2 text-slate-600">${[i.contato_nome, i.contato_telefone, i.contato_email].filter(Boolean).join(" · ") || "—"}</td>
+            <td class="px-3 py-2 text-slate-800 font-medium">${escH(i.nome || "—")}</td>
+            <td class="px-3 py-2 text-slate-600">${escH(i.nome_fantasia || "—")}</td>
+            <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${escH(i.cnpj || "—")}</td>
+            <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${escH(i.cnpj_grupo_economico || "—")}</td>
+            <td class="px-3 py-2 text-slate-600">${escH([i.contato_nome, i.contato_telefone, i.contato_email].filter(Boolean).join(" · ") || "—")}</td>
             <td class="px-3 py-2 whitespace-nowrap">${badge(i.status)}</td>
             <td class="px-3 py-2 text-right whitespace-nowrap">
               ${podeAlterar ? `<button data-crud-editar="${i.id}" class="text-slate-500 hover:text-slate-800 mr-2">✏️</button>` : ""}
@@ -1937,7 +1939,7 @@ const CRUD_CONFIG = {
       i.qtd_espaco_confinado && `🕳️ ${i.qtd_espaco_confinado} espaço(s) confinado(s)`,
       i.qtd_petrolifera && `🛢️ ${i.qtd_petrolifera} petrolífera(s)`,
       i.qtd_uti && `🏥 ${i.qtd_uti} UTI(s)`,
-      i.latitude != null && i.longitude != null && `📍 <a href="https://www.google.com/maps?q=${i.latitude},${i.longitude}" target="_blank" rel="noopener" class="text-amber-600 underline">Ver no mapa</a>`,
+      i.latitude != null && i.longitude != null && { html: `📍 <a href="https://www.google.com/maps?q=${encodeURIComponent(i.latitude)},${encodeURIComponent(i.longitude)}" target="_blank" rel="noopener" class="text-amber-600 underline">Ver no mapa</a>` },
     ].filter(Boolean),
     ajustarPayload: async (p) => {
       // Garante que todo centro fique georreferenciado, mesmo se o endereço foi digitado à mão
@@ -2125,10 +2127,10 @@ const CRUD_CONFIG = {
         <tbody class="divide-y divide-slate-100">
           ${lista.map((i) => `
           <tr class="hover:bg-slate-50">
-            <td class="px-3 py-2 text-slate-800 font-medium">${i.nome || "—"}</td>
-            <td class="px-3 py-2 text-slate-600">${i.email || "—"}</td>
-            <td class="px-3 py-2 text-slate-600">${i.cargo || "—"}</td>
-            <td class="px-3 py-2 font-mono text-slate-500">${i.bitrix_user_id != null ? i.bitrix_user_id : "—"}</td>
+            <td class="px-3 py-2 text-slate-800 font-medium">${escH(i.nome || "—")}</td>
+            <td class="px-3 py-2 text-slate-600">${escH(i.email || "—")}</td>
+            <td class="px-3 py-2 text-slate-600">${escH(i.cargo || "—")}</td>
+            <td class="px-3 py-2 font-mono text-slate-500">${escH(i.bitrix_user_id != null ? i.bitrix_user_id : "—")}</td>
             <td class="px-3 py-2 text-slate-600">${vendedorContagemOrc[i.id] || 0}</td>
             <td class="px-3 py-2 whitespace-nowrap">${badge(i.eh_vendedor, "Sim", "Não")}</td>
             <td class="px-3 py-2 whitespace-nowrap">${badge(i.ativo, "Ativo", "Inativo")}</td>
@@ -2190,7 +2192,7 @@ const CRUD_CONFIG = {
         <tbody class="divide-y divide-slate-100">
           ${lista.map((i) => `
           <tr class="hover:bg-slate-50">
-            <td class="px-3 py-2 text-slate-800">${i.descricao || "—"}</td>
+            <td class="px-3 py-2 text-slate-800">${escH(i.descricao || "—")}</td>
             <td class="px-3 py-2 text-slate-600">${materialContagemPorTipo[i.id] || 0}</td>
             <td class="px-3 py-2 whitespace-nowrap">${badge(i.status)}</td>
             <td class="px-3 py-2 text-right whitespace-nowrap">
@@ -2233,7 +2235,7 @@ const CRUD_CONFIG = {
     cardTitulo: (i) => i.item,
     cardLinhas: (i) => {
       const un = itemCustoRefUnidades.find((u) => u.id === i.unidade_medida_id);
-      return [i.descricao_impressao && escC(i.descricao_impressao), un && `📏 ${un.sigla} — ${un.descricao}`, `💰 ${fmtBRL(i.valor)}`, Number(i.valor_adicional_in_company) > 0 && `🏢 Adicional In Company: ${fmtBRL(i.valor_adicional_in_company)}`, i.opcional ? "☑️ Item opcional" : "Item obrigatório", i.descricao_impressao && `🖨️ ${i.descricao_impressao}`, i.observacao_nao_imprime && `📝 Se não imprimir: ${i.observacao_nao_imprime}`].filter(Boolean);
+      return [i.descricao_impressao, un && `📏 ${un.sigla} — ${un.descricao}`, `💰 ${fmtBRL(i.valor)}`, Number(i.valor_adicional_in_company) > 0 && `🏢 Adicional In Company: ${fmtBRL(i.valor_adicional_in_company)}`, i.opcional ? "☑️ Item opcional" : "Item obrigatório", i.descricao_impressao && `🖨️ ${i.descricao_impressao}`, i.observacao_nao_imprime && `📝 Se não imprimir: ${i.observacao_nao_imprime}`].filter(Boolean);
     },
     renderTabela: (lista, { podeAlterar, podeExcluir }) => {
       const un = (id) => { const u = itemCustoRefUnidades.find((x) => x.id === id); return u ? `${u.sigla} — ${u.descricao}` : "—"; };
@@ -2256,7 +2258,7 @@ const CRUD_CONFIG = {
           <tr class="hover:bg-slate-50">
             <td class="px-3 py-2 align-top"><div class="text-slate-800 font-medium">${escC(i.item) || "—"}</div>
               ${i.descricao_impressao ? `<div class="mt-0.5 max-w-[620px] whitespace-pre-line text-[11px] leading-snug text-slate-500">${escC(i.descricao_impressao)}</div>` : `<div class="mt-0.5 text-[11px] text-slate-300">sem descrição para impressão</div>`}</td>
-            <td class="px-3 py-2 text-slate-600 whitespace-nowrap align-top">${un(i.unidade_medida_id)}</td>
+            <td class="px-3 py-2 text-slate-600 whitespace-nowrap align-top">${escH(un(i.unidade_medida_id))}</td>
             <td class="px-3 py-2 text-slate-700 text-right whitespace-nowrap">${fmtBRL(i.valor)}</td>
             <td class="px-3 py-2 text-slate-700 text-right whitespace-nowrap">${fmtBRL(i.valor_adicional_in_company || 0)}</td>
             <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${i.opcional ? "Sim" : "Não"}</td>
@@ -2305,8 +2307,8 @@ const CRUD_CONFIG = {
         <tbody class="divide-y divide-slate-100">
           ${lista.map((i) => `
           <tr class="hover:bg-slate-50">
-            <td class="px-3 py-2 text-slate-800 font-medium whitespace-nowrap">${i.sigla || "—"}</td>
-            <td class="px-3 py-2 text-slate-600">${i.descricao || "—"}</td>
+            <td class="px-3 py-2 text-slate-800 font-medium whitespace-nowrap">${escH(i.sigla || "—")}</td>
+            <td class="px-3 py-2 text-slate-600">${escH(i.descricao || "—")}</td>
             <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${rotuloBaseCalculo(i.base_calculo) || '<span class="text-slate-300">—</span>'}</td>
             <td class="px-3 py-2 whitespace-nowrap">${badge(i.status)}</td>
             <td class="px-3 py-2 text-right whitespace-nowrap">
@@ -2376,8 +2378,8 @@ const CRUD_CONFIG = {
         <tbody class="divide-y divide-slate-100">
           ${lista.map((i) => `
           <tr class="hover:bg-slate-50">
-            <td class="px-3 py-2 text-slate-800">${i.nome || "—"}</td>
-            <td class="px-3 py-2 text-slate-600">${i.centro_custo || "—"}</td>
+            <td class="px-3 py-2 text-slate-800">${escH(i.nome || "—")}</td>
+            <td class="px-3 py-2 text-slate-600">${escH(i.centro_custo || "—")}</td>
             <td class="px-3 py-2 whitespace-nowrap">${badge(i.status)}</td>
             <td class="px-3 py-2 text-right whitespace-nowrap">
               ${podeAlterar ? `<button data-crud-editar="${i.id}" class="text-slate-500 hover:text-slate-800 mr-2">✏️</button>` : ""}
@@ -2479,13 +2481,13 @@ const CRUD_CONFIG = {
         <tbody class="divide-y divide-slate-100">
           ${lista.map((i) => `
           <tr class="hover:bg-slate-50 align-top">
-            <td class="px-3 py-2"><div class="min-w-[180px] max-w-[320px] whitespace-normal text-slate-800">${i.descricao || "—"}</div></td>
-            <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${tipoNome(i.tipo_material_id)}</td>
-            <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${i.unidade_medida || "—"}</td>
-            <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${i.quantidade_estoque != null ? i.quantidade_estoque : "—"}</td>
+            <td class="px-3 py-2"><div class="min-w-[180px] max-w-[320px] whitespace-normal text-slate-800">${escH(i.descricao || "—")}</div></td>
+            <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${escH(tipoNome(i.tipo_material_id))}</td>
+            <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${escH(i.unidade_medida || "—")}</td>
+            <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${escH(i.quantidade_estoque != null ? i.quantidade_estoque : "—")}</td>
             <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${brl(i.valor_unitario_ultima_compra)}</td>
             <td class="px-3 py-2 text-slate-500 whitespace-nowrap">${dta(i.data_ultima_compra)}</td>
-            <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${fornNome(i.fornecedor_ultima_compra_id)}</td>
+            <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${escH(fornNome(i.fornecedor_ultima_compra_id))}</td>
             <td class="px-3 py-2 whitespace-nowrap">${badge(i.status)}</td>
             <td class="px-3 py-2 text-right whitespace-nowrap">
               ${podeAlterar ? `<button data-crud-editar="${i.id}" class="text-slate-500 hover:text-slate-800 mr-2">✏️</button>` : ""}
@@ -2590,7 +2592,7 @@ const CRUD_CONFIG = {
 
       if (item) {
         $("req-item-material").innerHTML = `<option value="">— Material —</option>` +
-          reqRefMateriais.map((m) => `<option value="${m.id}">${m.descricao}${m.unidade_medida ? " (" + m.unidade_medida + ")" : ""}</option>`).join("");
+          reqRefMateriais.map((m) => `<option value="${m.id}">${escH(m.descricao)}${escH(m.unidade_medida ? " (" + m.unidade_medida + ")" : "")}</option>`).join("");
         carregarReqItens(item.id);
         const bAdd = $("btn-req-item-add");
         if (bAdd) bAdd.addEventListener("click", () => adicionarReqItem(item.id));
@@ -2645,10 +2647,10 @@ const CRUD_CONFIG = {
         <tbody class="divide-y divide-slate-100">
           ${lista.map((i) => `
           <tr class="hover:bg-slate-50">
-            <td class="px-3 py-2 font-mono text-slate-700 whitespace-nowrap">${i.numero || "—"}</td>
-            <td class="px-3 py-2 font-mono text-slate-600 whitespace-nowrap">${os(i.atividade_id)}</td>
-            <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${centro(i)}</td>
-            <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${nomeU(i.solicitante_id)}</td>
+            <td class="px-3 py-2 font-mono text-slate-700 whitespace-nowrap">${escH(i.numero || "—")}</td>
+            <td class="px-3 py-2 font-mono text-slate-600 whitespace-nowrap">${escH(os(i.atividade_id))}</td>
+            <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${escH(centro(i))}</td>
+            <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${escH(nomeU(i.solicitante_id))}</td>
             <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${i.aprovador_id ? nomeU(i.aprovador_id) : "—"}</td>
             <td class="px-3 py-2 whitespace-nowrap">${badge(i.status)}</td>
             <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${fmtBRL(i.valor_estimado)}</td>
@@ -2856,9 +2858,9 @@ const CRUD_CONFIG = {
       const audit = item ? `
         <div class="grid grid-cols-2 gap-2 text-[11px] text-slate-400 border-t border-slate-100 pt-3">
           <p>Criada em<br><span class="text-slate-600">${dtHora(item.created_at)}</span></p>
-          <p>Criada por<br><span class="text-slate-600">${nomeU(item.criado_por)}</span></p>
+          <p>Criada por<br><span class="text-slate-600">${escH(nomeU(item.criado_por))}</span></p>
           <p>Última alteração<br><span class="text-slate-600">${dtHora(item.updated_at)}</span></p>
-          <p>Alterada por<br><span class="text-slate-600">${nomeU(item.alterado_por)}</span></p>
+          <p>Alterada por<br><span class="text-slate-600">${escH(nomeU(item.alterado_por))}</span></p>
         </div>` : "";
       return `
         <div>
@@ -2902,7 +2904,7 @@ const CRUD_CONFIG = {
         ? "🏢 Corporativo"
         : ((atividadeRefCentros.find((c) => c.id === i.centro_treinamento_id) || {}).nome || "—");
       const badge = (s) => `<span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${CRUD_CONFIG.atividades.corStatus[s] || "bg-slate-100 text-slate-600"}">${s}</span>`;
-      const d = (x) => x || "—";
+      const d = (x) => escH(x || "—");
       return `
       <table class="w-full text-xs bg-white border border-slate-200 rounded-lg">
         <thead>
@@ -2924,13 +2926,13 @@ const CRUD_CONFIG = {
         <tbody class="divide-y divide-slate-100">
           ${lista.map((i) => `
           <tr class="hover:bg-slate-50 align-top">
-            <td class="px-3 py-2 font-mono text-slate-700 whitespace-nowrap">${i.os || "—"}</td>
-            <td class="px-3 py-2"><div class="min-w-[200px] max-w-[340px] whitespace-normal text-slate-800">${i.descricao || "—"}</div></td>
-            <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${tipoNome(i.tipo_atividade_id)}</td>
-            <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${respNome(i.responsavel_id)}</td>
-            <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${centroTxt(i)}</td>
+            <td class="px-3 py-2 font-mono text-slate-700 whitespace-nowrap">${escH(i.os || "—")}</td>
+            <td class="px-3 py-2"><div class="min-w-[200px] max-w-[340px] whitespace-normal text-slate-800">${escH(i.descricao || "—")}</div></td>
+            <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${escH(tipoNome(i.tipo_atividade_id))}</td>
+            <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${escH(respNome(i.responsavel_id))}</td>
+            <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${escH(centroTxt(i))}</td>
             <td class="px-3 py-2 whitespace-nowrap">${badge(i.status)}</td>
-            <td class="px-3 py-2 text-slate-600">${i.percentual || 0}%</td>
+            <td class="px-3 py-2 text-slate-600">${escH(i.percentual || 0)}%</td>
             <td class="px-3 py-2 text-slate-500 whitespace-nowrap">${d(i.data_inicio_previsto)}</td>
             <td class="px-3 py-2 text-slate-500 whitespace-nowrap">${d(i.data_termino_previsto)}</td>
             <td class="px-3 py-2 text-slate-500 whitespace-nowrap">${d(i.data_inicio_realizado)}</td>
@@ -2952,7 +2954,7 @@ const CRUD_CONFIG = {
         data_inicio_realizado: "Início realizado",
         data_termino_realizado: "Término realizado",
       };
-      const ops = (arr) => arr.filter((x) => x.status === "Ativo").map((x) => `<option value="${x.id}">${x.nome}</option>`).join("");
+      const ops = (arr) => arr.filter((x) => x.status === "Ativo").map((x) => `<option value="${x.id}">${escH(x.nome)}</option>`).join("");
       const selBase = "rounded-md border border-slate-300 px-2 py-1.5 bg-white";
       const dtBase = "w-full rounded-md border border-slate-300 px-2 py-1";
       return `
@@ -3083,7 +3085,7 @@ function renderCampoHtml(campo, valor, item) {
     const txt = campo.formato ? campo.formato(valor, item) : (val === "" ? "—" : val);
     return `<div>
       <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">${campo.label}</label>
-      <p class="mt-1 w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">${txt}</p>
+      <p class="mt-1 w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">${escH(txt)}</p>
     </div>`;
   }
   if (campo.tipo === "select") {
@@ -3092,7 +3094,7 @@ function renderCampoHtml(campo, valor, item) {
     return `<div>
       <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">${campo.label}</label>
       <select id="crud-campo-${campo.id}" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">
-        ${opcoes.map((o) => `<option value="${o.value}" ${String(o.value) === String(val) ? "selected" : ""}>${o.label}</option>`).join("")}
+        ${opcoes.map((o) => `<option value="${escH(o.value)}" ${String(o.value) === String(val) ? "selected" : ""}>${escH(o.label)}</option>`).join("")}
       </select>
     </div>`;
   }
@@ -3107,17 +3109,17 @@ function renderCampoHtml(campo, valor, item) {
       </div>` : "";
     return `<div>
       <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">${campo.label}</label>
-      <textarea id="crud-campo-${campo.id}" rows="${campo.previa ? 5 : 3}" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">${val}</textarea>${dica}
+      <textarea id="crud-campo-${campo.id}" rows="${campo.previa ? 5 : 3}" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">${escH(val)}</textarea>${dica}
     </div>`;
   }
   if (campo.tipo === "imagem") {
     const tem = !!val;
     return `<div data-imagem-campo="${campo.id}">
       <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">${campo.label}</label>
-      <input type="hidden" id="crud-campo-${campo.id}" value="${String(val).replace(/"/g, "&quot;")}" />
+      <input type="hidden" id="crud-campo-${campo.id}" value="${escH(String(val))}" />
       <div class="mt-1 flex items-center gap-3">
         <div class="h-16 w-32 rounded-md border border-dashed border-slate-300 bg-slate-50 flex items-center justify-center overflow-hidden">
-          <img data-imagem-prev class="max-h-full max-w-full object-contain ${tem ? "" : "hidden"}" ${tem ? `src="${String(val).replace(/"/g, "&quot;")}"` : ""} alt="" />
+          <img data-imagem-prev class="max-h-full max-w-full object-contain ${tem ? "" : "hidden"}" ${tem ? `src="${escH(String(val))}"` : ""} alt="" />
           <span data-imagem-vazio class="text-[11px] text-slate-400 ${tem ? "hidden" : ""}">sem imagem</span>
         </div>
         <div class="flex flex-col gap-1">
@@ -3141,7 +3143,7 @@ function renderCampoHtml(campo, valor, item) {
     return `<div>
       <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">${campo.label}</label>
       <div class="mt-1 flex gap-2">
-        <input id="crud-campo-${campo.id}"${atributoMascara} type="${campo.tipo || "text"}" value="${String(val).replace(/"/g, "&quot;")}" class="flex-1 min-w-0 rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
+        <input id="crud-campo-${campo.id}"${atributoMascara} type="${campo.tipo || "text"}" value="${escH(String(val))}" class="flex-1 min-w-0 rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
         <button type="button" id="${campo.botaoAcao.id}" class="shrink-0 whitespace-nowrap text-xs font-medium text-white bg-slate-900 hover:bg-slate-800 rounded-md px-3">${campo.botaoAcao.label}</button>
       </div>
       <p id="${campo.botaoAcao.id}-status" class="text-[11px] mt-1"></p>
@@ -3152,7 +3154,7 @@ function renderCampoHtml(campo, valor, item) {
     : "";
   return `<div>
     <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">${campo.label}</label>
-    <input id="crud-campo-${campo.id}"${atributoMascara}${atributosNum} type="${campo.tipo || "text"}" value="${String(val).replace(/"/g, "&quot;")}" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
+    <input id="crud-campo-${campo.id}"${atributoMascara}${atributosNum} type="${campo.tipo || "text"}" value="${escH(String(val))}" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
   </div>`;
 }
 
@@ -3327,10 +3329,10 @@ function renderizarListaCrud() {
   cont.innerHTML = lista.map((item) => `
     <div class="bg-white rounded-lg border border-slate-200 border-t-4 ${(item.status === "Inativo" || item.status === "Cancelada") ? "border-t-rose-400" : "border-t-teal-600"} p-4 flex flex-col gap-2 shadow-sm">
       <div class="flex items-start justify-between">
-        <p class="font-serif text-lg text-slate-900 leading-tight">${cfg.cardTitulo(item)}</p>
-        ${item.status ? `<span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${(cfg.corStatus && cfg.corStatus[item.status]) || (item.status === "Ativo" ? "bg-teal-50 text-teal-700" : "bg-rose-50 text-rose-600")}">${item.status}</span>` : ""}
+        <p class="font-serif text-lg text-slate-900 leading-tight">${escH(cfg.cardTitulo(item))}</p>
+        ${item.status ? `<span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${(cfg.corStatus && cfg.corStatus[item.status]) || (item.status === "Ativo" ? "bg-teal-50 text-teal-700" : "bg-rose-50 text-rose-600")}">${escH(item.status)}</span>` : ""}
       </div>
-      <div class="text-xs text-slate-500 space-y-1">${cfg.cardLinhas(item).map((l) => `<p class="whitespace-pre-line">${l}</p>`).join("")}</div>
+      <div class="text-xs text-slate-500 space-y-1">${cfg.cardLinhas(item).map((l) => `<p class="whitespace-pre-line">${l && typeof l === "object" ? l.html : escH(l)}</p>`).join("")}</div>
       <div class="flex gap-2 mt-2 pt-2 border-t border-slate-100">
         ${podeAlterar ? `<button data-crud-editar="${item.id}" class="flex-1 text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-50 rounded-md py-1.5">✏️ Editar</button>` : ""}
         ${podeExcluir ? `<button data-crud-excluir="${item.id}" class="flex-1 text-xs font-medium text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-md py-1.5">🗑️ Excluir</button>` : ""}
@@ -3812,7 +3814,7 @@ async function lerPlanilhaClientes(arquivo) {
     $("btn-importar-confirmar").addEventListener("click", executarImportacaoClientes);
     $("btn-importar-cancelar").addEventListener("click", () => { importacaoClientesPendente = null; $("crud-importacao-painel").classList.add("hidden"); });
   } catch (e) {
-    painelImportacao(`<p class="text-rose-700">Não foi possível ler a planilha: ${e.message || e}</p>`);
+    painelImportacao(`<p class="text-rose-700">Não foi possível ler a planilha: ${escH(e.message || e)}</p>`);
   }
 }
 
@@ -3827,7 +3829,7 @@ async function executarImportacaoClientes() {
     painelImportacao(`<p class="text-slate-700">Importando… <strong>${gravadas}</strong> de ${lista.length}</p>`);
     const { error } = await supabase.from("empresas").insert(lote);
     if (error) {
-      painelImportacao(`<p class="text-rose-700">Erro após ${gravadas} empresa(s) gravadas: ${error.message}. Nada foi duplicado: ao enviar a planilha de novo, o que já entrou é reconhecido e pulado.</p>`);
+      painelImportacao(`<p class="text-rose-700">Erro após ${gravadas} empresa(s) gravadas: ${escH(error.message)}. Nada foi duplicado: ao enviar a planilha de novo, o que já entrou é reconhecido e pulado.</p>`);
       return;
     }
     gravadas += lote.length;
@@ -3853,7 +3855,7 @@ async function completarEnderecosReceita() {
   importacaoEnderecosParar = false;
   painelImportacao(`<p class="text-slate-600">Procurando empresas sem endereço…</p>`);
   const { data, error } = await buscarTodos(() => supabase.from("empresas").select("id, cnpj, endereco").or("endereco.is.null,endereco.eq.").order("id"));
-  if (error) return painelImportacao(`<p class="text-rose-700">Erro ao consultar: ${error.message}</p>`);
+  if (error) return painelImportacao(`<p class="text-rose-700">Erro ao consultar: ${escH(error.message)}</p>`);
   const porCnpj = new Map();
   (data || []).forEach((e) => {
     const d = (e.cnpj || "").replace(/\D/g, "");
@@ -4958,11 +4960,11 @@ function renderizarItensCustoTreinamento() {
     .filter((i) => i.status === "Ativo" || i.id === sel)
     .map((i) => {
       const u = treinoRefUnidades.find((x) => x.id === i.unidade_medida_id);
-      return `<option value="${i.id}" ${i.id === sel ? "selected" : ""}>${i.item}${u ? ` (${u.sigla})` : ""}${i.opcional ? " · opcional" : ""}${i.status === "Inativo" ? " · inativo" : ""}</option>`;
+      return `<option value="${i.id}" ${i.id === sel ? "selected" : ""}>${escH(i.item)}${u ? ` (${u.sigla})` : ""}${i.opcional ? " · opcional" : ""}${i.status === "Inativo" ? " · inativo" : ""}</option>`;
     }).join("");
   const opcoesUnidades = (sel) => `<option value="">— Selecione —</option>` + treinoRefUnidades
     .filter((u) => u.status === "Ativo" || u.id === sel)
-    .map((u) => `<option value="${u.id}" ${u.id === sel ? "selected" : ""}>${u.sigla} — ${u.descricao}${u.status === "Inativo" ? " (inativa)" : ""}</option>`).join("");
+    .map((u) => `<option value="${u.id}" ${u.id === sel ? "selected" : ""}>${escH(u.sigla)} — ${escH(u.descricao)}${u.status === "Inativo" ? " (inativa)" : ""}</option>`).join("");
   const cabecalho = `
     <div class="grid gap-2 px-2 pb-0.5 ${rotulo}" style="${TREINO_GRADE_ITENS}">
       <span>Item de custo</span><span>Divisor</span><span>Unidade do divisor</span><span>Múltiplo</span><span class="text-center">Imprime</span><span>Ordem</span><span></span>
@@ -4988,7 +4990,7 @@ function preencherOrigensImportacaoTreino() {
   const opcoes = (crudLista || [])
     .filter((t) => t.id !== atualId && (treinoContagemItensCusto[t.id] || 0) > 0)
     .sort((x, y) => String(x.nome).localeCompare(String(y.nome), "pt-BR"))
-    .map((t) => `<option value="${t.id}">${t.nome}${t.status === "Inativo" ? " (inativo)" : ""} — ${treinoContagemItensCusto[t.id]} item(ns)</option>`);
+    .map((t) => `<option value="${t.id}">${escH(t.nome)}${t.status === "Inativo" ? " (inativo)" : ""} — ${treinoContagemItensCusto[t.id]} item(ns)</option>`);
   sel.innerHTML = `<option value="">— Selecione o treinamento de origem —</option>` + opcoes.join("");
 }
 
@@ -5448,7 +5450,7 @@ function renderReqItens() {
     cont.innerHTML = reqItensAtual.map((it) => `
       <div class="flex items-start justify-between gap-2 border-b border-slate-100 pb-1">
         <div>
-          <p class="text-slate-700">${nomeMat(it.material_id)}${it.quantidade != null ? ` · ${it.quantidade}${unMat(it.material_id) ? " " + unMat(it.material_id) : ""}` : ""}</p>
+          <p class="text-slate-700">${escH(nomeMat(it.material_id))}${it.quantidade != null ? ` · ${it.quantidade}${unMat(it.material_id) ? " " + unMat(it.material_id) : ""}` : ""}</p>
           <p class="text-slate-400">Est.: ${fmtBRL(it.valor_estimado)} · Real.: ${fmtBRL(it.valor_realizado)}</p>
         </div>
         <button data-req-item-del="${it.id}" class="text-rose-500 hover:text-rose-700 shrink-0">🗑️</button>
@@ -5546,9 +5548,9 @@ function renderizarListaAnexosAtividade() {
   }
   corpo.innerHTML = anexosDaAtividadeAtual.map((x) => `
     <tr class="border-t border-slate-100">
-      <td class="py-1.5 pr-2">${x.descricao || "—"}</td>
+      <td class="py-1.5 pr-2">${escH(x.descricao || "—")}</td>
       <td class="py-1.5 pr-2 whitespace-nowrap">${dtHora(x.created_at)}</td>
-      <td class="py-1.5 pr-2 whitespace-nowrap">${nomeU(x.criado_por)}</td>
+      <td class="py-1.5 pr-2 whitespace-nowrap">${escH(nomeU(x.criado_por))}</td>
       <td class="py-1.5 text-right whitespace-nowrap">
         <button data-anexo-abrir="${x.id}" class="text-slate-500 hover:text-slate-800 text-xs mr-2">abrir</button>
         ${podeExcluir ? `<button data-anexo-excluir="${x.id}" class="text-rose-500 hover:text-rose-700 text-xs">🗑️</button>` : ""}
@@ -5615,7 +5617,7 @@ $("painel-atividade-anexos-overlay").addEventListener("click", () => $("painel-a
 function preencherSelect(id, itens, valueKey, labelFn, opcaoVazia) {
   const el = $(id);
   el.innerHTML = (opcaoVazia ? `<option value="">${opcaoVazia}</option>` : "") +
-    itens.map((i) => `<option value="${i[valueKey]}">${labelFn(i)}</option>`).join("");
+    itens.map((i) => `<option value="${escH(i[valueKey])}">${escH(labelFn(i))}</option>`).join("");
 }
 
 // Seletor de empresa com filtro por texto (nome, fantasia ou CNPJ): com
@@ -5872,14 +5874,14 @@ function renderizarListaDesmarcacoes() {
     <div class="bg-white rounded-lg border border-amber-200 p-4 flex flex-col sm:flex-row sm:items-center gap-3">
       <div class="flex-1 min-w-0">
         <div class="flex items-center gap-2 flex-wrap">
-          <p class="font-serif text-lg text-slate-900 leading-tight">${d.instrutorNome}</p>
+          <p class="font-serif text-lg text-slate-900 leading-tight">${escH(d.instrutorNome)}</p>
           <span class="text-[11px] font-medium px-2 py-0.5 rounded-full bg-amber-50 text-amber-700">Aguardando decisão</span>
         </div>
-        <p class="text-sm text-amber-700 font-medium mt-1">🗓️ ${formatarDataAbrev(d.data)} · 🏷️ ${d.tipoNome}</p>
+        <p class="text-sm text-amber-700 font-medium mt-1">🗓️ ${formatarDataAbrev(d.data)} · 🏷️ ${escH(d.tipoNome)}</p>
         <div class="text-xs text-slate-500 space-y-0.5 mt-1">
-          ${d.centroNome ? `<p>🏫 ${d.centroNome}</p>` : ""}
-          ${d.empresaNome ? `<p>🏢 ${d.empresaNome}</p>` : ""}
-          <p class="text-slate-600">💬 ${d.justificativa || "Sem justificativa informada."}</p>
+          ${d.centroNome ? `<p>🏫 ${escH(d.centroNome)}</p>` : ""}
+          ${d.empresaNome ? `<p>🏢 ${escH(d.empresaNome)}</p>` : ""}
+          <p class="text-slate-600">💬 ${escH(d.justificativa || "Sem justificativa informada.")}</p>
           ${d.solicitadoEm ? `<p class="text-slate-400">Pedido em ${new Date(d.solicitadoEm).toLocaleDateString("pt-BR")}</p>` : ""}
         </div>
       </div>
@@ -5936,15 +5938,15 @@ function renderizarListaNegativas() {
     <div class="bg-white rounded-lg border ${n.resolvida ? "border-slate-200 opacity-60" : "border-rose-200"} p-4 flex flex-col sm:flex-row sm:items-center gap-3">
       <div class="flex-1 min-w-0">
         <div class="flex items-center gap-2 flex-wrap">
-          <p class="font-serif text-lg text-slate-900 leading-tight">${n.instrutorNome}</p>
+          <p class="font-serif text-lg text-slate-900 leading-tight">${escH(n.instrutorNome)}</p>
           <span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${n.resolvida ? "bg-slate-100 text-slate-500" : "bg-rose-50 text-rose-600"}">${n.resolvida ? "Resolvida" : "Pendente"}</span>
           ${n.veioDeDesmarcacao ? `<span class="text-[11px] font-medium px-2 py-0.5 rounded-full bg-amber-50 text-amber-700" title="A aula já estava confirmada e o instrutor pediu para desmarcar">⚠️ Desmarcou aula confirmada</span>` : ""}
         </div>
-        <p class="text-sm text-amber-700 font-medium mt-1">🗓️ ${formatarDataAbrev(n.data)} · 🏷️ ${n.tipoNome}</p>
+        <p class="text-sm text-amber-700 font-medium mt-1">🗓️ ${formatarDataAbrev(n.data)} · 🏷️ ${escH(n.tipoNome)}</p>
         <div class="text-xs text-slate-500 space-y-0.5 mt-1">
-          ${n.centroNome ? `<p>🏫 ${n.centroNome}</p>` : ""}
-          ${n.empresaNome ? `<p>🏢 ${n.empresaNome}</p>` : ""}
-          <p class="text-slate-600">💬 ${n.justificativa || "Sem justificativa informada."}</p>
+          ${n.centroNome ? `<p>🏫 ${escH(n.centroNome)}</p>` : ""}
+          ${n.empresaNome ? `<p>🏢 ${escH(n.empresaNome)}</p>` : ""}
+          <p class="text-slate-600">💬 ${escH(n.justificativa || "Sem justificativa informada.")}</p>
           ${n.veioDeDesmarcacao && n.desmarcadoEm ? `<p class="text-amber-700">🗓️ Desmarcação aprovada em ${new Date(n.desmarcadoEm).toLocaleDateString("pt-BR")}</p>` : ""}
           ${n.resolvida ? `<p class="text-slate-400">✔️ Resolvida em ${new Date(n.resolvidoEm).toLocaleDateString("pt-BR")}</p>` : ""}
         </div>
@@ -6003,14 +6005,14 @@ function renderizarListaAgendamentos() {
     <div class="bg-white rounded-lg border border-slate-200 p-4 flex flex-col gap-2 shadow-sm">
       <div class="flex items-start justify-between">
         <p class="font-serif text-lg text-slate-900 leading-tight">${a.instrutores?.nome || "Instrutor removido"}</p>
-        <span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${corStatus[a.status] || ""}">${a.status}</span>
+        <span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${corStatus[a.status] || ""}">${escH(a.status)}</span>
       </div>
       <p class="text-sm text-amber-700 font-medium">🏷️ ${a.tipos_treinamento?.nome || "—"}</p>
       <div class="text-xs text-slate-500 space-y-1">
-        ${a.centros_treinamento?.nome ? `<p>🏫 ${a.centros_treinamento.nome}</p>` : ""}
-        ${a.empresas?.nome ? `<p>🏢 ${a.empresas.nome}</p>` : ""}
+        ${a.centros_treinamento?.nome ? `<p>🏫 ${escH(a.centros_treinamento.nome)}</p>` : ""}
+        ${a.empresas?.nome ? `<p>🏢 ${escH(a.empresas.nome)}</p>` : ""}
         <p>🗓️ ${datasLabel}</p>
-        ${a.horario ? `<p>⏰ ${a.horario}</p>` : ""}
+        ${a.horario ? `<p>⏰ ${escH(a.horario)}</p>` : ""}
       </div>
       <div class="flex gap-2 mt-2 pt-2 border-t border-slate-100">
         ${podeAlterar ? `<button data-ag-editar="${a.id}" class="flex-1 text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-50 rounded-md py-1.5">✏️ Editar</button>` : ""}
@@ -6748,11 +6750,11 @@ function renderizarListaOrcamentos() {
   };
   cont.innerHTML = lista.map((o) => `
     <tr class="hover:bg-slate-50">
-      <td class="px-3 py-2 font-mono text-slate-700 cursor-pointer select-none" data-orc-numero="${o.id}" title="Dois cliques para editar">${o.numero}</td>
+      <td class="px-3 py-2 font-mono text-slate-700 cursor-pointer select-none" data-orc-numero="${o.id}" title="Dois cliques para editar">${escH(o.numero)}</td>
       <td class="px-3 py-2 text-slate-700">${o.empresas?.nome || "—"}</td>
       <td class="px-3 py-2 text-slate-500">${o.tipos_treinamento?.nome || "—"}</td>
       <td class="px-3 py-2 text-slate-500">${o.centros_treinamento?.nome || "—"}</td>
-      <td class="px-3 py-2"><span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${corStatus[o.status] || ""}">${o.status}</span></td>
+      <td class="px-3 py-2"><span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${corStatus[o.status] || ""}">${escH(o.status)}</span></td>
       <td class="px-3 py-2 text-slate-500">${o.qtd_turmas || 0}</td>
       <td class="px-3 py-2 text-slate-500">${o.qtd_alunos || 0}</td>
       <td class="px-3 py-2 text-slate-500">${o.qtd_localidades || 1}</td>
@@ -7212,15 +7214,15 @@ function renderizarCalcOrcamento() {
       const manual = orcQtdDaBase(l.base_calculo, { alunosPorTurma: 0, turmas: 0, localidades: 0, distancia: 0 }) == null;
       const trava = orcPropostaTravada ? " disabled" : "";
       return `<tr data-orc-linha="${l.chave}">
-        <td class="px-2 py-1 font-semibold text-slate-800 whitespace-nowrap" title="${(l.descricao_impressao || "").replace(/"/g, "&quot;")}">${l.item}${l.opcional ? ` <span class="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800">opcional</span>${orcPropostaTravada ? "" : ` <button type="button" data-orc-remover="${l.chave}" class="text-rose-500 hover:text-rose-700 text-xs" title="Tirar este item opcional do cálculo">✕</button>`}` : ""}</td>
+        <td class="px-2 py-1 font-semibold text-slate-800 whitespace-nowrap" title="${escH((l.descricao_impressao || ""))}">${escH(l.item)}${l.opcional ? ` <span class="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800">opcional</span>${orcPropostaTravada ? "" : ` <button type="button" data-orc-remover="${l.chave}" class="text-rose-500 hover:text-rose-700 text-xs" title="Tirar este item opcional do cálculo">✕</button>`}` : ""}</td>
         <td class="px-2 py-1 text-right whitespace-nowrap bg-amber-50"><input data-orc-campo="valor_unitario" type="number" min="0" step="0.01" value="${l.valor_unitario}" class="${campo}"${trava} /><span data-c="chg" class="text-amber-600 text-[10px] ml-1"></span></td>
-        <td class="px-2 py-1 whitespace-nowrap"><span class="text-[11px] px-2 py-0.5 rounded-full ${manual ? "bg-amber-50 text-amber-800" : "bg-slate-100 text-slate-600"}">${l.unidade_sigla || "—"}</span></td>
+        <td class="px-2 py-1 whitespace-nowrap"><span class="text-[11px] px-2 py-0.5 rounded-full ${manual ? "bg-amber-50 text-amber-800" : "bg-slate-100 text-slate-600"}">${escH(l.unidade_sigla || "—")}</span></td>
         <td class="px-2 py-1 text-right whitespace-nowrap ${manual ? "bg-amber-50" : ""}">${manual
           ? `<input data-orc-campo="qtd_manual" type="number" min="0" step="any" value="${l.qtd_manual}" class="w-20 rounded border border-slate-300 bg-white px-1.5 py-0.5 text-right text-xs"${trava} /><span data-c="qtd-extra" class="text-slate-400 text-[10px] ml-1"></span>`
           : `<span data-c="qtd"></span>`}</td>
         <td class="px-2 py-1 text-right font-semibold whitespace-nowrap" data-c="total"></td>
         <td class="px-2 py-1 whitespace-nowrap">${Number(l.divisor) > 0 ? fmtQtd(l.divisor) : "—"}</td>
-        <td class="px-2 py-1 whitespace-nowrap">${Number(l.divisor) > 0 ? (l.unidade_divisor_sigla || "—") : "—"}</td>
+        <td class="px-2 py-1 whitespace-nowrap">${escH(Number(l.divisor) > 0 ? (l.unidade_divisor_sigla || "—") : "—")}</td>
         <td class="px-2 py-1 text-right">${Number(l.multiplo) !== 1 ? fmtQtd(l.multiplo) : "—"}</td>
         <td class="px-2 py-1 whitespace-nowrap bg-amber-50"><label class="inline-flex items-center gap-1 cursor-pointer"><input data-orc-campo="imprime" type="checkbox" ${l.imprime ? "checked" : ""}${trava} /> <span class="text-[11px] text-slate-600">imprime</span></label>
           <input data-orc-campo="ordem_impressao" type="number" min="0" step="1" value="${l.ordem_impressao ?? ""}" placeholder="ordem" title="Ordem de impressão na proposta" class="ml-1 w-16 rounded border border-slate-300 bg-white px-1.5 py-0.5 text-right text-xs"${trava} /></td>
@@ -7347,7 +7349,7 @@ async function orcAbrirPainelOpcional() {
     const refs = await orcCarregarRefsCalculo();
     const usados = new Set(orcLinhasCalc.map((l) => l.item_custo_id).filter(Boolean));
     const disp = refs.itens.filter((i) => i.opcional && i.status !== "Inativo" && !usados.has(i.id)).sort((a, b) => (a.item || "").localeCompare(b.item || "", "pt-BR"));
-    sel.innerHTML = disp.map((i) => `<option value="${i.id}">${i.item} — ${fmtBRL(i.valor)}</option>`).join("");
+    sel.innerHTML = disp.map((i) => `<option value="${i.id}">${escH(i.item)} — ${fmtBRL(i.valor)}</option>`).join("");
     msg.textContent = disp.length ? "" : "Não há itens opcionais disponíveis (cadastre em Itens de Custo, marcando “Opcional”).";
     $("btn-orc-opcional-add").disabled = disp.length === 0;
   } catch (e) {
@@ -7672,20 +7674,20 @@ function renderizarDockTurmas(msgVazio) {
 
   const corTipoDia = { "Teoria": "bg-blue-50 text-blue-700", "Prática": "bg-amber-50 text-amber-700", "Teoria com Prática": "bg-purple-50 text-purple-700" };
   const corAgend = { "Agendado": "bg-emerald-50 text-emerald-700", "Aguardando confirmação": "bg-amber-50 text-amber-700" };
-  const opcoesInstrutor = (val) => `<option value="">—</option>` + orcTurmasRef.instrutores.map((i) => `<option value="${i.id}" ${i.id === val ? "selected" : ""}>${i.nome}</option>`).join("");
-  const opcoesTransporte = (val) => `<option value="">—</option>` + orcTurmasRef.transportadoras.map((e) => `<option value="${e.id}" ${e.id === val ? "selected" : ""}>${e.nome}</option>`).join("");
+  const opcoesInstrutor = (val) => `<option value="">—</option>` + orcTurmasRef.instrutores.map((i) => `<option value="${i.id}" ${i.id === val ? "selected" : ""}>${escH(i.nome)}</option>`).join("");
+  const opcoesTransporte = (val) => `<option value="">—</option>` + orcTurmasRef.transportadoras.map((e) => `<option value="${e.id}" ${e.id === val ? "selected" : ""}>${escH(e.nome)}</option>`).join("");
   const campoCls = "w-full text-xs rounded-md border border-slate-300 px-2 py-1";
   corpo.innerHTML = pagina.map((t) => `
     <tr data-turma-linha="${t.id}">
-      <td class="px-2 py-1 font-mono text-slate-500">${t.identificacao || "—"}</td>
-      <td class="px-2 py-1">${t.tipo_dia ? `<span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${corTipoDia[t.tipo_dia] || ""}">${t.tipo_dia}</span>` : "—"}</td>
-      <td class="px-2 py-1"><input type="date" data-turma-campo="data_inicio" value="${t.data_inicio || ""}" class="${campoCls}" /></td>
+      <td class="px-2 py-1 font-mono text-slate-500">${escH(t.identificacao || "—")}</td>
+      <td class="px-2 py-1">${t.tipo_dia ? `<span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${corTipoDia[t.tipo_dia] || ""}">${escH(t.tipo_dia)}</span>` : "—"}</td>
+      <td class="px-2 py-1"><input type="date" data-turma-campo="data_inicio" value="${escH(t.data_inicio || "")}" class="${campoCls}" /></td>
       <td class="px-2 py-1"><select data-turma-campo="instrutor1_id" class="${campoCls}">${opcoesInstrutor(t.instrutor1_id)}</select></td>
       <td class="px-2 py-1"><select data-turma-campo="instrutor2_id" class="${campoCls}">${opcoesInstrutor(t.instrutor2_id)}</select></td>
       <td class="px-2 py-1">${transporteAplicavel(t)
         ? `<select data-turma-campo="empresa_transporte_id" class="${campoCls}">${opcoesTransporte(t.empresa_transporte_id)}</select>`
         : `<span class="text-slate-400">N/A</span>`}</td>
-      <td class="px-2 py-1 whitespace-nowrap"><span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${corAgend[t.status_agendamento] || "bg-slate-100 text-slate-500"}">${t.status_agendamento || "Não agendado"}</span></td>
+      <td class="px-2 py-1 whitespace-nowrap"><span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${corAgend[t.status_agendamento] || "bg-slate-100 text-slate-500"}">${escH(t.status_agendamento || "Não agendado")}</span></td>
     </tr>`).join("");
 
   corpo.querySelectorAll("[data-turma-campo]").forEach((el) => {
@@ -7962,7 +7964,7 @@ const CAMPOS_TRAVA_PROPOSTA = ["orc-tipo", "orc-qtd-alunos", "orc-qtd-turmas", "
 function orcPreencherPrazos(selecionado) {
   const sel = $("orc-prazo");
   const lista = orcPrazosPagamento.filter((p) => p.status !== "Inativo" || p.id === selecionado);
-  sel.innerHTML = `<option value="">— Selecione —</option>` + lista.map((p) => `<option value="${p.id}">${p.descricao}${p.status === "Inativo" ? " (inativo)" : ""}</option>`).join("");
+  sel.innerHTML = `<option value="">— Selecione —</option>` + lista.map((p) => `<option value="${p.id}">${escH(p.descricao)}${p.status === "Inativo" ? " (inativo)" : ""}</option>`).join("");
   sel.value = selecionado || "";
 }
 
@@ -8014,7 +8016,7 @@ function orcAtualizarModoProposta() {
     + `: nº ${u.numero} · versão ${u.versao} · gerada em ${formatarDataHoraBr(u.created_at)}${u.gerado_por ? " por " + u.gerado_por : ""} · ${fmtBRL(u.valor_final)}`
     + (v ? " · itens bloqueados (use “Nova negociação” para alterar)" : " · em negociação: gere uma nova proposta");
   const hist = $("orc-proposta-hist");
-  hist.innerHTML = orcPropostas.map((p) => `<div class="flex items-center gap-3 py-0.5 flex-wrap"><span class="font-mono">${escHtmlOrc(p.numero)}</span><span>v${p.versao}</span><span>${formatarDataHoraBr(p.created_at)}</span><span>${escHtmlOrc(p.gerado_por || "")}</span><span class="font-semibold">${fmtBRL(p.valor_final)}</span><span class="${p.status === "Inválida" ? "text-slate-500" : "text-emerald-700 font-medium"}">${p.status === "Inválida" ? "Inválida" : "Válida"}</span>${p.origem ? `<span class="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-sky-100 text-sky-800" title="Proposta importada do ${escHtmlOrc(p.origem)}">${escHtmlOrc(p.origem)}</span>` : ""}<button type="button" data-prop-pdf="${p.id}" class="underline hover:text-amber-700" title="${p.arquivo_externo ? "PDF original emitido no " + escHtmlOrc(p.origem || "sistema de origem") : "Gera o PDF desta proposta"}">⬇ PDF${p.arquivo_externo ? " (original)" : ""}</button>${p.dossie_arquivo ? `<button type="button" data-dossie-pdf="${p.id}" class="underline hover:text-amber-700" title="PDF do cálculo + justificativa da nova negociação (abre com senha)">🔒 PDF do cálculo e justificativa</button>` : ""}</div>`).join("");
+  hist.innerHTML = orcPropostas.map((p) => `<div class="flex items-center gap-3 py-0.5 flex-wrap"><span class="font-mono">${escHtmlOrc(p.numero)}</span><span>v${escH(p.versao)}</span><span>${formatarDataHoraBr(p.created_at)}</span><span>${escHtmlOrc(p.gerado_por || "")}</span><span class="font-semibold">${fmtBRL(p.valor_final)}</span><span class="${p.status === "Inválida" ? "text-slate-500" : "text-emerald-700 font-medium"}">${p.status === "Inválida" ? "Inválida" : "Válida"}</span>${p.origem ? `<span class="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-sky-100 text-sky-800" title="Proposta importada do ${escHtmlOrc(p.origem)}">${escHtmlOrc(p.origem)}</span>` : ""}<button type="button" data-prop-pdf="${p.id}" class="underline hover:text-amber-700" title="${p.arquivo_externo ? "PDF original emitido no " + escHtmlOrc(p.origem || "sistema de origem") : "Gera o PDF desta proposta"}">⬇ PDF${p.arquivo_externo ? " (original)" : ""}</button>${p.dossie_arquivo ? `<button type="button" data-dossie-pdf="${p.id}" class="underline hover:text-amber-700" title="PDF do cálculo + justificativa da nova negociação (abre com senha)">🔒 PDF do cálculo e justificativa</button>` : ""}</div>`).join("");
   orcAtualizarAvisoProposta();
 }
 
@@ -8142,7 +8144,7 @@ function orcAtualizarAprovacao(c) {
           : `<div class="mt-1 text-[11px] text-slate-400">🔒 PDF de cálculo e justificativa protegido por senha</div>`)
         : "";
       const inv = inval ? `${formatarDataHoraBr(p.invalidada_em)}${p.invalidada_por ? " · " + escHtmlOrc(p.invalidada_por) : ""}<div class="text-slate-500 whitespace-pre-wrap">${escHtmlOrc(p.motivo_invalidacao || "")}</div>${p.dossie_arquivo ? `<div class="mt-1"><button type="button" data-dossie-pdf="${p.id}" class="text-[11px] underline text-slate-600 hover:text-amber-700">🔒 PDF do cálculo e justificativa</button></div>` : ""}${senhaBtn}` : "";
-      return `<tr class="border-t border-slate-100 align-top"><td class="px-2 py-1.5"><span class="font-mono">${escHtmlOrc(p.numero)}</span> <span class="text-slate-400">v${p.versao}</span></td><td class="px-2 py-1.5 ${inval ? "text-slate-500" : "text-emerald-700 font-medium"}">${inval ? "Inválida" : "Válida"}</td><td class="px-2 py-1.5 text-right whitespace-nowrap">${fmtBRL(p.valor_final)}</td><td class="px-2 py-1.5 whitespace-nowrap">${p.margem_final_perc != null ? fmtPercOrc(p.margem_final_perc) : "—"}</td><td class="px-2 py-1.5">${apr}</td><td class="px-2 py-1.5">${inv}</td></tr>`;
+      return `<tr class="border-t border-slate-100 align-top"><td class="px-2 py-1.5"><span class="font-mono">${escHtmlOrc(p.numero)}</span> <span class="text-slate-400">v${escH(p.versao)}</span></td><td class="px-2 py-1.5 ${inval ? "text-slate-500" : "text-emerald-700 font-medium"}">${inval ? "Inválida" : "Válida"}</td><td class="px-2 py-1.5 text-right whitespace-nowrap">${fmtBRL(p.valor_final)}</td><td class="px-2 py-1.5 whitespace-nowrap">${p.margem_final_perc != null ? fmtPercOrc(p.margem_final_perc) : "—"}</td><td class="px-2 py-1.5">${apr}</td><td class="px-2 py-1.5">${inv}</td></tr>`;
     }).join("") + `</tbody></table>`;
 }
 
@@ -9913,7 +9915,7 @@ async function lerPlanilhaOrcamentos(arquivo) {
     $("btn-orc-imp-relatorio").addEventListener("click", baixarRelatorioImportacaoOrc);
     $("btn-orc-imp-cancelar").addEventListener("click", () => { importacaoOrcPendente = null; $("orc-importacao-painel").classList.add("hidden"); });
   } catch (e) {
-    painelImportacaoOrc(`<p class="text-rose-700">Não foi possível ler a planilha: ${e.message || e}</p>`);
+    painelImportacaoOrc(`<p class="text-rose-700">Não foi possível ler a planilha: ${escH(e.message || e)}</p>`);
   }
 }
 
@@ -9971,7 +9973,7 @@ function renderizarProgressoImpOrc() {
   const n = (v) => Number(v || 0).toLocaleString("pt-BR");
   painelImportacaoOrc(`
     <p class="font-medium text-slate-800 mb-1"><span class="inline-block animate-pulse text-teal-600">●</span> Importação em andamento — ${s.cancelar ? "interrompendo ao fim do passo atual…" : "mantenha esta página aberta"}</p>
-    <p class="text-xs text-slate-500 mb-3">Etapa: <strong>${s.etapa}</strong> · tempo decorrido: ${duracaoImpOrc(Date.now() - s.inicio)} · última atividade há ${duracaoImpOrc(parado)}</p>
+    <p class="text-xs text-slate-500 mb-3">Etapa: <strong>${escH(s.etapa)}</strong> · tempo decorrido: ${duracaoImpOrc(Date.now() - s.inicio)} · última atividade há ${duracaoImpOrc(parado)}</p>
     ${alerta ? `<div class="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-2 mb-3">Sem novidades há mais de ${duracaoImpOrc(parado)}. O servidor pode estar lento. Se continuar assim, recarregue a página e importe a mesma planilha de novo: o que já foi gravado é reconhecido e a importação continua de onde parou.</div>` : ""}
     <div class="grid sm:grid-cols-2 gap-x-6 gap-y-3 text-xs text-slate-700 mb-3">
       <div>Orçamentos criados: <strong>${n(s.criados)}</strong> de ${n(s.totalNovos)}${barraImpOrc(s.criados, s.totalNovos)}</div>
@@ -10200,14 +10202,14 @@ async function executarImportacaoOrcamentos() {
   await carregarPaginaOrcamentos();
   const n = (v) => Number(v || 0).toLocaleString("pt-BR");
   painelImportacaoOrc(`
-    <p class="${statusFinal === "Concluída" ? "text-teal-700" : "text-amber-700"} font-medium mb-2">${statusFinal === "Concluída" ? "✅" : "⚠️"} Importação ${statusFinal.toLowerCase()} em ${duracaoImpOrc(Date.now() - s.inicio)}</p>
+    <p class="${statusFinal === "Concluída" ? "text-teal-700" : "text-amber-700"} font-medium mb-2">${statusFinal === "Concluída" ? "✅" : "⚠️"} Importação ${escH(statusFinal.toLowerCase())} em ${duracaoImpOrc(Date.now() - s.inicio)}</p>
     <ul class="text-xs text-slate-700 space-y-0.5 mb-3">
       <li>Orçamentos criados: <strong>${n(s.criados)}</strong> de ${n(s.totalNovos)}</li>
       <li>Turmas criadas: <strong>${n(s.turmas)}</strong>${gerarTurmas ? "" : " (geração desativada)"}</li>
       ${s.totalAtualizar ? `<li>Orçamentos existentes atualizados: <strong>${n(s.atualizados)}</strong> de ${n(s.totalAtualizar)}</li>` : ""}
       <li>Falhas: <strong class="${s.falhas ? "text-rose-600" : ""}">${n(s.falhas)}</strong></li>
     </ul>
-    ${s.erroFatal ? `<p class="text-xs text-rose-700 mb-2">Erro: ${s.erroFatal}</p>` : ""}
+    ${s.erroFatal ? `<p class="text-xs text-rose-700 mb-2">Erro: ${escH(s.erroFatal)}</p>` : ""}
     ${statusFinal !== "Concluída" ? `<p class="text-xs text-slate-600 mb-2">Para continuar de onde parou, importe a mesma planilha de novo: o que já foi gravado é reconhecido e só o que falta é feito.</p>` : ""}
     ${s.avisoLog ? `<p class="text-[11px] text-amber-700 mb-2">Parte do log não pôde ser gravada no banco.</p>` : ""}
     <div class="flex flex-wrap gap-2">
@@ -10231,7 +10233,7 @@ const ROTULO_RESULTADO_IMP = { criado: "Criado", atualizado: "Atualizado", exist
 async function abrirHistoricoImportacoesOrc() {
   painelImportacaoOrc(`<p class="text-slate-600">Carregando histórico…</p>`);
   const { data, error } = await supabase.from("importacoes_orcamentos").select("*").order("iniciada_em", { ascending: false }).limit(50);
-  if (error) return painelImportacaoOrc(`<p class="text-rose-700">Não foi possível carregar o histórico: ${error.message}</p>`);
+  if (error) return painelImportacaoOrc(`<p class="text-rose-700">Não foi possível carregar o histórico: ${escH(error.message)}</p>`);
   const dt = (iso) => (iso ? new Date(iso).toLocaleString("pt-BR") : "—");
   const n = (v) => Number(v || 0).toLocaleString("pt-BR");
   const statusExibido = (r) => (r.status === "Em andamento" && Date.now() - new Date(r.ultima_atividade).getTime() > 180000 ? "Interrompida (sem atividade)" : r.status);
@@ -10244,8 +10246,8 @@ async function abrirHistoricoImportacoesOrc() {
     <div class="overflow-x-auto"><table class="w-full text-xs">
       <thead><tr class="text-left text-slate-500"><th class="py-1 pr-3">Início</th><th class="pr-3">Usuário</th><th class="pr-3">Arquivo</th><th class="pr-3">Situação</th><th class="pr-3">Orç. criados</th><th class="pr-3">Turmas</th><th class="pr-3">Atualizados</th><th class="pr-3">Falhas</th><th></th></tr></thead>
       <tbody class="divide-y divide-slate-100">${data.map((r) => `
-        <tr><td class="py-1 pr-3 whitespace-nowrap">${dt(r.iniciada_em)}</td><td class="pr-3">${r.usuario_email || "—"}</td><td class="pr-3">${r.arquivo || "—"}</td>
-        <td class="pr-3">${statusExibido(r)}</td><td class="pr-3">${n(r.orcamentos_criados)} / ${n(r.total_para_importar)}</td><td class="pr-3">${n(r.turmas_criadas)}</td>
+        <tr><td class="py-1 pr-3 whitespace-nowrap">${dt(r.iniciada_em)}</td><td class="pr-3">${escH(r.usuario_email || "—")}</td><td class="pr-3">${escH(r.arquivo || "—")}</td>
+        <td class="pr-3">${escH(statusExibido(r))}</td><td class="pr-3">${n(r.orcamentos_criados)} / ${n(r.total_para_importar)}</td><td class="pr-3">${n(r.turmas_criadas)}</td>
         <td class="pr-3">${n(r.orcamentos_atualizados)}</td><td class="pr-3 ${r.falhas ? "text-rose-600 font-medium" : ""}">${n(r.falhas)}</td>
         <td><button data-imp-itens="${r.id}" class="text-teal-700 hover:underline">ver itens</button></td></tr>`).join("")}
       </tbody></table></div>`}
@@ -10278,9 +10280,9 @@ async function abrirItensImportacaoOrc(runId) {
   const carregar = async () => {
     const { data, error, count } = await montar().limit(300);
     $("orc-hist-contagem").textContent = error ? "" : `${Number(count || 0).toLocaleString("pt-BR")} item(ns)${(count || 0) > 300 ? " — mostrando os 300 primeiros; refine a busca ou baixe o log" : ""}`;
-    $("orc-hist-lista").innerHTML = error ? `<p class="text-rose-700 text-xs p-2">${error.message}</p>` : (data || []).length === 0 ? `<p class="text-xs text-slate-500 p-2">Nenhum item.</p>` : `
+    $("orc-hist-lista").innerHTML = error ? `<p class="text-rose-700 text-xs p-2">${escH(error.message)}</p>` : (data || []).length === 0 ? `<p class="text-xs text-slate-500 p-2">Nenhum item.</p>` : `
       <table class="w-full text-xs"><thead class="bg-slate-50 text-slate-500 text-left"><tr><th class="px-2 py-1">Hora</th><th class="px-2">Linha</th><th class="px-2">Orçamento</th><th class="px-2">Resultado</th><th class="px-2">Turmas</th><th class="px-2">Detalhe</th></tr></thead>
-      <tbody class="divide-y divide-slate-100">${data.map((i) => `<tr><td class="px-2 py-1 whitespace-nowrap">${new Date(i.criado_em).toLocaleTimeString("pt-BR")}</td><td class="px-2">${i.linha ?? ""}</td><td class="px-2 font-mono">${i.numero || ""}</td><td class="px-2 ${i.resultado === "erro" ? "text-rose-600 font-medium" : ""}">${ROTULO_RESULTADO_IMP[i.resultado] || i.resultado}</td><td class="px-2">${i.turmas_criadas ?? ""}</td><td class="px-2 text-slate-600">${i.mensagem || ""}</td></tr>`).join("")}</tbody></table>`;
+      <tbody class="divide-y divide-slate-100">${data.map((i) => `<tr><td class="px-2 py-1 whitespace-nowrap">${new Date(i.criado_em).toLocaleTimeString("pt-BR")}</td><td class="px-2">${i.linha ?? ""}</td><td class="px-2 font-mono">${escH(i.numero || "")}</td><td class="px-2 ${i.resultado === "erro" ? "text-rose-600 font-medium" : ""}">${escH(ROTULO_RESULTADO_IMP[i.resultado] || i.resultado)}</td><td class="px-2">${i.turmas_criadas ?? ""}</td><td class="px-2 text-slate-600">${escH(i.mensagem || "")}</td></tr>`).join("")}</tbody></table>`;
   };
   let timer = null;
   $("orc-hist-busca").addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(carregar, 300); });
@@ -10401,7 +10403,7 @@ $("turma-orcamento-select").addEventListener("change", () => {
   info.innerHTML = `
     <p><strong>Empresa:</strong> ${o.empresas?.nome || "—"}</p>
     <p><strong>Treinamento:</strong> ${o.tipos_treinamento?.nome || "—"}</p>
-    <p><strong>Status do orçamento:</strong> ${o.status}</p>
+    <p><strong>Status do orçamento:</strong> ${escH(o.status)}</p>
     <p><strong>Previsto:</strong> ${o.qtd_turmas || 0} turma(s) · ${o.qtd_alunos || 0} aluno(s) · ${o.qtd_alunos_por_turma || 0} aluno(s)/turma · ${o.qtd_localidades || 1} localidade(s)</p>
   `;
   $("turma-conteudo").classList.remove("hidden");
@@ -10492,12 +10494,12 @@ function renderizarListaTurmas() {
   };
   cont.innerHTML = lista.map((t) => `
     <tr class="hover:bg-slate-50">
-      <td class="px-3 py-2 font-mono text-slate-700">${t.identificacao || "—"}</td>
+      <td class="px-3 py-2 font-mono text-slate-700">${escH(t.identificacao || "—")}</td>
       <td class="px-3 py-2 text-slate-700">${t.tipos_treinamento?.nome || "—"}</td>
-      <td class="px-3 py-2 text-slate-500">${t.tipo_dia || "—"}</td>
+      <td class="px-3 py-2 text-slate-500">${escH(t.tipo_dia || "—")}</td>
       <td class="px-3 py-2 text-slate-500">${t.centros_treinamento?.nome || "—"}</td>
-      <td class="px-3 py-2 text-slate-500">${t.data_inicio || "—"}${t.data_fim && t.data_fim !== t.data_inicio ? ` a ${t.data_fim}` : ""}</td>
-      <td class="px-3 py-2"><span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${corStatus[t.status] || ""}">${t.status}</span></td>
+      <td class="px-3 py-2 text-slate-500">${escH(t.data_inicio || "—")}${t.data_fim && t.data_fim !== t.data_inicio ? ` a ${t.data_fim}` : ""}</td>
+      <td class="px-3 py-2"><span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${corStatus[t.status] || ""}">${escH(t.status)}</span></td>
       <td class="px-3 py-2 text-right whitespace-nowrap">
         <button data-turma-alunos="${t.id}" class="text-xs font-medium text-slate-600 hover:text-slate-900 px-1.5 py-1">👥 Alunos</button>
         <button data-turma-exportar="${t.id}" class="text-xs font-medium text-slate-600 hover:text-slate-900 px-1.5 py-1" title="Exportar lista de presença dos alunos desta turma">📄 Lista de presença</button>
@@ -10810,10 +10812,10 @@ function renderizarDesmarcacoesPendentes() {
   $("agend-desmarcacoes-lista").innerHTML = desmarcacoesPendentes.map((d, i) => `
     <tr class="hover:bg-rose-50/40">
       <td class="px-3 py-2 whitespace-nowrap text-slate-700">${formatarDataBr(d.data)}</td>
-      <td class="px-3 py-2"><div class="text-slate-700">${d.instrutor_nome || "—"}</div><div class="text-[11px] text-slate-500">${d.papel || ""}</div></td>
-      <td class="px-3 py-2"><div class="font-mono text-slate-700">${d.turma_identificacao || "—"}</div><div class="text-[11px] text-slate-500">${d.tipo_treinamento || ""}</div></td>
-      <td class="px-3 py-2"><div class="font-mono text-xs text-slate-500">${d.orcamento_numero || "—"}</div><div class="text-slate-700">${d.empresa_nome || "—"}</div></td>
-      <td class="px-3 py-2 text-slate-600 max-w-xs">${d.justificativa || "—"}</td>
+      <td class="px-3 py-2"><div class="text-slate-700">${escH(d.instrutor_nome || "—")}</div><div class="text-[11px] text-slate-500">${escH(d.papel || "")}</div></td>
+      <td class="px-3 py-2"><div class="font-mono text-slate-700">${escH(d.turma_identificacao || "—")}</div><div class="text-[11px] text-slate-500">${escH(d.tipo_treinamento || "")}</div></td>
+      <td class="px-3 py-2"><div class="font-mono text-xs text-slate-500">${escH(d.orcamento_numero || "—")}</div><div class="text-slate-700">${escH(d.empresa_nome || "—")}</div></td>
+      <td class="px-3 py-2 text-slate-600 max-w-xs">${escH(d.justificativa || "—")}</td>
       <td class="px-3 py-2 text-xs text-slate-500 whitespace-nowrap">${formatarDataHoraBr(d.solicitado_em)}</td>
       <td class="px-3 py-2 text-right whitespace-nowrap">
         ${pode ? `<button data-desm-aprovar="${i}" class="text-xs font-medium text-white bg-rose-600 hover:bg-rose-700 px-2.5 py-1 rounded-md">Aprovar desmarcação</button>
@@ -11080,11 +11082,11 @@ function blocoObservacoesOrcamento(o, compacto = false) {
   const partes = [];
   if (o.observacoes) {
     partes.push(`<div class="${tamanho} text-slate-700 bg-slate-50 border border-slate-200 rounded-md px-2 py-1.5 whitespace-pre-line">
-      <span class="font-medium">Observações do orçamento:</span> ${o.observacoes}</div>`);
+      <span class="font-medium">Observações do orçamento:</span> ${escH(o.observacoes)}</div>`);
   }
   if (o.observacao_ct) {
     partes.push(`<div class="${tamanho} text-amber-900 bg-amber-50 border border-amber-200 rounded-md px-2 py-1.5 whitespace-pre-line">
-      📌 <span class="font-medium">Observação para o Centro de Treinamento:</span> ${o.observacao_ct}</div>`);
+      📌 <span class="font-medium">Observação para o Centro de Treinamento:</span> ${escH(o.observacao_ct)}</div>`);
   }
   return partes.length ? `<div class="mt-2 space-y-1.5">${partes.join("")}</div>` : "";
 }
@@ -11136,10 +11138,10 @@ function montarRespostaInstrutor(r) {
 function iconeRespostaInstrutor(resp) {
   if (!resp) return "";
   if (resp.desmarcacaoPendente) {
-    return `<span title="Motivo: ${(resp.desmarcacaoMotivo || "não informado").replace(/"/g, "&quot;")}" class="text-rose-700 text-xs font-medium">⏳ aguardando confirmação de desmarcação</span>`;
+    return `<span title="Motivo: ${escH((resp.desmarcacaoMotivo || "não informado"))}" class="text-rose-700 text-xs font-medium">⏳ aguardando confirmação de desmarcação</span>`;
   }
   if (resp.status === "confirmado") return `<span title="Instrutor confirmou" class="text-teal-700 text-xs">✔ confirmou</span>`;
-  if (resp.status === "negado") return `<span title="${(resp.justificativa || "").replace(/"/g, "&quot;")}" class="text-rose-600 text-xs">✖ negou</span>`;
+  if (resp.status === "negado") return `<span title="${escH((resp.justificativa || ""))}" class="text-rose-600 text-xs">✖ negou</span>`;
   return `<span class="text-amber-600 text-xs">⏳ aguardando</span>`;
 }
 
@@ -11229,7 +11231,7 @@ function celulaInstrutorAgendTurma(t, campo) {
   const opcoes = candidatos
     .map((r) => {
       const { disponiveis, agendados } = contarDisponibilidadeJanela(r.instrutor, janela);
-      return `<option value="${r.instrutor.id}" ${r.instrutor.id === valorAtual ? "selected" : ""} ${!r.fullyAvailable ? 'style="background-color:#fed7aa;"' : ""}>${r.instrutor.nome} (${disponiveis} disp. / ${agendados} agend.)</option>`;
+      return `<option value="${r.instrutor.id}" ${r.instrutor.id === valorAtual ? "selected" : ""} ${!r.fullyAvailable ? 'style="background-color:#fed7aa;"' : ""}>${escH(r.instrutor.nome)} (${disponiveis} disp. / ${agendados} agend.)</option>`;
     })
     .join("");
   const resp = respostaInstrutorAgendTurma(t, valorAtual);
@@ -11260,7 +11262,7 @@ function celulaInstrutorSomenteLeitura(t, campo) {
 function rotuloCentroAgendTurma(t) {
   const nomeCentro = (id) => listaCentrosAtivos.find((c) => c.id === id)?.nome || "—";
   if (t._centroMudara) {
-    return `<span class="text-[11px] text-amber-700" title="O CT da turma será gravado como ${nomeCentro(t.centro_treinamento_id)} ao solicitar a confirmação.">🏢 Realizada em ${nomeCentro(t.centro_treinamento_id)} (cadastro: ${t.centros_treinamento?.nome || nomeCentro(t._centroOriginalId)}) — será gravado ao solicitar confirmação</span>`;
+    return `<span class="text-[11px] text-amber-700" title="O CT da turma será gravado como ${escH(nomeCentro(t.centro_treinamento_id))} ao solicitar a confirmação.">🏢 Realizada em ${escH(nomeCentro(t.centro_treinamento_id))} (cadastro: ${t.centros_treinamento?.nome || nomeCentro(t._centroOriginalId)}) — será gravado ao solicitar confirmação</span>`;
   }
   if (t._centroBloqueado) {
     return `<span class="text-[11px] text-rose-700" title="Desfaça a confirmação do CT atual antes de mudar de unidade.">⚠ CT em ${t.centros_treinamento?.nome || nomeCentro(t.centro_treinamento_id)} já aguardando/confirmado — não será trocado</span>`;
@@ -11285,12 +11287,12 @@ function renderizarListaAgendTurmas() {
   cont.innerHTML = agendTurmasLista.map((t) => `
     <tr class="hover:bg-slate-50">
       <td class="px-3 pt-2 pb-1"><input type="checkbox" data-agend-turma-check="${t.id}" ${agendTurmaSelecionadas.has(t.id) ? "checked" : ""} class="rounded border-slate-300" /></td>
-      <td class="px-3 pt-2 pb-1 font-mono text-slate-700">${t.identificacao || "—"}</td>
-      <td class="px-3 pt-2 pb-1 text-slate-500">${t.tipo_dia || "—"}</td>
+      <td class="px-3 pt-2 pb-1 font-mono text-slate-700">${escH(t.identificacao || "—")}</td>
+      <td class="px-3 pt-2 pb-1 text-slate-500">${escH(t.tipo_dia || "—")}</td>
       <td class="px-3 pt-2 pb-1 text-slate-500">
-        <input type="date" data-agend-turma-data="${t.id}" value="${t.data_inicio || ""}" class="w-full min-w-[140px] text-xs rounded-md border border-slate-300 px-2 py-1.5" />
+        <input type="date" data-agend-turma-data="${t.id}" value="${escH(t.data_inicio || "")}" class="w-full min-w-[140px] text-xs rounded-md border border-slate-300 px-2 py-1.5" />
       </td>
-      <td class="px-3 pt-2 pb-1"><span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${corStatus[t.status] || ""}">${t.status}</span></td>
+      <td class="px-3 pt-2 pb-1"><span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${corStatus[t.status] || ""}">${escH(t.status)}</span></td>
       <td class="px-3 pt-2 pb-1">${badgeStatusAgendamento(t.status_agendamento, t.eh_pre_agendamento)}${turmaComDesmarcacaoPendente(t) ? `<div class="mt-0.5 text-[11px] text-rose-700 font-medium">desmarcação solicitada</div>` : ""}</td>
       <td class="px-3 pt-2 pb-1 text-center">
         <input type="checkbox" data-agend-turma-pre="${t.id}" ${t.eh_pre_agendamento ? "checked" : ""}
@@ -11306,13 +11308,13 @@ function renderizarListaAgendTurmas() {
         <div class="flex flex-wrap items-center gap-x-5 gap-y-1 pl-0.5">
           <label class="flex items-center gap-1.5 text-[11px] text-slate-500">
             Horário aula
-            <input type="time" data-agend-turma-horario="${t.id}" value="${t.horario || ""}" title="Horário de início da aula — alterar aqui não afeta as demais turmas. Se algum instrutor já confirmou, ele recebe um aviso do novo horário." class="text-xs rounded-md border border-slate-300 px-2 py-1 w-[6.5rem]" />
+            <input type="time" data-agend-turma-horario="${t.id}" value="${escH(t.horario || "")}" title="Horário de início da aula — alterar aqui não afeta as demais turmas. Se algum instrutor já confirmou, ele recebe um aviso do novo horário." class="text-xs rounded-md border border-slate-300 px-2 py-1 w-[6.5rem]" />
           </label>
           ${rotuloCentroAgendTurma(t)}
           ${turmaSomenteLocacao(t) ? "" : `<label class="flex items-center gap-1.5 text-[11px] text-slate-500">
             Horário deslocamento
             ${algumInstrutorConfirmouAgendTurma(t)
-              ? `<input type="time" data-agend-turma-deslocamento="${t.id}" value="${t.horario_deslocamento || ""}" title="Horário em que o instrutor deve iniciar o deslocamento até esta turma" class="text-xs rounded-md border border-slate-300 px-2 py-1 w-[6.5rem]" />`
+              ? `<input type="time" data-agend-turma-deslocamento="${t.id}" value="${escH(t.horario_deslocamento || "")}" title="Horário em que o instrutor deve iniciar o deslocamento até esta turma" class="text-xs rounded-md border border-slate-300 px-2 py-1 w-[6.5rem]" />`
               : `<span class="text-[11px] text-slate-300" title="Só é possível definir depois que algum instrutor confirmar a data">— (aguardando confirmação)</span>`}
           </label>`}
         </div>
@@ -11655,7 +11657,7 @@ function abrirModalCancelarAgend() {
   const nomeInst = (id) => listaInstrutoresAtivos.find((i) => i.id === id)?.nome || "";
   $("cancagend-resumo").innerHTML = comAgend.map((t) => {
     const insts = [t.instrutor1_id, t.instrutor2_id].filter(Boolean).map(nomeInst).filter(Boolean);
-    return `<div><span class="font-mono">${t.identificacao || "—"}</span>${t.data_inicio ? ` · ${formatarDataBr(t.data_inicio)}` : ""} · CT: ${t.agenda_ct || "—"}${insts.length ? ` · Instrutor(es): ${insts.join(", ")}` : ""}</div>`;
+    return `<div><span class="font-mono">${escH(t.identificacao || "—")}</span>${t.data_inicio ? ` · ${formatarDataBr(t.data_inicio)}` : ""} · CT: ${escH(t.agenda_ct || "—")}${insts.length ? ` · Instrutor(es): ${insts.join(", ")}` : ""}</div>`;
   }).join("");
   $("cancagend-motivo").value = "";
   $("cancagend-erro").classList.add("hidden");
@@ -11707,8 +11709,8 @@ $("btn-cancagend-confirmar").addEventListener("click", confirmarCancelarAgend);
 
 function formatarDataBr(iso) {
   if (!iso) return "—";
-  const [a, m, d] = iso.split("-");
-  return `${d}/${m}/${a}`;
+  const [a, m, d] = String(iso).split("-");
+  return escH(`${d}/${m}/${a}`);
 }
 
 // ===========================================================
@@ -11777,7 +11779,7 @@ function renderizarTurmasPreAgendamentoDefinitivo() {
   $("cct-definitivos-lista").innerHTML = turmasPreAgendamentoDefinitivo.map((t) => `
     <div class="flex items-center justify-between gap-3 text-xs bg-white border border-sky-100 rounded-md px-3 py-2">
       <span>
-        <span class="font-mono text-slate-700">${t.identificacao || "—"}</span>
+        <span class="font-mono text-slate-700">${escH(t.identificacao || "—")}</span>
         — ${t.orcamentos?.empresas?.nome || "—"} · ${t.centros_treinamento?.nome || "—"}${t.data_inicio ? ` · ${formatarDataBr(t.data_inicio)}` : ""}
       </span>
       <button data-cct-definitivo-visto="${t.id}" class="text-sky-700 hover:underline whitespace-nowrap">marcar como visto</button>
@@ -12021,7 +12023,7 @@ function renderizarDetalheDiaCt(porDia) {
   }
   const podeConfirmar = podeFazer("confirmacao_ct", "alterar");
   const linhaInst = (nome, resp, agenda) => nome
-    ? `<div class="text-xs text-slate-700">${nome} ${iconeRespostaInstrutor(resp) || textoAgendaItem(agenda)}</div>`
+    ? `<div class="text-xs text-slate-700">${escH(nome)} ${iconeRespostaInstrutor(resp) || textoAgendaItem(agenda)}</div>`
     : "";
   lista.innerHTML = turmas.map((t) => {
     const obs = blocoObservacoesOrcamento(t.orcamentos, true);
@@ -12029,7 +12031,7 @@ function renderizarDetalheDiaCt(porDia) {
     return `
     <div class="border border-slate-200 rounded-lg p-2.5">
       <div class="flex items-start justify-between gap-2">
-        <span class="font-mono text-xs text-slate-700">${t.identificacao || "—"}</span>
+        <span class="font-mono text-xs text-slate-700">${escH(t.identificacao || "—")}</span>
         <span class="flex items-center gap-1.5">${textoAgendaItem(t.agenda_ct)} ${badgeStatusAgendamento(t.status_agendamento, t.eh_pre_agendamento)}</span>
       </div>
       <div class="text-sm text-slate-800 mt-1">${t.tipos_treinamento?.nome || "—"}</div>
@@ -12149,8 +12151,8 @@ function abrirBlocoRepetirAlunos() {
   $("repetir-alunos-turmas-lista").innerHTML = outras.map((t) => `
     <label class="flex items-center gap-2 text-xs text-slate-700">
       <input type="checkbox" data-repetir-aluno-turma="${t.id}" class="rounded border-slate-300" />
-      <span class="font-mono">${t.identificacao || "—"}</span>
-      <span class="text-slate-400">${t.tipo_dia || t.tipos_treinamento?.nome || ""}${t.data_inicio ? " · " + formatarDataAbrev(t.data_inicio) : ""}</span>
+      <span class="font-mono">${escH(t.identificacao || "—")}</span>
+      <span class="text-slate-400">${escH(t.tipo_dia || t.tipos_treinamento?.nome || "")}${t.data_inicio ? " · " + formatarDataAbrev(t.data_inicio) : ""}</span>
     </label>
   `).join("");
   $("bloco-repetir-alunos-turma").classList.remove("hidden");
@@ -12283,9 +12285,9 @@ function renderizarListaAlunosTurma() {
     const localidade = localidadesParaAlunosTurma.find((l) => l.id === a.localidade_id);
     return `
     <tr class="border-t border-slate-100">
-      <td class="py-1.5 pr-2">${a.cpf || "—"}</td>
-      <td class="py-1.5 pr-2">${a.nome}</td>
-      <td class="py-1.5 pr-2">${a.data_nascimento || "—"}</td>
+      <td class="py-1.5 pr-2">${escH(a.cpf || "—")}</td>
+      <td class="py-1.5 pr-2">${escH(a.nome)}</td>
+      <td class="py-1.5 pr-2">${escH(a.data_nascimento || "—")}</td>
       <td class="py-1.5 pr-2">${localidade?.nome || "—"}</td>
       <td class="py-1.5 pr-2">${a.cnpj_atestado ? MASCARAS.cnpj(a.cnpj_atestado) : "—"}</td>
       <td class="py-1.5 pr-2">${a.cnpj_faturamento ? MASCARAS.cnpj(a.cnpj_faturamento) : "—"}</td>
@@ -12453,7 +12455,7 @@ function renderizarListaLocalidadesTurma() {
   }
   corpo.innerHTML = localidadesDaTurmaAtual.map((l) => `
     <tr class="border-t border-slate-100">
-      <td class="py-1.5 pr-2">${l.nome}</td>
+      <td class="py-1.5 pr-2">${escH(l.nome)}</td>
       <td class="py-1.5 pr-2">${l.cnpj_atestado ? MASCARAS.cnpj(l.cnpj_atestado) : "—"}</td>
       <td class="py-1.5 pr-2">${l.cnpj_faturamento ? MASCARAS.cnpj(l.cnpj_faturamento) : "—"}</td>
       <td class="py-1.5 text-right whitespace-nowrap">
@@ -12778,7 +12780,7 @@ async function carregarAgendaCentrosInit() {
   const sel = $("acc-centro-select");
   const anterior = sel.value || "TODOS";
   sel.innerHTML = `<option value="TODOS">Todos os centros de treinamento</option>` +
-    listaCentrosAtivos.map((c) => `<option value="${c.id}">${c.nome}</option>`).join("");
+    listaCentrosAtivos.map((c) => `<option value="${c.id}">${escH(c.nome)}</option>`).join("");
   sel.value = listaCentrosAtivos.some((c) => c.id === anterior) ? anterior : "TODOS";
   accMes = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
   accDiaSelecionado = null;
@@ -12907,14 +12909,14 @@ function renderizarDetalheDiaAgendaCentros(porDia) {
   lista.innerHTML = turmas.map((t) => `
     <div class="border border-slate-200 rounded-lg p-2.5">
       <div class="flex items-start justify-between gap-2">
-        <span class="font-mono text-xs text-slate-700">${t.identificacao || "—"}</span>
+        <span class="font-mono text-xs text-slate-700">${escH(t.identificacao || "—")}</span>
         ${badgeStatusAgendamento(t.status_agendamento, t.eh_pre_agendamento)}
       </div>
       <div class="text-sm text-slate-800 mt-1">${t.tipos_treinamento?.nome || "—"}</div>
       <div class="text-xs text-slate-500">${t.orcamentos?.empresas?.nome || "—"} · orç. ${t.orcamentos?.numero || "—"}</div>
       <div class="text-[11px] text-slate-500 mt-1">🏫 ${t.centros_treinamento?.nome || "—"}${t.horario ? ` · ${t.horario}` : ""}${t.tipo_dia ? ` · ${t.tipo_dia}` : ""}</div>
       <div class="text-[11px] text-slate-500">👤 ${[t.inst1?.nome, t.inst2?.nome].filter(Boolean).join(" e ") || "sem instrutor"}</div>
-      ${t.orcamentos?.observacao_ct ? `<div class="mt-2 text-[11px] text-amber-900 bg-amber-50 border border-amber-200 rounded-md px-2 py-1.5 whitespace-pre-line">📌 ${t.orcamentos.observacao_ct}</div>` : ""}
+      ${t.orcamentos?.observacao_ct ? `<div class="mt-2 text-[11px] text-amber-900 bg-amber-50 border border-amber-200 rounded-md px-2 py-1.5 whitespace-pre-line">📌 ${escH(t.orcamentos.observacao_ct)}</div>` : ""}
     </div>
   `).join("");
 }
@@ -13022,7 +13024,7 @@ function preencherFiltroCentroDispo() {
   const sel = $("dispo-centro-select");
   const atual = sel.value;
   sel.innerHTML = `<option value="">Todos os centros</option>` +
-    dispoCentrosRef.map((c) => `<option value="${c.id}">${c.nome}${c.status !== "Ativo" ? " (inativo)" : ""}</option>`).join("");
+    dispoCentrosRef.map((c) => `<option value="${c.id}">${escH(c.nome)}${c.status !== "Ativo" ? " (inativo)" : ""}</option>`).join("");
   sel.value = atual || "";
 }
 
@@ -13101,7 +13103,7 @@ function renderizarDisponibilidadeInstrutores() {
     }).join("");
     return `
     <tr>
-      <td title="${inst.nome}" class="sticky left-0 z-10 bg-white px-2 py-1.5 text-xs text-slate-800 whitespace-nowrap overflow-hidden text-ellipsis" style="width:${DISPO_LARG.nome}px;min-width:${DISPO_LARG.nome}px">${inst.nome}${inst.status !== "Ativo" ? ` <span class="text-[9px] text-rose-500">(inat.)</span>` : ""}</td>
+      <td title="${escH(inst.nome)}" class="sticky left-0 z-10 bg-white px-2 py-1.5 text-xs text-slate-800 whitespace-nowrap overflow-hidden text-ellipsis" style="width:${DISPO_LARG.nome}px;min-width:${DISPO_LARG.nome}px">${escH(inst.nome)}${inst.status !== "Ativo" ? ` <span class="text-[9px] text-rose-500">(inat.)</span>` : ""}</td>
       <td title="${ct?.nome || ""}" class="sticky z-10 bg-white px-0.5 py-1.5 text-[10px] text-slate-500 text-center whitespace-nowrap overflow-hidden text-ellipsis" style="left:${DISPO_LEFT.ct}px;width:${DISPO_LARG.ct}px;min-width:${DISPO_LARG.ct}px">${siglaCentroDispo(ct)}</td>
       <td class="sticky z-10 bg-white px-0.5 py-1.5 text-center text-[10px] font-medium text-blue-700" style="left:${DISPO_LEFT.agend}px;width:${DISPO_LARG.agend}px;min-width:${DISPO_LARG.agend}px">${totalAgendados}</td>
       <td class="sticky z-10 bg-white px-0.5 py-1.5 text-center text-[10px] font-medium text-teal-700" style="left:${DISPO_LEFT.disp}px;width:${DISPO_LARG.disp}px;min-width:${DISPO_LARG.disp}px">${totalDisponiveis}</td>
@@ -13159,7 +13161,7 @@ async function carregarDocumentosTurmasInit() {
   const sel = $("dt-empresa-select");
   const anterior = sel.value || "";
   sel.innerHTML = `<option value="">Todas as empresas</option>` +
-    dtEmpresasLista.map((e) => `<option value="${e.id}">${e.nome}</option>`).join("");
+    dtEmpresasLista.map((e) => `<option value="${e.id}">${escH(e.nome)}</option>`).join("");
   sel.value = dtEmpresasLista.some((e) => e.id === anterior) ? anterior : "";
   $("dt-grupo-economico-bloco").classList.toggle("hidden", !sel.value);
   await carregarDocumentosTurmas();
@@ -13257,7 +13259,7 @@ function renderizarDocumentosTurmas() {
   const cont = $("dt-lista");
   cont.innerHTML = lista.map((t) => `
     <tr class="hover:bg-slate-50">
-      <td class="px-3 py-2 font-mono text-slate-700">${t.identificacao || "—"}</td>
+      <td class="px-3 py-2 font-mono text-slate-700">${escH(t.identificacao || "—")}</td>
       <td class="px-3 py-2 text-slate-500">${t.orcamentos?.numero || "—"}</td>
       <td class="px-3 py-2 text-slate-700">${t.orcamentos?.empresas?.nome || "—"}</td>
       <td class="px-3 py-2 text-slate-500">${formatarDataBr(t.data_inicio)}${t.data_fim && t.data_fim !== t.data_inicio ? ` a ${formatarDataBr(t.data_fim)}` : ""}</td>
@@ -13301,7 +13303,7 @@ async function abrirPainelDocumentosTurma(turmaId) {
     .order("criado_em", { ascending: true });
 
   if (error) {
-    $("dt-painel-fotos-turma-grade").innerHTML = `<p class="col-span-full text-xs text-rose-500">Não foi possível carregar as fotos: ${error.message}</p>`;
+    $("dt-painel-fotos-turma-grade").innerHTML = `<p class="col-span-full text-xs text-rose-500">Não foi possível carregar as fotos: ${escH(error.message)}</p>`;
     return;
   }
 
@@ -13322,8 +13324,8 @@ async function renderizarGradeMidiasTurma(elId, midias, textoVazio) {
   }
   const urls = await Promise.all(midias.map((m) => urlArquivoTurmaMidia(m.caminho_arquivo)));
   el.innerHTML = midias.map((m, i) => urls[i] ? `
-    <a href="${urls[i]}" target="_blank" rel="noopener" class="block aspect-square rounded-md overflow-hidden border border-slate-200 bg-slate-50 hover:opacity-80">
-      <img src="${urls[i]}" loading="lazy" class="w-full h-full object-cover" />
+    <a href="${escH(urls[i])}" target="_blank" rel="noopener" class="block aspect-square rounded-md overflow-hidden border border-slate-200 bg-slate-50 hover:opacity-80">
+      <img src="${escH(urls[i])}" loading="lazy" class="w-full h-full object-cover" />
     </a>
   ` : `
     <div class="aspect-square rounded-md border border-slate-200 bg-slate-50 flex items-center justify-center text-[10px] text-slate-400">indisponível</div>
@@ -13382,7 +13384,7 @@ async function carregarTreinamentosCapacitacao() {
     .order("data_disponibilizacao", { ascending: false })
     .order("created_at", { ascending: false });
   if (error) {
-    $("tc-lista").innerHTML = `<tr><td colspan="6" class="text-center text-rose-500 text-sm py-8">Não foi possível carregar: ${error.message}</td></tr>`;
+    $("tc-lista").innerHTML = `<tr><td colspan="6" class="text-center text-rose-500 text-sm py-8">Não foi possível carregar: ${escH(error.message)}</td></tr>`;
     return;
   }
   tcLista = data || [];
@@ -13399,14 +13401,14 @@ function renderizarListaTreinamentosCapacitacao() {
     cont.innerHTML = `<tr><td colspan="6" class="text-center text-slate-400 text-sm py-10">Nenhum treinamento cadastrado.</td></tr>`;
     return;
   }
-  const badgeStatus = (s) => `<span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${s === "Inativo" ? "bg-rose-50 text-rose-600" : "bg-teal-50 text-teal-700"}">${s}</span>`;
+  const badgeStatus = (s) => `<span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${s === "Inativo" ? "bg-rose-50 text-rose-600" : "bg-teal-50 text-teal-700"}">${escH(s)}</span>`;
   cont.innerHTML = lista.map((t) => `
     <tr class="hover:bg-slate-50">
-      <td class="px-3 py-2 text-slate-800 max-w-xs">${t.descricao || "—"}</td>
+      <td class="px-3 py-2 text-slate-800 max-w-xs">${escH(t.descricao || "—")}</td>
       <td class="px-3 py-2 text-slate-500 whitespace-nowrap">${formatarDataBr(t.data_disponibilizacao)}</td>
-      <td class="px-3 py-2 text-slate-500 whitespace-nowrap">${TC_APLICATIVO_LABEL[t.aplicativo] || t.aplicativo}</td>
+      <td class="px-3 py-2 text-slate-500 whitespace-nowrap">${escH(TC_APLICATIVO_LABEL[t.aplicativo] || t.aplicativo)}</td>
       <td class="px-3 py-2 whitespace-nowrap">
-        <button data-tc-abrir-arquivo="${t.id}" class="text-slate-600 hover:text-slate-900 underline">${iconeArquivoTreinamento(t.arquivo_tipo || t.arquivo_nome)} ${t.arquivo_nome || "arquivo"}</button>
+        <button data-tc-abrir-arquivo="${t.id}" class="text-slate-600 hover:text-slate-900 underline">${iconeArquivoTreinamento(t.arquivo_tipo || t.arquivo_nome)} ${escH(t.arquivo_nome || "arquivo")}</button>
       </td>
       <td class="px-3 py-2 whitespace-nowrap">${badgeStatus(t.status)}</td>
       <td class="px-3 py-2 text-right whitespace-nowrap">
@@ -13552,9 +13554,9 @@ async function abrirPainelTreinamentos() {
   }
   $("painel-treinamentos-lista").innerHTML = tcTreinamentosDisponiveis.map((t) => `
     <div class="border border-slate-200 rounded-lg p-3">
-      <p class="text-sm text-slate-800">${t.descricao || "—"}</p>
+      <p class="text-sm text-slate-800">${escH(t.descricao || "—")}</p>
       <p class="text-[11px] text-slate-400 mt-0.5">Disponível desde ${formatarDataBr(t.data_disponibilizacao)}</p>
-      <button data-tc-abrir-arquivo="${t.id}" class="mt-2 inline-flex items-center gap-1 text-xs font-medium text-teal-700 hover:text-teal-900 underline">${iconeArquivoTreinamento(t.arquivo_tipo || t.arquivo_nome)} Abrir ${t.arquivo_nome || "arquivo"}</button>
+      <button data-tc-abrir-arquivo="${t.id}" class="mt-2 inline-flex items-center gap-1 text-xs font-medium text-teal-700 hover:text-teal-900 underline">${iconeArquivoTreinamento(t.arquivo_tipo || t.arquivo_nome)} Abrir ${escH(t.arquivo_nome || "arquivo")}</button>
     </div>
   `).join("");
   $("painel-treinamentos-lista").querySelectorAll("[data-tc-abrir-arquivo]").forEach((btn) =>
@@ -13625,7 +13627,7 @@ async function carregarTiposDespesaParaReembolso() {
   const { data } = await supabase.from("tipos_despesas").select("id, nome, status").eq("status", "Ativo").order("nome");
   rbTiposDespesa = data || [];
   $("rb-tipo-despesa").innerHTML = `<option value="">— Selecione —</option>` +
-    rbTiposDespesa.map((t) => `<option value="${t.id}">${t.nome}</option>`).join("");
+    rbTiposDespesa.map((t) => `<option value="${t.id}">${escH(t.nome)}</option>`).join("");
 }
 
 async function carregarMeusReembolsos() {
@@ -13657,7 +13659,7 @@ function detalhesValorReembolsoHtml(r) {
     const motivo = porFinanceiro ? r.justificativa_financeiro : r.justificativa_gestor;
     linhas.push(`<p class="text-xs text-rose-600 mt-1">Recusado pelo ${porFinanceiro ? "financeiro" : "gestor direto"}${motivo ? `: "${motivo}"` : "."}</p>`);
   } else if (r.status === "Aprovado parcial" && r.justificativa_financeiro) {
-    linhas.push(`<p class="text-xs text-slate-500 mt-1">Motivo da aprovação parcial: "${r.justificativa_financeiro}"</p>`);
+    linhas.push(`<p class="text-xs text-slate-500 mt-1">Motivo da aprovação parcial: "${escH(r.justificativa_financeiro)}"</p>`);
   }
   return linhas.join("");
 }
@@ -13675,14 +13677,14 @@ function renderizarListaReembolsos() {
     <div class="border border-slate-200 rounded-lg p-3">
       <div class="flex items-start justify-between gap-2">
         <div>
-          <p class="text-sm font-medium text-slate-800">${(r.tipos_despesas && r.tipos_despesas.nome) || "—"}</p>
+          <p class="text-sm font-medium text-slate-800">${escH((r.tipos_despesas && r.tipos_despesas.nome) || "—")}</p>
           <p class="text-xs text-slate-500 mt-0.5">${formatarDataBr(r.data_despesa)} · ${fmtBRL(r.valor)}</p>
         </div>
-        <span class="text-[11px] font-medium px-2 py-0.5 rounded-full whitespace-nowrap ${corStatus}">${r.status}</span>
+        <span class="text-[11px] font-medium px-2 py-0.5 rounded-full whitespace-nowrap ${corStatus}">${escH(r.status)}</span>
       </div>
       ${detalhesValorReembolsoHtml(r)}
-      ${r.descricao ? `<p class="text-xs text-slate-500 mt-2">${r.descricao}</p>` : ""}
-      ${r.treinamento ? `<p class="text-xs text-slate-400 mt-1">Treinamento: ${r.treinamento}</p>` : ""}
+      ${r.descricao ? `<p class="text-xs text-slate-500 mt-2">${escH(r.descricao)}</p>` : ""}
+      ${r.treinamento ? `<p class="text-xs text-slate-400 mt-1">Treinamento: ${escH(r.treinamento)}</p>` : ""}
       <div class="flex items-center gap-3 mt-2 pt-2 border-t border-slate-100">
         ${r.anexo_path ? `<button data-rb-ver-anexo="${r.id}" class="text-xs font-medium text-teal-700 hover:text-teal-900">📎 Ver comprovante</button>` : `<span class="text-xs text-slate-300">Sem comprovante</span>`}
         ${podeEditar ? `<button data-rb-editar="${r.id}" class="text-xs font-medium text-slate-500 hover:text-slate-800 ml-auto">✏️ Editar</button>` : ""}
@@ -13974,13 +13976,13 @@ function renderizarListaAprovSemGestor() {
     <button data-aprov-item="${r.id}" class="w-full text-left border border-amber-200 bg-amber-50 rounded-lg p-3 hover:border-amber-400">
       <div class="flex items-start justify-between gap-2">
         <div>
-          <p class="text-sm font-medium text-slate-800">${iconeSolicitanteReembolso(r.solicitante_tipo)} ${r.solicitante_nome}</p>
-          <p class="text-xs text-slate-500 mt-0.5">${r.tipo_despesa_nome || "—"} · ${formatarDataBr(r.data_despesa)}</p>
+          <p class="text-sm font-medium text-slate-800">${iconeSolicitanteReembolso(r.solicitante_tipo)} ${escH(r.solicitante_nome)}</p>
+          <p class="text-xs text-slate-500 mt-0.5">${escH(r.tipo_despesa_nome || "—")} · ${formatarDataBr(r.data_despesa)}</p>
           <p class="text-xs text-amber-700 mt-0.5">Solicitado em ${fmtDataHoraBR(r.data_solicitacao)} · ainda sem aprovação do gestor direto</p>
         </div>
         <span class="text-sm font-semibold text-slate-800 whitespace-nowrap">${fmtBRL(r.valor)}</span>
       </div>
-      ${r.descricao ? `<p class="text-xs text-slate-500 mt-2">${r.descricao}</p>` : ""}
+      ${r.descricao ? `<p class="text-xs text-slate-500 mt-2">${escH(r.descricao)}</p>` : ""}
     </button>`).join("");
   cont.querySelectorAll("[data-aprov-item]").forEach((btn) =>
     btn.addEventListener("click", () => abrirDetalheAprovacao("financeiro_direto", btn.getAttribute("data-aprov-item")))
@@ -13997,12 +13999,12 @@ function renderizarListaAprovGestor() {
     <button data-aprov-item="${r.id}" class="w-full text-left border border-slate-200 rounded-lg p-3 hover:border-amber-400">
       <div class="flex items-start justify-between gap-2">
         <div>
-          <p class="text-sm font-medium text-slate-800">${iconeSolicitanteReembolso(r.solicitante_tipo)} ${r.solicitante_nome}</p>
-          <p class="text-xs text-slate-500 mt-0.5">${r.tipo_despesa_nome || "—"} · ${formatarDataBr(r.data_despesa)}</p>
+          <p class="text-sm font-medium text-slate-800">${iconeSolicitanteReembolso(r.solicitante_tipo)} ${escH(r.solicitante_nome)}</p>
+          <p class="text-xs text-slate-500 mt-0.5">${escH(r.tipo_despesa_nome || "—")} · ${formatarDataBr(r.data_despesa)}</p>
         </div>
         <span class="text-sm font-semibold text-slate-800 whitespace-nowrap">${fmtBRL(r.valor)}</span>
       </div>
-      ${r.descricao ? `<p class="text-xs text-slate-500 mt-2">${r.descricao}</p>` : ""}
+      ${r.descricao ? `<p class="text-xs text-slate-500 mt-2">${escH(r.descricao)}</p>` : ""}
     </button>`).join("");
   cont.querySelectorAll("[data-aprov-item]").forEach((btn) =>
     btn.addEventListener("click", () => abrirDetalheAprovacao("gestor", btn.getAttribute("data-aprov-item")))
@@ -14019,8 +14021,8 @@ function renderizarListaAprovFinanceiro() {
     <button data-aprov-item="${r.id}" class="w-full text-left border border-slate-200 rounded-lg p-3 hover:border-amber-400">
       <div class="flex items-start justify-between gap-2">
         <div>
-          <p class="text-sm font-medium text-slate-800">${iconeSolicitanteReembolso(r.solicitante_tipo)} ${r.solicitante_nome}</p>
-          <p class="text-xs text-slate-500 mt-0.5">${r.tipo_despesa_nome || "—"} · ${formatarDataBr(r.data_despesa)}</p>
+          <p class="text-sm font-medium text-slate-800">${iconeSolicitanteReembolso(r.solicitante_tipo)} ${escH(r.solicitante_nome)}</p>
+          <p class="text-xs text-slate-500 mt-0.5">${escH(r.tipo_despesa_nome || "—")} · ${formatarDataBr(r.data_despesa)}</p>
           <p class="text-xs text-slate-400 mt-0.5">Liberado pelo gestor${r.gestor_nome ? ` (${r.gestor_nome})` : ""}</p>
         </div>
         <div class="text-right whitespace-nowrap">
@@ -14028,7 +14030,7 @@ function renderizarListaAprovFinanceiro() {
           <span class="text-sm font-semibold text-teal-700">${fmtBRL(r.valor_aprovado_gestor != null ? r.valor_aprovado_gestor : r.valor)}</span>
         </div>
       </div>
-      ${r.justificativa_gestor ? `<p class="text-xs text-slate-500 mt-2 italic">"${r.justificativa_gestor}"</p>` : ""}
+      ${r.justificativa_gestor ? `<p class="text-xs text-slate-500 mt-2 italic">"${escH(r.justificativa_gestor)}"</p>` : ""}
     </button>`).join("");
   cont.querySelectorAll("[data-aprov-item]").forEach((btn) =>
     btn.addEventListener("click", () => abrirDetalheAprovacao("financeiro", btn.getAttribute("data-aprov-item")))
@@ -14045,9 +14047,9 @@ function renderizarListaAprovPagamento() {
     <div class="border border-slate-200 rounded-lg p-3">
       <div class="flex items-start justify-between gap-2">
         <div>
-          <p class="text-sm font-medium text-slate-800">${iconeSolicitanteReembolso(r.solicitante_tipo)} ${r.solicitante_nome}</p>
-          <p class="text-xs text-slate-500 mt-0.5">${r.tipo_despesa_nome || "—"} · ${formatarDataBr(r.data_despesa)}</p>
-          <span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${RB_STATUS_COR[r.status] || "bg-slate-100 text-slate-600"}">${r.status}</span>
+          <p class="text-sm font-medium text-slate-800">${iconeSolicitanteReembolso(r.solicitante_tipo)} ${escH(r.solicitante_nome)}</p>
+          <p class="text-xs text-slate-500 mt-0.5">${escH(r.tipo_despesa_nome || "—")} · ${formatarDataBr(r.data_despesa)}</p>
+          <span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${RB_STATUS_COR[r.status] || "bg-slate-100 text-slate-600"}">${escH(r.status)}</span>
         </div>
         <span class="text-sm font-semibold text-teal-700 whitespace-nowrap">${fmtBRL(r.valor_aprovado_financeiro)}</span>
       </div>
@@ -14091,13 +14093,13 @@ function renderizarDetalheAprovacao() {
   const baseValor = fase === "financeiro" ? (row.valor_aprovado_gestor != null ? row.valor_aprovado_gestor : row.valor) : row.valor;
 
   $("aprov-detalhe-corpo").innerHTML = `
-    <p class="text-sm font-medium text-slate-800">${iconeSolicitanteReembolso(row.solicitante_tipo)} ${row.solicitante_nome}</p>
-    <p class="text-xs text-slate-500 mt-1">${row.tipo_despesa_nome || "—"} · ${formatarDataBr(row.data_despesa)}</p>
-    ${row.descricao ? `<p class="text-xs text-slate-600 mt-2">${row.descricao}</p>` : ""}
-    ${row.treinamento ? `<p class="text-xs text-slate-400 mt-1">Treinamento: ${row.treinamento}</p>` : ""}
+    <p class="text-sm font-medium text-slate-800">${iconeSolicitanteReembolso(row.solicitante_tipo)} ${escH(row.solicitante_nome)}</p>
+    <p class="text-xs text-slate-500 mt-1">${escH(row.tipo_despesa_nome || "—")} · ${formatarDataBr(row.data_despesa)}</p>
+    ${row.descricao ? `<p class="text-xs text-slate-600 mt-2">${escH(row.descricao)}</p>` : ""}
+    ${row.treinamento ? `<p class="text-xs text-slate-400 mt-1">Treinamento: ${escH(row.treinamento)}</p>` : ""}
     <p class="text-sm font-semibold text-slate-800 mt-2">Valor solicitado: ${fmtBRL(row.valor)}</p>
     ${fase === "financeiro" && row.valor_aprovado_gestor != null ? `<p class="text-sm font-semibold text-amber-700">Valor liberado pelo gestor: ${fmtBRL(row.valor_aprovado_gestor)}</p>` : ""}
-    ${fase === "financeiro" && row.justificativa_gestor ? `<p class="text-xs text-slate-500 mt-1 italic">Nota do gestor: "${row.justificativa_gestor}"</p>` : ""}
+    ${fase === "financeiro" && row.justificativa_gestor ? `<p class="text-xs text-slate-500 mt-1 italic">Nota do gestor: "${escH(row.justificativa_gestor)}"</p>` : ""}
     ${fase === "financeiro_direto" ? `<p class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md p-2 mt-2">⚠️ Este reembolso ainda não passou pela aprovação do gestor direto. Ao decidir aqui, sua decisão registra as duas aprovações (gestor direto e financeira) em seu nome.</p>` : ""}
     ${row.anexo_path ? `<button type="button" id="aprov-ver-anexo" class="text-xs font-medium text-teal-700 hover:text-teal-900 mt-2">📎 Ver comprovante</button>` : `<p class="text-xs text-slate-300 mt-2">Sem comprovante</p>`}
   `;
@@ -14229,10 +14231,10 @@ async function carregarConsultaReembolsosInit() {
 function preencherFiltrosConsultaReembolsos() {
   $("cr-solicitante").innerHTML = `<option value="">— Todos —</option>` +
     crSolicitantesRef.map((s) =>
-      `<option value="${s.solicitante_tipo}:${s.solicitante_id}">${s.solicitante_nome}${s.solicitante_tipo === "instrutor" ? " (instrutor)" : ""}</option>`
+      `<option value="${escH(s.solicitante_tipo)}:${s.solicitante_id}">${escH(s.solicitante_nome)}${s.solicitante_tipo === "instrutor" ? " (instrutor)" : ""}</option>`
     ).join("");
   $("cr-gestor-direto").innerHTML = `<option value="">— Todos —</option>` +
-    crGestoresRef.map((g) => `<option value="${g.id}">${g.nome}</option>`).join("");
+    crGestoresRef.map((g) => `<option value="${g.id}">${escH(g.nome)}</option>`).join("");
 }
 
 async function buscarConsultaReembolsos() {
@@ -14255,7 +14257,7 @@ async function buscarConsultaReembolsos() {
   });
   if (error) {
     crLista = [];
-    $("cr-lista").innerHTML = `<tr><td colspan="8" class="px-3 py-6 text-center text-xs text-rose-500">${error.message || "Não foi possível carregar a consulta."}</td></tr>`;
+    $("cr-lista").innerHTML = `<tr><td colspan="8" class="px-3 py-6 text-center text-xs text-rose-500">${escH(error.message || "Não foi possível carregar a consulta.")}</td></tr>`;
     return;
   }
   crLista = data || [];
@@ -14276,14 +14278,14 @@ function renderizarListaConsultaReembolsos() {
     return `
     <tr class="border-b border-slate-100 last:border-0 align-top">
       <td class="px-3 py-2">
-        <p class="text-slate-800">${iconeSolicitanteReembolso(r.solicitante_tipo)} ${r.solicitante_nome}</p>
-        <p class="text-[11px] text-slate-400">${r.gestor_direto_nome || "— sem gestor direto —"}</p>
+        <p class="text-slate-800">${iconeSolicitanteReembolso(r.solicitante_tipo)} ${escH(r.solicitante_nome)}</p>
+        <p class="text-[11px] text-slate-400">${escH(r.gestor_direto_nome || "— sem gestor direto —")}</p>
       </td>
       <td class="px-3 py-2 whitespace-nowrap">${formatarDataBr(r.data_despesa)}</td>
-      <td class="px-3 py-2">${r.tipo_despesa_nome || "—"}</td>
+      <td class="px-3 py-2">${escH(r.tipo_despesa_nome || "—")}</td>
       <td class="px-3 py-2 text-right whitespace-nowrap">${fmtBRL(r.valor)}</td>
       <td class="px-3 py-2 text-right whitespace-nowrap">${valorAprovado != null ? fmtBRL(valorAprovado) : "—"}</td>
-      <td class="px-3 py-2 whitespace-nowrap"><span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${corStatus}">${r.status}</span></td>
+      <td class="px-3 py-2 whitespace-nowrap"><span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${corStatus}">${escH(r.status)}</span></td>
       <td class="px-3 py-2 whitespace-nowrap">${r.data_pagamento ? fmtDataHoraBR(r.data_pagamento) : "—"}</td>
       <td class="px-3 py-2 text-right">${r.anexo_path ? `<button type="button" data-cr-anexo="${r.id}" class="text-xs font-medium text-teal-700 hover:text-teal-900">📎 Ver</button>` : ""}</td>
       <td class="px-3 py-2 text-right"><button type="button" data-cr-detalhe="${r.id}" class="text-xs font-medium text-slate-600 border border-slate-300 rounded-md px-2 py-1 hover:bg-slate-50">Detalhe</button></td>
@@ -14321,13 +14323,13 @@ function renderizarDetalheConsultaReembolso() {
   const linha = (label, valor) => valor ? `
     <div>
       <p class="text-[11px] font-medium text-slate-400 uppercase tracking-wide">${label}</p>
-      <p class="text-sm text-slate-800">${valor}</p>
+      <p class="text-sm text-slate-800">${escH(valor)}</p>
     </div>` : "";
 
   $("cr-detalhe-corpo").innerHTML = `
     <div class="flex items-start justify-between gap-2">
-      <p class="text-sm font-medium text-slate-800">${iconeSolicitanteReembolso(r.solicitante_tipo)} ${r.solicitante_nome}</p>
-      <span class="text-[11px] font-medium px-2 py-0.5 rounded-full whitespace-nowrap ${corStatus}">${r.status}</span>
+      <p class="text-sm font-medium text-slate-800">${iconeSolicitanteReembolso(r.solicitante_tipo)} ${escH(r.solicitante_nome)}</p>
+      <span class="text-[11px] font-medium px-2 py-0.5 rounded-full whitespace-nowrap ${corStatus}">${escH(r.status)}</span>
     </div>
     <div class="grid grid-cols-2 gap-3">
       ${linha("Gestor direto", r.gestor_direto_nome || "— sem gestor direto —")}
@@ -14339,11 +14341,11 @@ function renderizarDetalheConsultaReembolso() {
       ${linha("Valor aprovado (financeiro)", r.valor_aprovado_financeiro != null ? fmtBRL(r.valor_aprovado_financeiro) : null)}
       ${linha("Pago em", r.data_pagamento ? fmtDataHoraBR(r.data_pagamento) : null)}
     </div>
-    ${r.treinamento ? `<div><p class="text-[11px] font-medium text-slate-400 uppercase tracking-wide">Treinamento</p><p class="text-sm text-slate-700">${r.treinamento}</p></div>` : ""}
-    ${r.descricao ? `<div><p class="text-[11px] font-medium text-slate-400 uppercase tracking-wide">Descrição</p><p class="text-sm text-slate-700">${r.descricao}</p></div>` : ""}
-    ${r.justificativa_gestor ? `<div><p class="text-[11px] font-medium text-slate-400 uppercase tracking-wide">Nota do gestor direto</p><p class="text-sm text-slate-700 italic">"${r.justificativa_gestor}"</p></div>` : ""}
-    ${r.justificativa_financeiro ? `<div><p class="text-[11px] font-medium text-slate-400 uppercase tracking-wide">Nota do financeiro</p><p class="text-sm text-slate-700 italic">"${r.justificativa_financeiro}"</p></div>` : ""}
-    ${r.motivo_cancelamento ? `<div><p class="text-[11px] font-medium text-slate-400 uppercase tracking-wide">Motivo do cancelamento</p><p class="text-sm text-slate-700 italic">"${r.motivo_cancelamento}"</p></div>` : ""}
+    ${r.treinamento ? `<div><p class="text-[11px] font-medium text-slate-400 uppercase tracking-wide">Treinamento</p><p class="text-sm text-slate-700">${escH(r.treinamento)}</p></div>` : ""}
+    ${r.descricao ? `<div><p class="text-[11px] font-medium text-slate-400 uppercase tracking-wide">Descrição</p><p class="text-sm text-slate-700">${escH(r.descricao)}</p></div>` : ""}
+    ${r.justificativa_gestor ? `<div><p class="text-[11px] font-medium text-slate-400 uppercase tracking-wide">Nota do gestor direto</p><p class="text-sm text-slate-700 italic">"${escH(r.justificativa_gestor)}"</p></div>` : ""}
+    ${r.justificativa_financeiro ? `<div><p class="text-[11px] font-medium text-slate-400 uppercase tracking-wide">Nota do financeiro</p><p class="text-sm text-slate-700 italic">"${escH(r.justificativa_financeiro)}"</p></div>` : ""}
+    ${r.motivo_cancelamento ? `<div><p class="text-[11px] font-medium text-slate-400 uppercase tracking-wide">Motivo do cancelamento</p><p class="text-sm text-slate-700 italic">"${escH(r.motivo_cancelamento)}"</p></div>` : ""}
     ${r.anexo_path ? `<button type="button" id="cr-detalhe-ver-anexo" class="text-xs font-medium text-teal-700 hover:text-teal-900">📎 Ver comprovante</button>` : `<p class="text-xs text-slate-300">Sem comprovante</p>`}
   `;
   const btnAnexo = $("cr-detalhe-ver-anexo");

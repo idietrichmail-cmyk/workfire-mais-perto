@@ -1,0 +1,13 @@
+# Cabeçalhos de segurança — Netlify (arquivo _headers na raiz do site)
+# Os 4 primeiros são aplicados de verdade. A Content-Security-Policy está em
+# modo "Report-Only": só registra no console do navegador (F12) o que
+# bloquearia, sem quebrar nada. Depois de conferir que não há avisos
+# inesperados, troque o nome para Content-Security-Policy para ativar.
+
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: SAMEORIGIN
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: geolocation=(), camera=(), microphone=(), payment=(), usb=()
+  Strict-Transport-Security: max-age=31536000
+  Content-Security-Policy-Report-Only: default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https://tnkhfkyluftxvwozpbdq.supabase.co wss://tnkhfkyluftxvwozpbdq.supabase.co https://brasilapi.com.br https://nominatim.openstreetmap.org https://cdn.jsdelivr.net; frame-src 'self' blob: data: https://tnkhfkyluftxvwozpbdq.supabase.co; media-src 'self' blob: https://tnkhfkyluftxvwozpbdq.supabase.co; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'
