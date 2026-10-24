@@ -1627,3 +1627,32 @@ where not exists (select 1 from unidades_medida where base_calculo = 'distancia'
 --         7.204 empresas lidas, 5.300 com CNPJ, 3.699 contatos lidos, 1.050 importados para 965 empresas).
 
 -- 22/10/2026 — Prod 1.77: lista de Itens de Custo mostra a descrição para impressão logo abaixo do nome do item (somente tela; sem alteração no banco).
+
+-- ============================================================
+-- 24/10/2026 — Prod 1.78 (correção): campos com "?." (ex.: o.empresas?.nome) em templates HTML agora também passam por escH().
+-- 24/10/2026 — Prod 1.79: tela "Alunos Certificados" (menu Operações, módulo certificados_alunos) e tela "Faturamento"
+-- (menu Financeiro, módulo faturamento); checkbox "Faturar por aluno" no orçamento.
+-- (objetos já aplicados no banco; registrados aqui como referência — migrações faturamento_certificados_tabelas / _gatilhos / _funcoes)
+--   * orcamentos.faturar_por_aluno boolean not null default false. Desmarcado = faturamento POR TURMA: até qtd_alunos_por_turma alunos certificados
+--     cobra valor_turma; acima disso soma (excedentes × valor_por_aluno) como "adicional de alunos excedentes". Marcado = POR ALUNO:
+--     alunos certificados × valor_por_aluno (sem mínimo e sem excedentes). Trava após o 1º faturamento Emitido (gatilho orcamentos_proteger_forma_faturamento_trg).
+--   * turma_alunos.certificado_emitido boolean not null default false; turmas.certificados_registrados_em / _por / _por_id
+--     (índice parcial turmas_certificados_registrados_idx). Só mudam pelas funções (flag de sessão app.rpc_cert); gatilhos
+--     turma_alunos_proteger_certificado_trg, turma_alunos_bloquear_inclusao_faturada_trg e turmas_proteger_certificados_trg;
+--     turma faturada não aceita aluno novo, exclusão de aluno nem troca de CNPJ de faturamento.
+--   * faturamentos (um por CNPJ de faturamento; numero via faturamentos_numero_seq, exibido como FAT-0001) e faturamento_itens (um por turma).
+--     RLS: só SELECT via pode_acessar_tabela() (módulos faturamento e certificados_alunos = leitura); escrita só pelas funções abaixo.
+--   * pode_acessar_tabela(): novas linhas para os módulos certificados_alunos e faturamento (todas as tabelas em 'leitura').
+--   * Funções (SECURITY DEFINER, execute só para authenticated; conferem tem_permissao/is_admin_sistema):
+--       registrar_certificados(p_turma, p_alunos uuid[]) — módulo certificados_alunos/alterar; exige >= 1 aluno; o registro é feito UMA ÚNICA VEZ por turma (nova chamada é recusada);
+--       reabrir_certificados(p_turma) — desativada (sempre recusa; o registro não é desfeito);
+--       faturamento_calcular(p_orcamento, p_turmas uuid[]) — módulo faturamento/consultar; usa _fat_calcular (interna): desconto = valor_desconto/valor_total
+--         do orçamento aplicado ao subtotal de cada CNPJ; o total da turma é dividido entre os CNPJs proporcionalmente aos alunos certificados
+--         (resto no último CNPJ); aluno sem cnpj_faturamento usa o CNPJ da empresa do orçamento;
+--       gerar_faturamentos(p_orcamento, p_turmas, p_dados jsonb) — faturamento/incluir; p_dados = [{cnpj_digitos, ordem_compra, vencimento, observacoes}];
+--       atualizar_faturamento(p_id, p_ordem_compra, p_vencimento, p_observacoes, p_nota_fiscal) — faturamento/alterar;
+--       cancelar_faturamento(p_id, p_motivo) — faturamento/excluir; as turmas voltam a ficar disponíveis.
+--   * faturamentos.orcamento_id e faturamento_itens.turma_id NÃO têm cascade: um orçamento/turma com faturamento não pode ser excluído (cancele o faturamento antes... e o histórico permanece).
+
+-- 24/10/2026 — Prod 1.80: registro de certificados único por turma (sem atualizar/desfazer). O desconto do orçamento incide também sobre o adicional de
+-- alunos excedentes (equivale a descontar o valor de cada aluno excedente). Migração certificados_registro_unico.

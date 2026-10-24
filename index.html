@@ -1063,6 +1063,216 @@
         </div>
       </section>
 
+      <!-- ---------- OPERAÇÕES: ALUNOS CERTIFICADOS ---------- -->
+      <section id="secao-certificados-alunos" class="hidden">
+        <div id="ca-view-lista">
+          <div class="mb-4 bg-white border border-slate-200 rounded-xl p-4 flex flex-wrap items-end gap-4">
+            <div class="flex-1 min-w-[220px]">
+              <label class="text-xs font-medium text-slate-500 uppercase tracking-wide" for="ca-busca">Buscar</label>
+              <input id="ca-busca" type="search" placeholder="Orçamento, empresa, turma ou treinamento" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm" />
+            </div>
+            <div>
+              <label class="text-xs font-medium text-slate-500 uppercase tracking-wide" for="ca-situacao">Situação</label>
+              <select id="ca-situacao" class="mt-1 block rounded-md border border-slate-300 px-3 py-2 text-sm">
+                <option value="aguardando">Aguardando registro</option>
+                <option value="registrado">Certificados registrados</option>
+                <option value="faturada">Faturadas</option>
+                <option value="todas">Todas</option>
+              </select>
+            </div>
+            <div>
+              <label class="text-xs font-medium text-slate-500 uppercase tracking-wide" for="ca-data-de">Início da turma — de</label>
+              <input type="date" id="ca-data-de" class="mt-1 block rounded-md border border-slate-300 px-3 py-2 text-sm" />
+            </div>
+            <div>
+              <label class="text-xs font-medium text-slate-500 uppercase tracking-wide" for="ca-data-ate">até</label>
+              <input type="date" id="ca-data-ate" class="mt-1 block rounded-md border border-slate-300 px-3 py-2 text-sm" />
+            </div>
+            <button id="btn-ca-buscar" type="button" class="bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium px-4 py-2 rounded-md">Buscar</button>
+          </div>
+          <p class="text-xs text-slate-500 mb-3">Lista as turmas já iniciadas. Abra a turma, confira os alunos que receberam o certificado e registre. O registro é feito uma única vez; depois dele a turma fica disponível para faturamento.</p>
+          <div id="ca-erro" class="hidden bg-rose-50 text-rose-600 text-sm rounded-md px-3 py-2 mb-3"></div>
+          <div id="ca-resumo" class="text-xs text-slate-500 mb-2"></div>
+          <div class="bg-white border border-slate-200 rounded-lg overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead class="bg-slate-50 text-left text-[11px] uppercase tracking-wide text-slate-500">
+                <tr>
+                  <th class="px-3 py-2">Orçamento</th><th class="px-3 py-2">Empresa</th><th class="px-3 py-2">Turma</th><th class="px-3 py-2">Treinamento</th>
+                  <th class="px-3 py-2">Período</th><th class="px-3 py-2 text-right">Certificados</th><th class="px-3 py-2">Situação</th><th class="px-3 py-2"></th>
+                </tr>
+              </thead>
+              <tbody id="ca-tbody" class="divide-y divide-slate-100"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div id="ca-view-detalhe" class="hidden">
+          <button id="btn-ca-voltar" type="button" class="text-xs font-medium text-slate-500 hover:text-slate-800 mb-3">← Voltar para as turmas</button>
+          <div id="ca-det-cab" class="bg-white border border-slate-200 rounded-lg p-4 mb-3"></div>
+          <div id="ca-det-erro" class="hidden bg-rose-50 text-rose-600 text-sm rounded-md px-3 py-2 mb-3"></div>
+          <div id="ca-det-ok" class="hidden bg-emerald-50 text-emerald-700 text-sm rounded-md px-3 py-2 mb-3"></div>
+          <div class="flex flex-wrap items-center gap-3 mb-2">
+            <button id="btn-ca-marcar-todos" type="button" class="text-xs border border-slate-300 rounded-md px-2.5 py-1 text-slate-700 hover:bg-slate-50">Marcar todos</button>
+            <button id="btn-ca-desmarcar-todos" type="button" class="text-xs border border-slate-300 rounded-md px-2.5 py-1 text-slate-700 hover:bg-slate-50">Desmarcar todos</button>
+            <span id="ca-contagem" class="text-sm font-medium text-slate-700"></span>
+          </div>
+          <div class="grid gap-3 lg:grid-cols-[minmax(0,1fr)_300px] items-start">
+            <div class="bg-white border border-slate-200 rounded-lg overflow-x-auto">
+              <table class="w-full text-sm">
+                <thead class="bg-slate-50 text-left text-[11px] uppercase tracking-wide text-slate-500">
+                  <tr><th class="px-3 py-2 w-10">Cert.</th><th class="px-3 py-2">Aluno</th><th class="px-3 py-2">CPF</th><th class="px-3 py-2">CNPJ de faturamento</th></tr>
+                </thead>
+                <tbody id="ca-alunos-tbody" class="divide-y divide-slate-100"></tbody>
+              </table>
+            </div>
+            <div class="bg-white border border-slate-200 rounded-lg p-3">
+              <h4 class="text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-2">Certificados por CNPJ</h4>
+              <div id="ca-resumo-cnpj" class="text-sm space-y-1"></div>
+              <div id="ca-aviso-exced" class="hidden mt-3 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1.5"></div>
+              <div class="mt-4 flex flex-col gap-2">
+                <button id="btn-ca-registrar" type="button" class="w-full bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium py-2.5 rounded-md">Registrar certificados</button>
+              </div>
+              <p id="ca-nota-bloqueio" class="hidden mt-3 text-xs text-slate-500"></p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ---------- FINANCEIRO: FATURAMENTO ---------- -->
+      <section id="secao-faturamento" class="hidden">
+        <div class="flex gap-1 border-b border-slate-200 mb-4">
+          <button id="btn-fat-aba-faturar" type="button" class="px-4 py-2 text-sm font-semibold border-b-2 border-amber-600 text-slate-900">A faturar</button>
+          <button id="btn-fat-aba-emitidos" type="button" class="px-4 py-2 text-sm text-slate-500 border-b-2 border-transparent hover:text-slate-800">Faturamentos emitidos</button>
+        </div>
+
+        <div id="fat-painel-faturar">
+          <div id="fat-view-orcs">
+            <div class="mb-4 bg-white border border-slate-200 rounded-xl p-4 flex flex-wrap items-end gap-4">
+              <div class="flex-1 min-w-[220px]">
+                <label class="text-xs font-medium text-slate-500 uppercase tracking-wide" for="fat-busca">Buscar orçamento</label>
+                <input id="fat-busca" type="search" placeholder="Número ou empresa" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm" />
+              </div>
+              <button id="btn-fat-buscar" type="button" class="bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium px-4 py-2 rounded-md">Atualizar</button>
+            </div>
+            <p class="text-xs text-slate-500 mb-3">Orçamentos com turmas cujos certificados já foram registrados e que ainda não foram faturadas.</p>
+            <div id="fat-erro" class="hidden bg-rose-50 text-rose-600 text-sm rounded-md px-3 py-2 mb-3"></div>
+            <div class="bg-white border border-slate-200 rounded-lg overflow-x-auto">
+              <table class="w-full text-sm">
+                <thead class="bg-slate-50 text-left text-[11px] uppercase tracking-wide text-slate-500">
+                  <tr><th class="px-3 py-2">Orçamento</th><th class="px-3 py-2">Empresa</th><th class="px-3 py-2">Forma</th><th class="px-3 py-2 text-right">Turmas disponíveis</th><th class="px-3 py-2 text-right">Já faturadas</th><th class="px-3 py-2"></th></tr>
+                </thead>
+                <tbody id="fat-orcs-tbody" class="divide-y divide-slate-100"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div id="fat-view-orc" class="hidden">
+            <button id="btn-fat-voltar" type="button" class="text-xs font-medium text-slate-500 hover:text-slate-800 mb-3">← Voltar para os orçamentos</button>
+            <div id="fat-orc-cab" class="bg-white border border-slate-200 rounded-lg p-4 mb-3"></div>
+            <div id="fat-orc-erro" class="hidden bg-rose-50 text-rose-600 text-sm rounded-md px-3 py-2 mb-3"></div>
+            <div id="fat-orc-ok" class="hidden bg-emerald-50 text-emerald-700 text-sm rounded-md px-3 py-2 mb-3"></div>
+            <div id="fat-orc-cards" class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3"></div>
+            <div class="bg-white border border-slate-200 rounded-lg overflow-x-auto mb-3">
+              <table class="w-full text-sm">
+                <thead class="bg-slate-50 text-left text-[11px] uppercase tracking-wide text-slate-500">
+                  <tr><th class="px-3 py-2 w-10"></th><th class="px-3 py-2">Turma</th><th class="px-3 py-2">Período</th><th class="px-3 py-2">Alunos certificados</th><th class="px-3 py-2">CNPJs</th><th class="px-3 py-2 text-right" id="fat-th-adicional">Adicional de excedentes</th><th class="px-3 py-2 text-right">Valor da turma</th><th class="px-3 py-2">Situação</th></tr>
+                </thead>
+                <tbody id="fat-turmas-tbody" class="divide-y divide-slate-100"></tbody>
+              </table>
+            </div>
+            <div class="bg-white border border-slate-200 rounded-lg p-3">
+              <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+                <h4 class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Faturamentos que serão gerados (um por CNPJ)</h4>
+                <span id="fat-sel-info" class="text-xs text-slate-500"></span>
+              </div>
+              <div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                  <thead class="text-left text-[11px] uppercase tracking-wide text-slate-500">
+                    <tr><th class="px-2 py-1">CNPJ / empresa</th><th class="px-2 py-1">Turmas</th><th class="px-2 py-1 text-right">Subtotal</th><th class="px-2 py-1 text-right">Desconto</th><th class="px-2 py-1 text-right">Total</th></tr>
+                  </thead>
+                  <tbody id="fat-prev-tbody" class="divide-y divide-slate-100"></tbody>
+                  <tfoot id="fat-prev-tfoot"></tfoot>
+                </table>
+              </div>
+              <div class="mt-3 flex justify-end">
+                <button id="btn-fat-faturar" type="button" disabled class="bg-slate-900 hover:bg-slate-800 disabled:opacity-40 text-white text-sm font-medium px-4 py-2.5 rounded-md">Faturar turmas selecionadas</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div id="fat-painel-emitidos" class="hidden">
+          <div class="mb-4 bg-white border border-slate-200 rounded-xl p-4 flex flex-wrap items-end gap-4">
+            <div class="flex-1 min-w-[220px]">
+              <label class="text-xs font-medium text-slate-500 uppercase tracking-wide" for="fat-em-busca">Buscar</label>
+              <input id="fat-em-busca" type="search" placeholder="Nº do faturamento, orçamento, CNPJ ou empresa" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm" />
+            </div>
+            <div>
+              <label class="text-xs font-medium text-slate-500 uppercase tracking-wide" for="fat-em-status">Situação</label>
+              <select id="fat-em-status" class="mt-1 block rounded-md border border-slate-300 px-3 py-2 text-sm">
+                <option value="Emitido">Emitidos</option><option value="Cancelado">Cancelados</option><option value="">Todos</option>
+              </select>
+            </div>
+            <button id="btn-fat-em-buscar" type="button" class="bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium px-4 py-2 rounded-md">Buscar</button>
+          </div>
+          <div id="fat-em-erro" class="hidden bg-rose-50 text-rose-600 text-sm rounded-md px-3 py-2 mb-3"></div>
+          <div id="fat-em-resumo" class="text-xs text-slate-500 mb-2"></div>
+          <div class="bg-white border border-slate-200 rounded-lg overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead class="bg-slate-50 text-left text-[11px] uppercase tracking-wide text-slate-500">
+                <tr><th class="px-3 py-2">Faturamento</th><th class="px-3 py-2">Orçamento</th><th class="px-3 py-2">CNPJ / empresa</th><th class="px-3 py-2 text-right">Alunos</th><th class="px-3 py-2 text-right">Valor final</th><th class="px-3 py-2">Vencimento</th><th class="px-3 py-2">Situação</th><th class="px-3 py-2"></th></tr>
+              </thead>
+              <tbody id="fat-em-tbody" class="divide-y divide-slate-100"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Confirmação da emissão -->
+        <div id="fat-modal-confirmar" class="hidden fixed inset-0 z-50 bg-slate-900/50 overflow-y-auto p-4">
+          <div class="mx-auto max-w-3xl bg-white rounded-xl shadow-xl p-5 mt-6">
+            <div class="flex items-start justify-between gap-3">
+              <h3 class="text-lg font-semibold">Confirmar faturamento</h3>
+              <button id="btn-fat-conf-fechar" type="button" class="text-slate-500 hover:text-slate-800 text-sm">Fechar</button>
+            </div>
+            <p class="text-xs text-slate-500 mt-1">Será gerado um faturamento para cada CNPJ. Informe, se houver, a ordem de compra, o vencimento e as observações de cada um.</p>
+            <div id="fat-conf-erro" class="hidden bg-rose-50 text-rose-600 text-sm rounded-md px-3 py-2 mt-3"></div>
+            <div id="fat-conf-corpo" class="mt-3 space-y-3"></div>
+            <div class="mt-4 flex justify-end gap-2">
+              <button id="btn-fat-conf-cancelar" type="button" class="border border-slate-300 text-sm px-4 py-2 rounded-md">Voltar</button>
+              <button id="btn-fat-conf-ok" type="button" class="bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium px-4 py-2 rounded-md">Gerar faturamentos</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Faturamento emitido -->
+        <div id="fat-modal-emitido" class="hidden fixed inset-0 z-50 bg-slate-900/50 overflow-y-auto p-4">
+          <div class="mx-auto max-w-3xl bg-white rounded-xl shadow-xl p-5 mt-6">
+            <div class="flex items-start justify-between gap-3">
+              <h3 id="fat-emi-titulo" class="text-lg font-semibold"></h3>
+              <button id="btn-fat-emi-fechar" type="button" class="text-slate-500 hover:text-slate-800 text-sm">Fechar</button>
+            </div>
+            <div id="fat-emi-erro" class="hidden bg-rose-50 text-rose-600 text-sm rounded-md px-3 py-2 mt-3"></div>
+            <div id="fat-emi-corpo" class="mt-3"></div>
+            <div class="grid sm:grid-cols-2 gap-3 mt-4">
+              <div><label class="text-xs font-medium text-slate-500 uppercase tracking-wide" for="fat-emi-oc">Ordem de compra</label><input id="fat-emi-oc" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm" /></div>
+              <div><label class="text-xs font-medium text-slate-500 uppercase tracking-wide" for="fat-emi-venc">Vencimento</label><input id="fat-emi-venc" type="date" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm" /></div>
+              <div><label class="text-xs font-medium text-slate-500 uppercase tracking-wide" for="fat-emi-nf">Nota fiscal</label><input id="fat-emi-nf" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm" /></div>
+              <div class="sm:col-span-2"><label class="text-xs font-medium text-slate-500 uppercase tracking-wide" for="fat-emi-obs">Observações</label><textarea id="fat-emi-obs" rows="2" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"></textarea></div>
+            </div>
+            <div class="mt-4 flex flex-wrap items-center justify-between gap-2">
+              <button id="btn-fat-emi-cancelar-fat" type="button" class="text-xs text-rose-600 hover:underline">Cancelar este faturamento</button>
+              <button id="btn-fat-emi-salvar" type="button" class="bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium px-4 py-2 rounded-md">Salvar dados</button>
+            </div>
+            <div id="fat-emi-cancel-bloco" class="hidden mt-3 border border-rose-200 bg-rose-50 rounded-md p-3">
+              <label class="text-xs font-medium text-rose-700 uppercase tracking-wide" for="fat-emi-motivo">Motivo do cancelamento</label>
+              <textarea id="fat-emi-motivo" rows="2" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"></textarea>
+              <p class="text-xs text-rose-700 mt-1">As turmas deste faturamento voltam a ficar disponíveis para faturar.</p>
+              <div class="mt-2 flex justify-end"><button id="btn-fat-emi-cancel-ok" type="button" class="bg-rose-600 hover:bg-rose-700 text-white text-sm font-medium px-4 py-2 rounded-md">Confirmar cancelamento</button></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <!-- ---------- FINANCEIRO: CONSULTA DE REEMBOLSOS ---------- -->
       <section id="secao-consulta-reembolsos" class="hidden">
        <div id="cr-view-lista">
@@ -1793,6 +2003,14 @@
               <div class="rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide" for="orc-perc-desconto">% Desconto</label><input id="orc-perc-desconto" type="number" min="0" max="100" step="0.01" class="w-full rounded border border-slate-300 bg-white px-1.5 py-0.5 text-sm font-semibold" /></div>
               <div class="rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1" title="Informe o percentual OU o valor do desconto: o outro é calculado"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide" for="orc-valor-desconto">Desconto (R$)</label><input id="orc-valor-desconto" type="number" min="0" step="0.01" class="w-full rounded border border-slate-300 bg-white px-1.5 py-0.5 text-sm font-semibold" /></div>
             </div>
+            <label id="orc-faturar-aluno-box" for="orc-faturar-por-aluno" class="flex items-start gap-3 mb-3 rounded-md border border-slate-200 bg-white px-3 py-2 cursor-pointer">
+              <input id="orc-faturar-por-aluno" type="checkbox" class="mt-0.5 h-4 w-4 accent-amber-700" />
+              <span class="text-xs">
+                <span class="block text-sm font-semibold text-slate-800">Faturar por aluno</span>
+                <span id="orc-faturar-aluno-ajuda" class="block text-slate-500 leading-snug"></span>
+                <span id="orc-faturar-aluno-trava" class="hidden block text-amber-700 mt-0.5">Esta opção está bloqueada porque o orçamento já tem faturamento emitido.</span>
+              </span>
+            </label>
             <div class="overflow-x-auto border border-slate-200 rounded-md">
               <table id="orc-calc-tabela" class="w-full text-xs">
                 <thead id="orc-calc-thead"></thead>
@@ -2316,6 +2534,6 @@
 </div>
 
 <script src="config.js"></script>
-<script src="app.js?v=20261024a"></script>
+<script src="app.js?v=20261024c"></script>
 </body>
 </html>

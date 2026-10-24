@@ -36,7 +36,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.78 · 24/10/2026";
+const APP_VERSAO = "Prod 1.80 · 24/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -467,9 +467,11 @@ const MODULOS = [
   { id: "requisicoes_compra", label: "Requisições de Compra", icone: "🛒", grupo: "Operações" },
   { id: "confirmacao_ct", label: "Confirmação do Centro de Treinamento", icone: "✅", grupo: "Operações" },
   { id: "documentos_turmas", label: "Documentos de Turmas", icone: "📷", grupo: "Operações" },
+  { id: "certificados_alunos", label: "Alunos Certificados", icone: "🎓", grupo: "Operações" },
   // Financeiro
   { id: "aprovacoes_reembolso", label: "Aprovações de Reembolso", icone: "✅", grupo: "Financeiro" },
   { id: "consulta_reembolsos", label: "Consulta de Reembolsos", icone: "🔎", grupo: "Financeiro" },
+  { id: "faturamento", label: "Faturamento", icone: "🧾", grupo: "Financeiro" },
 ];
 
 // Área selecionada no menu inicial. "Geral" mostra todas as áreas.
@@ -1393,6 +1395,14 @@ function irParaModulo(id) {
     $("admin-descricao-pagina").textContent = "Reembolsos aguardando a sua decisão, como gestor direto e/ou gestor financeiro.";
     $("secao-aprov-reembolsos").classList.remove("hidden");
     carregarAprovacoesReembolsoInit();
+  } else if (id === "certificados_alunos") {
+    $("admin-descricao-pagina").textContent = "Registre quais alunos de cada turma receberam o certificado. O registro é feito uma única vez; depois dele a turma fica disponível para faturamento.";
+    $("secao-certificados-alunos").classList.remove("hidden");
+    carregarCertificadosAlunosInit();
+  } else if (id === "faturamento") {
+    $("admin-descricao-pagina").textContent = "Fature as turmas com certificados registrados. É emitido um faturamento por CNPJ de faturamento dos alunos.";
+    $("secao-faturamento").classList.remove("hidden");
+    carregarFaturamentoInit();
   } else if (id === "consulta_reembolsos") {
     $("admin-descricao-pagina").textContent = "Todos os reembolsos dentro de um período, com filtros por solicitante, gestor direto e status.";
     $("secao-consulta-reembolsos").classList.remove("hidden");
@@ -6004,10 +6014,10 @@ function renderizarListaAgendamentos() {
     return `
     <div class="bg-white rounded-lg border border-slate-200 p-4 flex flex-col gap-2 shadow-sm">
       <div class="flex items-start justify-between">
-        <p class="font-serif text-lg text-slate-900 leading-tight">${a.instrutores?.nome || "Instrutor removido"}</p>
+        <p class="font-serif text-lg text-slate-900 leading-tight">${escH(a.instrutores?.nome || "Instrutor removido")}</p>
         <span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${corStatus[a.status] || ""}">${escH(a.status)}</span>
       </div>
-      <p class="text-sm text-amber-700 font-medium">🏷️ ${a.tipos_treinamento?.nome || "—"}</p>
+      <p class="text-sm text-amber-700 font-medium">🏷️ ${escH(a.tipos_treinamento?.nome || "—")}</p>
       <div class="text-xs text-slate-500 space-y-1">
         ${a.centros_treinamento?.nome ? `<p>🏫 ${escH(a.centros_treinamento.nome)}</p>` : ""}
         ${a.empresas?.nome ? `<p>🏢 ${escH(a.empresas.nome)}</p>` : ""}
@@ -6751,9 +6761,9 @@ function renderizarListaOrcamentos() {
   cont.innerHTML = lista.map((o) => `
     <tr class="hover:bg-slate-50">
       <td class="px-3 py-2 font-mono text-slate-700 cursor-pointer select-none" data-orc-numero="${o.id}" title="Dois cliques para editar">${escH(o.numero)}</td>
-      <td class="px-3 py-2 text-slate-700">${o.empresas?.nome || "—"}</td>
-      <td class="px-3 py-2 text-slate-500">${o.tipos_treinamento?.nome || "—"}</td>
-      <td class="px-3 py-2 text-slate-500">${o.centros_treinamento?.nome || "—"}</td>
+      <td class="px-3 py-2 text-slate-700">${escH(o.empresas?.nome || "—")}</td>
+      <td class="px-3 py-2 text-slate-500">${escH(o.tipos_treinamento?.nome || "—")}</td>
+      <td class="px-3 py-2 text-slate-500">${escH(o.centros_treinamento?.nome || "—")}</td>
       <td class="px-3 py-2"><span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${corStatus[o.status] || ""}">${escH(o.status)}</span></td>
       <td class="px-3 py-2 text-slate-500">${o.qtd_turmas || 0}</td>
       <td class="px-3 py-2 text-slate-500">${o.qtd_alunos || 0}</td>
@@ -6968,6 +6978,17 @@ function calcularLinhaOrcamento(l, q) {
   const P = Number(l.multiplo) > 0 ? Number(l.multiplo) : 1;              // multiplicador
   const Q = K * O * P;                                                    // quantidade aplicável
   return { K, M, N, O, P, Q, total: (Number(l.valor_unitario) || 0) * Q };
+}
+
+// Texto do checkbox "Faturar por aluno": explica a regra de cobrança conforme a opção marcada.
+function orcAtualizarAjudaFaturarAluno(c) {
+  const el = $("orc-faturar-aluno-ajuda");
+  if (!el) return;
+  const porAluno = $("orc-faturar-por-aluno").checked;
+  const n = c.q.alunosPorTurma || 0;
+  el.textContent = porAluno
+    ? `Marcado: cada turma é cobrada somente pelos alunos certificados × ${fmtBRL(c.porAluno)} (valor por aluno). Não há valor mínimo por turma nem adicional de excedentes.`
+    : `Desmarcado: faturamento por turma. Até ${n || "—"} alunos certificados cobra o valor da turma (${fmtBRL(c.valorTurma)}); acima disso soma ${fmtBRL(c.porAluno)} por aluno excedente.`;
 }
 
 function calcularOrcamento() {
@@ -7274,6 +7295,7 @@ function recalcularOrcamentoTela() {
   $("orc-r-desc").textContent = `− ${fmtBRL(c.valorDesc)}`;
   $("orc-r-final").textContent = fmtBRL(c.final);
   $("orc-r-final-aluno").textContent = fmtBRL(c.finalAluno);
+  orcAtualizarAjudaFaturarAluno(c);
   // o campo de desconto que o usuário NÃO está digitando mostra o valor calculado
   if (orcDescontoModo === "valor") {
     if (document.activeElement !== $("orc-perc-desconto")) $("orc-perc-desconto").value = r2(c.desconto);
@@ -7467,6 +7489,7 @@ async function abrirNovoOrcamento() {
   $("orc-contato-telefone").value = "";
   $("orc-contato-email").value = "";
   orcCarregarContatosEmpresa(null);
+  orcDefinirFaturarPorAluno(false, false);
   preencherSeletorVendedorOrc("");
   preencherSelect("orc-centro", listaCentrosAtivos, "id", (i) => i.nome, "— Selecione —");
   preencherSelect("orc-tipo", listaTiposAtivos, "id", (i) => i.nome, "— Selecione —");
@@ -7563,6 +7586,8 @@ async function abrirEdicaoOrcamento(id) {
   orcAtualizarModoProposta();
   // "Necessita dois instrutores" volta ao valor gravado (a regra automática só vale ao editar os números)
   $("orc-dois-instrutores").checked = !!o.necessita_dois_instrutores;
+  orcDefinirFaturarPorAluno(!!o.faturar_por_aluno, false);
+  orcVerificarTravaFaturamento(o.id);
   $("painel-orcamento-titulo").textContent = "Editar orçamento";
   $("orc-tag-numero").textContent = o.numero || "";
   $("orc-tag-numero").classList.remove("hidden");
@@ -7817,6 +7842,7 @@ async function salvarOrcamento(opts = {}) {
     perc_imposto: calc.imposto,
     perc_desconto: r2(calc.desconto),
     desconto_modo: orcDescontoModo,
+    faturar_por_aluno: $("orc-faturar-por-aluno").checked,
     ...(orcLinhasCalc.length ? {
       custo_turma: r2(calc.custo), valor_turma: r2(calc.valorTurma), valor_total: r2(calc.total), valor_desconto: r2(calc.valorDesc),
       valor_final: r2(calc.final), valor_por_aluno: r2(calc.porAluno), valor_final_aluno: r2(calc.finalAluno), calculado_em: new Date().toISOString(),
@@ -7959,6 +7985,25 @@ $("btn-salvar-orcamento").addEventListener("click", () => salvarOrcamento());
 //  - nº da proposta = nº do orçamento + data + hora (ex.: 4080-20261005-1432);
 //  - com proposta gerada o cálculo fica bloqueado; "Nova proposta" libera para alterar e gerar outra versão.
 // =====================================================================
+// "Faturar por aluno": marca/desmarca o checkbox e libera a trava.
+function orcDefinirFaturarPorAluno(valor, travado) {
+  $("orc-faturar-por-aluno").checked = !!valor;
+  $("orc-faturar-por-aluno").disabled = !!travado;
+  $("orc-faturar-aluno-trava").classList.toggle("hidden", !travado);
+  $("orc-faturar-aluno-box").classList.toggle("cursor-pointer", !travado);
+  $("orc-faturar-aluno-box").classList.toggle("opacity-70", !!travado);
+}
+// Depois do primeiro faturamento emitido a forma de faturamento não muda mais (o banco também recusa a alteração).
+async function orcVerificarTravaFaturamento(orcId) {
+  if (!orcId) return;
+  try {
+    const { count, error } = await supabase.from("faturamentos").select("id", { count: "exact", head: true }).eq("orcamento_id", orcId).eq("status", "Emitido");
+    if (error || !count) return;
+    if (moduloAtivo === "orcamentos") orcDefinirFaturarPorAluno($("orc-faturar-por-aluno").checked, true);
+  } catch { /* sem permissão de leitura: o banco continua protegendo */ }
+}
+$("orc-faturar-por-aluno").addEventListener("change", () => { orcEditorSujo = true; recalcularOrcamentoTela(); });
+
 const CAMPOS_TRAVA_PROPOSTA = ["orc-tipo", "orc-qtd-alunos", "orc-qtd-turmas", "orc-qtd-localidades", "orc-distancia-km", "orc-perc-apoio", "orc-perc-margem", "orc-perc-imposto", "orc-perc-desconto", "orc-valor-desconto", "orc-prazo", "orc-validade-dias", "btn-orc-restaurar", "btn-orc-opcional"];
 
 function orcPreencherPrazos(selecionado) {
@@ -9909,7 +9954,7 @@ async function lerPlanilhaOrcamentos(arquivo) {
     $("btn-orc-imp-confirmar").addEventListener("click", () => {
       executarImportacaoOrcamentos().catch((e) => {
         console.error("Falha na importação de orçamentos:", e);
-        painelImportacaoOrc(`<p class="text-rose-700 font-medium mb-1">A importação foi interrompida por um erro inesperado.</p><p class="text-xs text-slate-600">${e?.message || e}</p><p class="text-xs text-slate-500 mt-2">Recarregue a página e importe a mesma planilha de novo: o que já foi gravado é reconhecido.</p>`);
+        painelImportacaoOrc(`<p class="text-rose-700 font-medium mb-1">A importação foi interrompida por um erro inesperado.</p><p class="text-xs text-slate-600">${escH(e?.message || e)}</p><p class="text-xs text-slate-500 mt-2">Recarregue a página e importe a mesma planilha de novo: o que já foi gravado é reconhecido.</p>`);
       });
     });
     $("btn-orc-imp-relatorio").addEventListener("click", baixarRelatorioImportacaoOrc);
@@ -10401,8 +10446,8 @@ $("turma-orcamento-select").addEventListener("change", () => {
   const info = $("turma-orcamento-info");
   info.classList.remove("hidden");
   info.innerHTML = `
-    <p><strong>Empresa:</strong> ${o.empresas?.nome || "—"}</p>
-    <p><strong>Treinamento:</strong> ${o.tipos_treinamento?.nome || "—"}</p>
+    <p><strong>Empresa:</strong> ${escH(o.empresas?.nome || "—")}</p>
+    <p><strong>Treinamento:</strong> ${escH(o.tipos_treinamento?.nome || "—")}</p>
     <p><strong>Status do orçamento:</strong> ${escH(o.status)}</p>
     <p><strong>Previsto:</strong> ${o.qtd_turmas || 0} turma(s) · ${o.qtd_alunos || 0} aluno(s) · ${o.qtd_alunos_por_turma || 0} aluno(s)/turma · ${o.qtd_localidades || 1} localidade(s)</p>
   `;
@@ -10495,9 +10540,9 @@ function renderizarListaTurmas() {
   cont.innerHTML = lista.map((t) => `
     <tr class="hover:bg-slate-50">
       <td class="px-3 py-2 font-mono text-slate-700">${escH(t.identificacao || "—")}</td>
-      <td class="px-3 py-2 text-slate-700">${t.tipos_treinamento?.nome || "—"}</td>
+      <td class="px-3 py-2 text-slate-700">${escH(t.tipos_treinamento?.nome || "—")}</td>
       <td class="px-3 py-2 text-slate-500">${escH(t.tipo_dia || "—")}</td>
-      <td class="px-3 py-2 text-slate-500">${t.centros_treinamento?.nome || "—"}</td>
+      <td class="px-3 py-2 text-slate-500">${escH(t.centros_treinamento?.nome || "—")}</td>
       <td class="px-3 py-2 text-slate-500">${escH(t.data_inicio || "—")}${t.data_fim && t.data_fim !== t.data_inicio ? ` a ${t.data_fim}` : ""}</td>
       <td class="px-3 py-2"><span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${corStatus[t.status] || ""}">${escH(t.status)}</span></td>
       <td class="px-3 py-2 text-right whitespace-nowrap">
@@ -10988,11 +11033,11 @@ $("agend-orcamento-select").addEventListener("change", async () => {
   const info = $("agend-orcamento-info");
   info.classList.remove("hidden");
   info.innerHTML = `
-    <p><strong>Empresa:</strong> ${o?.empresas?.nome || "—"}</p>
-    <p><strong>Treinamento:</strong> ${o?.tipos_treinamento?.nome || "—"}</p>
-    <p><strong>Status do orçamento:</strong> ${o?.status || "—"}</p>
+    <p><strong>Empresa:</strong> ${escH(o?.empresas?.nome || "—")}</p>
+    <p><strong>Treinamento:</strong> ${escH(o?.tipos_treinamento?.nome || "—")}</p>
+    <p><strong>Status do orçamento:</strong> ${escH(o?.status || "—")}</p>
     ${o && o.centro_treinamento_id && o.centro_treinamento_id !== agendTurmaCentroId
-      ? `<p class="text-amber-700"><strong>CT do cadastro:</strong> ${listaCentrosAtivos.find((c) => c.id === o.centro_treinamento_id)?.nome || "—"} — as turmas serão realizadas em ${listaCentrosAtivos.find((c) => c.id === agendTurmaCentroId)?.nome || "—"} (CT escolhido acima).</p>`
+      ? `<p class="text-amber-700"><strong>CT do cadastro:</strong> ${escH(listaCentrosAtivos.find((c) => c.id === o.centro_treinamento_id)?.nome || "—")} — as turmas serão realizadas em ${escH(listaCentrosAtivos.find((c) => c.id === agendTurmaCentroId)?.nome || "—")} (CT escolhido acima).</p>`
       : ""}
     ${blocoObservacoesOrcamento(o)}
   `;
@@ -11254,7 +11299,7 @@ function celulaInstrutorSomenteLeitura(t, campo) {
   if (!id) return `<span class="text-slate-300 text-xs">—</span>`;
   const inst = listaInstrutoresAtivos.find((i) => i.id === id);
   const resp = respostaInstrutorAgendTurma(t, id);
-  return `<div class="text-xs text-slate-700">${inst?.nome || "—"}</div>
+  return `<div class="text-xs text-slate-700">${escH(inst?.nome || "—")}</div>
     <div class="mt-0.5">${iconeRespostaInstrutor(resp) || textoAgendaItem(t[campo === "instrutor1" ? "agenda_instrutor1" : "agenda_instrutor2"])}</div>`;
 }
 
@@ -11262,10 +11307,10 @@ function celulaInstrutorSomenteLeitura(t, campo) {
 function rotuloCentroAgendTurma(t) {
   const nomeCentro = (id) => listaCentrosAtivos.find((c) => c.id === id)?.nome || "—";
   if (t._centroMudara) {
-    return `<span class="text-[11px] text-amber-700" title="O CT da turma será gravado como ${escH(nomeCentro(t.centro_treinamento_id))} ao solicitar a confirmação.">🏢 Realizada em ${escH(nomeCentro(t.centro_treinamento_id))} (cadastro: ${t.centros_treinamento?.nome || nomeCentro(t._centroOriginalId)}) — será gravado ao solicitar confirmação</span>`;
+    return `<span class="text-[11px] text-amber-700" title="O CT da turma será gravado como ${escH(nomeCentro(t.centro_treinamento_id))} ao solicitar a confirmação.">🏢 Realizada em ${escH(nomeCentro(t.centro_treinamento_id))} (cadastro: ${escH(t.centros_treinamento?.nome || nomeCentro(t._centroOriginalId))}) — será gravado ao solicitar confirmação</span>`;
   }
   if (t._centroBloqueado) {
-    return `<span class="text-[11px] text-rose-700" title="Desfaça a confirmação do CT atual antes de mudar de unidade.">⚠ CT em ${t.centros_treinamento?.nome || nomeCentro(t.centro_treinamento_id)} já aguardando/confirmado — não será trocado</span>`;
+    return `<span class="text-[11px] text-rose-700" title="Desfaça a confirmação do CT atual antes de mudar de unidade.">⚠ CT em ${escH(t.centros_treinamento?.nome || nomeCentro(t.centro_treinamento_id))} já aguardando/confirmado — não será trocado</span>`;
   }
   return "";
 }
@@ -11780,7 +11825,7 @@ function renderizarTurmasPreAgendamentoDefinitivo() {
     <div class="flex items-center justify-between gap-3 text-xs bg-white border border-sky-100 rounded-md px-3 py-2">
       <span>
         <span class="font-mono text-slate-700">${escH(t.identificacao || "—")}</span>
-        — ${t.orcamentos?.empresas?.nome || "—"} · ${t.centros_treinamento?.nome || "—"}${t.data_inicio ? ` · ${formatarDataBr(t.data_inicio)}` : ""}
+        — ${escH(t.orcamentos?.empresas?.nome || "—")} · ${escH(t.centros_treinamento?.nome || "—")}${t.data_inicio ? ` · ${formatarDataBr(t.data_inicio)}` : ""}
       </span>
       <button data-cct-definitivo-visto="${t.id}" class="text-sky-700 hover:underline whitespace-nowrap">marcar como visto</button>
     </div>
@@ -12034,8 +12079,8 @@ function renderizarDetalheDiaCt(porDia) {
         <span class="font-mono text-xs text-slate-700">${escH(t.identificacao || "—")}</span>
         <span class="flex items-center gap-1.5">${textoAgendaItem(t.agenda_ct)} ${badgeStatusAgendamento(t.status_agendamento, t.eh_pre_agendamento)}</span>
       </div>
-      <div class="text-sm text-slate-800 mt-1">${t.tipos_treinamento?.nome || "—"}</div>
-      <div class="text-xs text-slate-500">${t.orcamentos?.empresas?.nome || "—"} · orç. ${t.orcamentos?.numero || "—"}</div>
+      <div class="text-sm text-slate-800 mt-1">${escH(t.tipos_treinamento?.nome || "—")}</div>
+      <div class="text-xs text-slate-500">${escH(t.orcamentos?.empresas?.nome || "—")} · orç. ${escH(t.orcamentos?.numero || "—")}</div>
       <div class="text-[11px] text-slate-500 mt-1">${t.horario ? `🕒 ${t.horario}` : ""}${t.tipo_dia ? `${t.horario ? " · " : ""}${t.tipo_dia}` : ""}</div>
       <div class="mt-1">${linhaInst(t.inst1?.nome, respostaInstrutorCct(t, t.instrutor1_id), t.agenda_instrutor1)}${linhaInst(t.inst2?.nome, respostaInstrutorCct(t, t.instrutor2_id), t.agenda_instrutor2)}${!t.inst1 && !t.inst2 ? `<span class="text-[11px] text-slate-400">${locacao ? "🏢 locação de espaço — sem instrutor" : "sem instrutor"}</span>` : ""}</div>
       ${obs ? `<div class="mt-2">${obs}</div>` : ""}
@@ -12288,7 +12333,7 @@ function renderizarListaAlunosTurma() {
       <td class="py-1.5 pr-2">${escH(a.cpf || "—")}</td>
       <td class="py-1.5 pr-2">${escH(a.nome)}</td>
       <td class="py-1.5 pr-2">${escH(a.data_nascimento || "—")}</td>
-      <td class="py-1.5 pr-2">${localidade?.nome || "—"}</td>
+      <td class="py-1.5 pr-2">${escH(localidade?.nome || "—")}</td>
       <td class="py-1.5 pr-2">${a.cnpj_atestado ? MASCARAS.cnpj(a.cnpj_atestado) : "—"}</td>
       <td class="py-1.5 pr-2">${a.cnpj_faturamento ? MASCARAS.cnpj(a.cnpj_faturamento) : "—"}</td>
       <td class="py-1.5 text-right whitespace-nowrap">
@@ -12912,9 +12957,9 @@ function renderizarDetalheDiaAgendaCentros(porDia) {
         <span class="font-mono text-xs text-slate-700">${escH(t.identificacao || "—")}</span>
         ${badgeStatusAgendamento(t.status_agendamento, t.eh_pre_agendamento)}
       </div>
-      <div class="text-sm text-slate-800 mt-1">${t.tipos_treinamento?.nome || "—"}</div>
-      <div class="text-xs text-slate-500">${t.orcamentos?.empresas?.nome || "—"} · orç. ${t.orcamentos?.numero || "—"}</div>
-      <div class="text-[11px] text-slate-500 mt-1">🏫 ${t.centros_treinamento?.nome || "—"}${t.horario ? ` · ${t.horario}` : ""}${t.tipo_dia ? ` · ${t.tipo_dia}` : ""}</div>
+      <div class="text-sm text-slate-800 mt-1">${escH(t.tipos_treinamento?.nome || "—")}</div>
+      <div class="text-xs text-slate-500">${escH(t.orcamentos?.empresas?.nome || "—")} · orç. ${escH(t.orcamentos?.numero || "—")}</div>
+      <div class="text-[11px] text-slate-500 mt-1">🏫 ${escH(t.centros_treinamento?.nome || "—")}${t.horario ? ` · ${t.horario}` : ""}${t.tipo_dia ? ` · ${t.tipo_dia}` : ""}</div>
       <div class="text-[11px] text-slate-500">👤 ${[t.inst1?.nome, t.inst2?.nome].filter(Boolean).join(" e ") || "sem instrutor"}</div>
       ${t.orcamentos?.observacao_ct ? `<div class="mt-2 text-[11px] text-amber-900 bg-amber-50 border border-amber-200 rounded-md px-2 py-1.5 whitespace-pre-line">📌 ${escH(t.orcamentos.observacao_ct)}</div>` : ""}
     </div>
@@ -13104,7 +13149,7 @@ function renderizarDisponibilidadeInstrutores() {
     return `
     <tr>
       <td title="${escH(inst.nome)}" class="sticky left-0 z-10 bg-white px-2 py-1.5 text-xs text-slate-800 whitespace-nowrap overflow-hidden text-ellipsis" style="width:${DISPO_LARG.nome}px;min-width:${DISPO_LARG.nome}px">${escH(inst.nome)}${inst.status !== "Ativo" ? ` <span class="text-[9px] text-rose-500">(inat.)</span>` : ""}</td>
-      <td title="${ct?.nome || ""}" class="sticky z-10 bg-white px-0.5 py-1.5 text-[10px] text-slate-500 text-center whitespace-nowrap overflow-hidden text-ellipsis" style="left:${DISPO_LEFT.ct}px;width:${DISPO_LARG.ct}px;min-width:${DISPO_LARG.ct}px">${siglaCentroDispo(ct)}</td>
+      <td title="${escH(ct?.nome || "")}" class="sticky z-10 bg-white px-0.5 py-1.5 text-[10px] text-slate-500 text-center whitespace-nowrap overflow-hidden text-ellipsis" style="left:${DISPO_LEFT.ct}px;width:${DISPO_LARG.ct}px;min-width:${DISPO_LARG.ct}px">${siglaCentroDispo(ct)}</td>
       <td class="sticky z-10 bg-white px-0.5 py-1.5 text-center text-[10px] font-medium text-blue-700" style="left:${DISPO_LEFT.agend}px;width:${DISPO_LARG.agend}px;min-width:${DISPO_LARG.agend}px">${totalAgendados}</td>
       <td class="sticky z-10 bg-white px-0.5 py-1.5 text-center text-[10px] font-medium text-teal-700" style="left:${DISPO_LEFT.disp}px;width:${DISPO_LARG.disp}px;min-width:${DISPO_LARG.disp}px">${totalDisponiveis}</td>
       ${celulas}
@@ -13260,11 +13305,11 @@ function renderizarDocumentosTurmas() {
   cont.innerHTML = lista.map((t) => `
     <tr class="hover:bg-slate-50">
       <td class="px-3 py-2 font-mono text-slate-700">${escH(t.identificacao || "—")}</td>
-      <td class="px-3 py-2 text-slate-500">${t.orcamentos?.numero || "—"}</td>
-      <td class="px-3 py-2 text-slate-700">${t.orcamentos?.empresas?.nome || "—"}</td>
+      <td class="px-3 py-2 text-slate-500">${escH(t.orcamentos?.numero || "—")}</td>
+      <td class="px-3 py-2 text-slate-700">${escH(t.orcamentos?.empresas?.nome || "—")}</td>
       <td class="px-3 py-2 text-slate-500">${formatarDataBr(t.data_inicio)}${t.data_fim && t.data_fim !== t.data_inicio ? ` a ${formatarDataBr(t.data_fim)}` : ""}</td>
-      <td class="px-3 py-2 text-slate-700">${t.instrutor1?.nome || "—"}</td>
-      <td class="px-3 py-2 text-slate-700">${t.instrutor2?.nome || "—"}</td>
+      <td class="px-3 py-2 text-slate-700">${escH(t.instrutor1?.nome || "—")}</td>
+      <td class="px-3 py-2 text-slate-700">${escH(t.instrutor2?.nome || "—")}</td>
       <td class="px-3 py-2">
         <button data-dt-alunos="${t.id}" class="font-medium underline ${t.qtdAlunos ? "text-sm text-teal-700 hover:text-teal-900 font-semibold" : "text-xs text-slate-400 hover:text-slate-600"}">${t.qtdAlunos} 👥</button>
       </td>
@@ -14374,5 +14419,546 @@ $("btn-cr-limpar-filtros").addEventListener("click", () => {
   $("cr-data-fim").value = hoje.toISOString().slice(0, 10);
   buscarConsultaReembolsos();
 });
+
+// ===========================================================
+// OPERAÇÕES: ALUNOS CERTIFICADOS  e  FINANCEIRO: FATURAMENTO
+// A gravação é sempre feita por funções do banco (registrar_certificados, gerar_faturamentos, ...),
+// que conferem a permissão do usuário e recalculam os valores no servidor.
+// ===========================================================
+const fatData = (iso) => { if (!iso) return "—"; const [a, m, d] = String(iso).slice(0, 10).split("-"); return `${d}/${m}/${a}`; };
+const fatNumero = (n) => "FAT-" + String(n).padStart(4, "0");
+const fatLotes = (arr, n) => { const out = []; for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n)); return out; };
+const fatErroMsg = (e) => (e && e.message ? e.message : "erro desconhecido");
+const fatChip = (txt, cor) => `<span class="inline-block text-xs font-semibold px-2 py-0.5 rounded-full ${cor}">${escH(txt)}</span>`;
+const FAT_COR = { cinza: "bg-slate-100 text-slate-700", verde: "bg-teal-100 text-teal-800", ambar: "bg-amber-100 text-amber-800", azul: "bg-indigo-100 text-indigo-800", rosa: "bg-rose-100 text-rose-700" };
+
+// ---------- Alunos certificados ----------
+let caTurmas = [];
+let caAberta = null;      // { turma, alunos, registrada, faturada }
+let caSel = new Set();
+
+function carregarCertificadosAlunosInit() {
+  const hoje = new Date();
+  if (!$("ca-data-de").value) $("ca-data-de").value = formatarData(new Date(hoje.getTime() - 120 * 86400000));
+  if (!$("ca-data-ate").value) $("ca-data-ate").value = formatarData(hoje);
+  caMostrarLista();
+  caBuscar();
+}
+
+function caMostrarLista() {
+  $("ca-view-detalhe").classList.add("hidden");
+  $("ca-view-lista").classList.remove("hidden");
+  caAberta = null;
+}
+
+async function caBuscar() {
+  esconderErro("ca-erro");
+  $("ca-tbody").innerHTML = `<tr><td colspan="8" class="px-3 py-4 text-slate-500">Carregando…</td></tr>`;
+  try {
+    const de = $("ca-data-de").value, ate = $("ca-data-ate").value;
+    const { data: turmas, error } = await buscarTodos(() => {
+      let q = supabase.from("turmas")
+        .select("id, identificacao, data_inicio, data_fim, status, orcamento_id, certificados_registrados_em, certificados_registrados_por, orcamentos(numero, qtd_alunos_por_turma, empresas(nome)), tipos_treinamento(nome)")
+        .not("orcamento_id", "is", null).neq("status", "Cancelada");
+      if (de) q = q.gte("data_inicio", de);
+      if (ate) q = q.lte("data_inicio", ate);
+      return q.order("data_inicio", { ascending: false }).order("id");
+    });
+    if (error) throw error;
+    const ids = (turmas || []).map((t) => t.id);
+    const tot = {}, cert = {}, fat = {};
+    for (const lote of fatLotes(ids, 80)) {
+      const [a, f] = await Promise.all([
+        buscarTodos(() => supabase.from("turma_alunos").select("turma_id, certificado_emitido").in("turma_id", lote).order("id")),
+        supabase.from("faturamento_itens").select("turma_id, faturamentos!inner(numero, status)").in("turma_id", lote).eq("faturamentos.status", "Emitido"),
+      ]);
+      if (a.error) throw a.error;
+      if (f.error) throw f.error;
+      (a.data || []).forEach((x) => { tot[x.turma_id] = (tot[x.turma_id] || 0) + 1; if (x.certificado_emitido) cert[x.turma_id] = (cert[x.turma_id] || 0) + 1; });
+      (f.data || []).forEach((x) => { fat[x.turma_id] = x.faturamentos && x.faturamentos.numero; });
+    }
+    caTurmas = (turmas || []).map((t) => {
+      const total = tot[t.id] || 0;
+      const situacao = fat[t.id] != null ? "faturada" : t.certificados_registrados_em ? "registrado" : total === 0 ? "sem_alunos" : "aguardando";
+      return { ...t, total, certificados: cert[t.id] || 0, situacao, numeroFat: fat[t.id] };
+    });
+    caRenderLista();
+  } catch (e) {
+    $("ca-tbody").innerHTML = "";
+    mostrarErro("ca-erro", "Não foi possível carregar as turmas: " + fatErroMsg(e));
+  }
+}
+
+function caRenderLista() {
+  const busca = $("ca-busca").value.trim().toLowerCase();
+  const filtro = $("ca-situacao").value;
+  const lista = caTurmas.filter((t) => {
+    if (filtro !== "todas" && t.situacao !== filtro) return false;
+    if (!busca) return true;
+    const o = t.orcamentos || {};
+    return `${o.numero || ""} ${(o.empresas && o.empresas.nome) || ""} ${t.identificacao || ""} ${(t.tipos_treinamento && t.tipos_treinamento.nome) || ""}`.toLowerCase().includes(busca);
+  });
+  $("ca-resumo").textContent = `${lista.length} turma(s) listada(s) de ${caTurmas.length} no período.`;
+  const rot = { aguardando: ["Aguardando registro", FAT_COR.ambar], registrado: ["Registrado · disponível p/ faturar", FAT_COR.verde], faturada: ["Faturada", FAT_COR.azul], sem_alunos: ["Sem alunos", FAT_COR.cinza] };
+  $("ca-tbody").innerHTML = lista.length ? lista.map((t) => {
+    const o = t.orcamentos || {};
+    const [r, cor] = rot[t.situacao];
+    const periodo = t.data_fim && t.data_fim !== t.data_inicio ? `${fatData(t.data_inicio)} a ${fatData(t.data_fim)}` : fatData(t.data_inicio);
+    return `<tr>
+      <td class="px-3 py-2 font-medium">${escH(o.numero || "—")}</td>
+      <td class="px-3 py-2">${escH((o.empresas && o.empresas.nome) || "—")}</td>
+      <td class="px-3 py-2">${escH(t.identificacao || "—")}</td>
+      <td class="px-3 py-2">${escH((t.tipos_treinamento && t.tipos_treinamento.nome) || "—")}</td>
+      <td class="px-3 py-2 whitespace-nowrap">${escH(periodo)}</td>
+      <td class="px-3 py-2 text-right whitespace-nowrap">${t.situacao === "aguardando" || t.situacao === "sem_alunos" ? `— de ${t.total}` : `${t.certificados} de ${t.total}`}</td>
+      <td class="px-3 py-2">${fatChip(t.numeroFat != null ? `${r} (${fatNumero(t.numeroFat)})` : r, cor)}</td>
+      <td class="px-3 py-2 text-right"><button type="button" data-ca-abrir="${escH(t.id)}" class="text-xs font-medium text-amber-700 hover:underline">${t.situacao === "aguardando" ? "Registrar" : "Abrir"}</button></td>
+    </tr>`;
+  }).join("") : `<tr><td colspan="8" class="px-3 py-4 text-slate-500">Nenhuma turma encontrada com estes filtros.</td></tr>`;
+}
+
+async function caAbrir(turmaId) {
+  const t = caTurmas.find((x) => x.id === turmaId);
+  if (!t) return;
+  esconderErro("ca-det-erro"); $("ca-det-ok").classList.add("hidden");
+  $("ca-view-lista").classList.add("hidden");
+  $("ca-view-detalhe").classList.remove("hidden");
+  $("ca-alunos-tbody").innerHTML = `<tr><td colspan="4" class="px-3 py-4 text-slate-500">Carregando…</td></tr>`;
+  const { data, error } = await buscarTodos(() => supabase.from("turma_alunos").select("id, nome, cpf, cnpj_faturamento, certificado_emitido").eq("turma_id", turmaId).order("nome").order("id"));
+  if (error) { mostrarErro("ca-det-erro", "Não foi possível carregar os alunos: " + fatErroMsg(error)); return; }
+  const registrada = !!t.certificados_registrados_em;
+  caAberta = { turma: t, alunos: data || [], registrada, faturada: t.situacao === "faturada" };
+  // turma ainda sem registro: todos os alunos começam marcados; o usuário desmarca quem não recebeu
+  caSel = new Set(caAberta.alunos.filter((a) => (registrada ? a.certificado_emitido : true)).map((a) => a.id));
+  caRenderDetalhe();
+}
+
+function caRenderDetalhe() {
+  const { turma: t, alunos, registrada, faturada } = caAberta;
+  const o = t.orcamentos || {};
+  const podeAlterar = podeFazer("certificados_alunos", "alterar") && !registrada;
+  $("ca-det-cab").innerHTML = `
+    <div class="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+      <h3 class="text-lg font-semibold">Turma ${escH(t.identificacao || "—")}</h3>
+      <span class="text-sm text-slate-600">Orçamento ${escH(o.numero || "—")} · ${escH((o.empresas && o.empresas.nome) || "—")}</span>
+    </div>
+    <p class="text-sm text-slate-500 mt-1">${escH((t.tipos_treinamento && t.tipos_treinamento.nome) || "—")} · ${escH(fatData(t.data_inicio))}${t.data_fim && t.data_fim !== t.data_inicio ? " a " + escH(fatData(t.data_fim)) : ""} · alunos orçados por turma: ${escH(o.qtd_alunos_por_turma != null ? o.qtd_alunos_por_turma : "—")}</p>
+    <p class="text-xs mt-1 ${registrada ? "text-teal-700" : "text-amber-700"}">${registrada ? `Registrado em ${escH(formatarDataHoraBr(t.certificados_registrados_em))}${t.certificados_registrados_por ? " por " + escH(t.certificados_registrados_por) : ""}` : "Certificados ainda não registrados. Todos os alunos estão marcados: desmarque quem não recebeu o certificado."}</p>`;
+  $("ca-alunos-tbody").innerHTML = alunos.length ? alunos.map((a) => `<tr>
+      <td class="px-3 py-2"><input type="checkbox" data-ca-aluno="${escH(a.id)}" ${caSel.has(a.id) ? "checked" : ""} ${podeAlterar ? "" : "disabled"} aria-label="Certificado emitido para ${escH(a.nome)}" class="h-4 w-4 accent-amber-700" /></td>
+      <td class="px-3 py-2">${escH(a.nome)}</td>
+      <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${escH(a.cpf || "—")}</td>
+      <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${escH(a.cnpj_faturamento || "—")}</td>
+    </tr>`).join("") : `<tr><td colspan="4" class="px-3 py-4 text-slate-500">Esta turma não tem alunos cadastrados.</td></tr>`;
+  $("btn-ca-marcar-todos").disabled = !podeAlterar;
+  $("btn-ca-desmarcar-todos").disabled = !podeAlterar;
+  $("btn-ca-registrar").classList.toggle("hidden", !podeAlterar);
+  const nota = $("ca-nota-bloqueio");
+  nota.classList.toggle("hidden", podeAlterar);
+  nota.textContent = registrada
+    ? `O registro de certificados é feito uma única vez e não pode ser alterado.${faturada ? ` Esta turma já foi faturada (${fatNumero(t.numeroFat)}).` : ""}`
+    : "Você não tem permissão para registrar os certificados.";
+  caAtualizarResumo();
+}
+
+function caAtualizarResumo() {
+  const { turma: t, alunos } = caAberta;
+  const marcados = alunos.filter((a) => caSel.has(a.id));
+  $("ca-contagem").textContent = `${marcados.length} de ${alunos.length} alunos receberam o certificado`;
+  const porCnpj = {};
+  marcados.forEach((a) => { const k = a.cnpj_faturamento || "Sem CNPJ (usa o da empresa do orçamento)"; porCnpj[k] = (porCnpj[k] || 0) + 1; });
+  const linhas = Object.entries(porCnpj);
+  $("ca-resumo-cnpj").innerHTML = linhas.length ? linhas.map(([k, n]) => `<div class="flex justify-between gap-2"><span class="text-slate-600">${escH(k)}</span><span class="font-semibold">${n}</span></div>`).join("") : `<p class="text-slate-400 text-xs">Nenhum aluno marcado.</p>`;
+  const orc = Number(t.orcamentos && t.orcamentos.qtd_alunos_por_turma) || 0;
+  const av = $("ca-aviso-exced");
+  av.classList.toggle("hidden", !(orc > 0 && marcados.length > orc));
+  av.textContent = `${marcados.length - orc} aluno(s) acima dos ${orc} orçados por turma. O faturamento soma o adicional de alunos excedentes (quando o orçamento é por turma).`;
+}
+
+async function caRegistrar() {
+  esconderErro("ca-det-erro"); $("ca-det-ok").classList.add("hidden");
+  const ids = caAberta.alunos.filter((a) => caSel.has(a.id)).map((a) => a.id);
+  if (!ids.length) { mostrarErro("ca-det-erro", "Marque ao menos um aluno que recebeu o certificado."); return; }
+  if (!confirm(`Registrar ${ids.length} de ${caAberta.alunos.length} alunos com certificado?\n\nO registro é feito uma única vez e não poderá ser alterado depois.`)) return;
+  const btn = $("btn-ca-registrar");
+  btn.disabled = true;
+  try {
+    const { error } = await supabase.rpc("registrar_certificados", { p_turma: caAberta.turma.id, p_alunos: ids });
+    if (error) throw error;
+    const rotulo = `${caAberta.turma.identificacao || ""}`, total = caAberta.alunos.length;
+    await caBuscar();
+    caMostrarLista();
+    caRenderLista();
+    $("ca-resumo").textContent = `Certificados da turma ${rotulo} registrados: ${ids.length} de ${total} alunos. A turma já está disponível para faturar.`;
+  } catch (e) {
+    mostrarErro("ca-det-erro", "Não foi possível registrar: " + fatErroMsg(e));
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+$("btn-ca-buscar").addEventListener("click", caBuscar);
+$("ca-situacao").addEventListener("change", caRenderLista);
+$("ca-busca").addEventListener("input", caRenderLista);
+$("ca-busca").addEventListener("keydown", (e) => { if (e.key === "Enter") caBuscar(); });
+$("ca-tbody").addEventListener("click", (e) => { const b = e.target.closest("[data-ca-abrir]"); if (b) caAbrir(b.getAttribute("data-ca-abrir")); });
+$("btn-ca-voltar").addEventListener("click", caMostrarLista);
+$("ca-alunos-tbody").addEventListener("change", (e) => {
+  const i = e.target.closest("[data-ca-aluno]");
+  if (!i || !caAberta) return;
+  if (i.checked) caSel.add(i.getAttribute("data-ca-aluno")); else caSel.delete(i.getAttribute("data-ca-aluno"));
+  caAtualizarResumo();
+});
+$("btn-ca-marcar-todos").addEventListener("click", () => { if (!caAberta) return; caSel = new Set(caAberta.alunos.map((a) => a.id)); caRenderDetalhe(); });
+$("btn-ca-desmarcar-todos").addEventListener("click", () => { if (!caAberta) return; caSel = new Set(); caRenderDetalhe(); });
+$("btn-ca-registrar").addEventListener("click", caRegistrar);
+
+// ---------- Faturamento ----------
+let fatOrc = null;          // { orc, turmas, calc, ... }
+let fatSel = new Set();
+let fatPrev = null;         // retorno de faturamento_calcular para a seleção atual
+let fatPrevToken = 0;
+let fatEmitidos = [];
+let fatEmitidoAberto = null;
+
+function carregarFaturamentoInit() {
+  $("btn-fat-faturar").classList.toggle("hidden", !podeFazer("faturamento", "incluir"));
+  fatMostrarAba("faturar");
+  fatMostrarListaOrcs();
+}
+
+function fatMostrarAba(aba) {
+  const f = aba === "faturar";
+  $("fat-painel-faturar").classList.toggle("hidden", !f);
+  $("fat-painel-emitidos").classList.toggle("hidden", f);
+  $("btn-fat-aba-faturar").className = `px-4 py-2 text-sm border-b-2 ${f ? "font-semibold border-amber-600 text-slate-900" : "border-transparent text-slate-500 hover:text-slate-800"}`;
+  $("btn-fat-aba-emitidos").className = `px-4 py-2 text-sm border-b-2 ${!f ? "font-semibold border-amber-600 text-slate-900" : "border-transparent text-slate-500 hover:text-slate-800"}`;
+  if (!f) fatBuscarEmitidos();
+}
+
+function fatMostrarListaOrcs() {
+  $("fat-view-orc").classList.add("hidden");
+  $("fat-view-orcs").classList.remove("hidden");
+  fatOrc = null;
+  fatCarregarOrcamentos();
+}
+
+let fatListaOrcs = [];
+async function fatCarregarOrcamentos() {
+  esconderErro("fat-erro");
+  $("fat-orcs-tbody").innerHTML = `<tr><td colspan="6" class="px-3 py-4 text-slate-500">Carregando…</td></tr>`;
+  try {
+    const { data: turmas, error } = await buscarTodos(() => supabase.from("turmas")
+      .select("id, orcamento_id, orcamentos(numero, faturar_por_aluno, empresas(nome))").not("certificados_registrados_em", "is", null).order("id"));
+    if (error) throw error;
+    const ids = (turmas || []).map((t) => t.id);
+    const faturadas = new Set();
+    for (const lote of fatLotes(ids, 80)) {
+      const { data, error: e2 } = await supabase.from("faturamento_itens").select("turma_id, faturamentos!inner(status)").in("turma_id", lote).eq("faturamentos.status", "Emitido");
+      if (e2) throw e2;
+      (data || []).forEach((x) => faturadas.add(x.turma_id));
+    }
+    const por = {};
+    (turmas || []).forEach((t) => {
+      const g = por[t.orcamento_id] || (por[t.orcamento_id] = { id: t.orcamento_id, numero: t.orcamentos && t.orcamentos.numero, empresa: t.orcamentos && t.orcamentos.empresas && t.orcamentos.empresas.nome, porAluno: !!(t.orcamentos && t.orcamentos.faturar_por_aluno), disp: 0, fat: 0 });
+      if (faturadas.has(t.id)) g.fat++; else g.disp++;
+    });
+    fatListaOrcs = Object.values(por).filter((g) => g.disp > 0).sort((a, b) => String(b.numero).localeCompare(String(a.numero), "pt-BR", { numeric: true }));
+    fatRenderOrcs();
+  } catch (e) {
+    $("fat-orcs-tbody").innerHTML = "";
+    mostrarErro("fat-erro", "Não foi possível carregar os orçamentos: " + fatErroMsg(e));
+  }
+}
+
+function fatRenderOrcs() {
+  const busca = $("fat-busca").value.trim().toLowerCase();
+  const lista = fatListaOrcs.filter((g) => !busca || `${g.numero || ""} ${g.empresa || ""}`.toLowerCase().includes(busca));
+  $("fat-orcs-tbody").innerHTML = lista.length ? lista.map((g) => `<tr>
+      <td class="px-3 py-2 font-medium">${escH(g.numero || "—")}</td>
+      <td class="px-3 py-2">${escH(g.empresa || "—")}</td>
+      <td class="px-3 py-2">${fatChip(g.porAluno ? "Por aluno" : "Por turma", g.porAluno ? FAT_COR.ambar : FAT_COR.cinza)}</td>
+      <td class="px-3 py-2 text-right font-semibold">${g.disp}</td>
+      <td class="px-3 py-2 text-right text-slate-500">${g.fat}</td>
+      <td class="px-3 py-2 text-right"><button type="button" data-fat-abrir="${escH(g.id)}" class="text-xs font-medium text-amber-700 hover:underline">Abrir</button></td>
+    </tr>`).join("") : `<tr><td colspan="6" class="px-3 py-4 text-slate-500">Nenhum orçamento com turmas disponíveis para faturar. Registre os certificados na tela Alunos certificados (menu Operações).</td></tr>`;
+}
+
+async function fatAbrirOrcamento(orcId) {
+  esconderErro("fat-orc-erro"); $("fat-orc-ok").classList.add("hidden");
+  $("fat-view-orcs").classList.add("hidden");
+  $("fat-view-orc").classList.remove("hidden");
+  $("fat-turmas-tbody").innerHTML = `<tr><td colspan="8" class="px-3 py-4 text-slate-500">Carregando…</td></tr>`;
+  $("fat-prev-tbody").innerHTML = ""; $("fat-prev-tfoot").innerHTML = "";
+  try {
+    const [rO, rT, rF] = await Promise.all([
+      supabase.from("orcamentos").select("id, numero, faturar_por_aluno, valor_turma, valor_por_aluno, valor_total, valor_desconto, valor_final, qtd_alunos_por_turma, qtd_turmas, empresas(nome)").eq("id", orcId).single(),
+      supabase.from("turmas").select("id, identificacao, data_inicio, data_fim, status, certificados_registrados_em, centros_treinamento(nome)").eq("orcamento_id", orcId).neq("status", "Cancelada").order("data_inicio", { nullsFirst: false }).order("identificacao"),
+      supabase.from("faturamentos").select("id, numero, status, valor_final, faturamento_itens(turma_id)").eq("orcamento_id", orcId).eq("status", "Emitido"),
+    ]);
+    if (rO.error) throw rO.error; if (rT.error) throw rT.error; if (rF.error) throw rF.error;
+    const turmas = rT.data || [];
+    const ids = turmas.map((t) => t.id);
+    const cert = {}, tot = {};
+    for (const lote of fatLotes(ids, 80)) {
+      const a = await buscarTodos(() => supabase.from("turma_alunos").select("turma_id, certificado_emitido").in("turma_id", lote).order("id"));
+      if (a.error) throw a.error;
+      (a.data || []).forEach((x) => { tot[x.turma_id] = (tot[x.turma_id] || 0) + 1; if (x.certificado_emitido) cert[x.turma_id] = (cert[x.turma_id] || 0) + 1; });
+    }
+    const fatPorTurma = {};
+    let faturado = 0;
+    (rF.data || []).forEach((f) => { faturado += Number(f.valor_final) || 0; (f.faturamento_itens || []).forEach((i) => { (fatPorTurma[i.turma_id] = fatPorTurma[i.turma_id] || new Set()).add(f.numero); }); });
+    const lista = turmas.map((t) => ({
+      ...t, total: tot[t.id] || 0, certificados: cert[t.id] || 0,
+      situacao: fatPorTurma[t.id] ? "faturada" : t.certificados_registrados_em ? "disponivel" : "aguardando",
+      numerosFat: fatPorTurma[t.id] ? [...fatPorTurma[t.id]].sort((a, b) => a - b) : [],
+    }));
+    fatOrc = { orc: rO.data, turmas: lista, faturado, calc: null, erroCalc: null, cnpjsPorTurma: {} };
+    const disp = lista.filter((t) => t.situacao === "disponivel");
+    if (disp.length) {
+      const { data: calc, error: eC } = await supabase.rpc("faturamento_calcular", { p_orcamento: orcId, p_turmas: disp.map((t) => t.id) });
+      if (eC) { fatOrc.erroCalc = fatErroMsg(eC); }
+      else {
+        fatOrc.calc = calc;
+        (calc.faturamentos || []).forEach((f) => (f.itens || []).forEach((i) => { (fatOrc.cnpjsPorTurma[i.turma_id] = fatOrc.cnpjsPorTurma[i.turma_id] || []).push({ cnpj: f.cnpj, razao: f.razao_social, alunos: i.alunos }); }));
+      }
+    }
+    fatSel = new Set(fatOrc.erroCalc ? [] : disp.map((t) => t.id));
+    fatRenderOrcamento();
+    fatAtualizarPreview();
+  } catch (e) {
+    mostrarErro("fat-orc-erro", "Não foi possível carregar o orçamento: " + fatErroMsg(e));
+  }
+}
+
+function fatRenderOrcamento() {
+  const { orc, turmas, calc, faturado } = fatOrc;
+  const porAluno = !!orc.faturar_por_aluno;
+  const pct = Number(orc.valor_total) > 0 ? (Number(orc.valor_desconto) || 0) / Number(orc.valor_total) * 100 : 0;
+  $("fat-orc-cab").innerHTML = `
+    <div class="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+      <h3 class="text-lg font-semibold">Orçamento ${escH(orc.numero || "—")}</h3>
+      <span class="text-sm text-slate-600">${escH((orc.empresas && orc.empresas.nome) || "—")}</span>
+      ${fatChip(porAluno ? "Faturamento por aluno" : "Faturamento por turma", porAluno ? FAT_COR.ambar : FAT_COR.cinza)}
+    </div>
+    <p class="text-sm text-slate-600 mt-2">${porAluno
+      ? `Cada turma é cobrada pelos alunos certificados × <strong>${escH(fmtBRL(orc.valor_por_aluno))}</strong>, sem valor mínimo e sem adicional de excedentes.`
+      : `Até <strong>${escH(orc.qtd_alunos_por_turma || "—")}</strong> alunos certificados por turma cobra o valor da turma (<strong>${escH(fmtBRL(orc.valor_turma))}</strong>); acima disso soma <strong>${escH(fmtBRL(orc.valor_por_aluno))}</strong> por aluno excedente (adicional de alunos excedentes).`}
+      Desconto do orçamento: <strong>${escH(pct.toLocaleString("pt-BR", { maximumFractionDigits: 2 }))}%</strong>, aplicado sobre cada faturamento. Um faturamento por CNPJ de faturamento dos alunos.</p>`;
+  const disp = turmas.filter((t) => t.situacao === "disponivel");
+  const aguard = turmas.filter((t) => t.situacao === "aguardando").length;
+  const card = (rot, val, nota) => `<div class="rounded-md border border-slate-200 bg-white px-3 py-2"><p class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">${escH(rot)}</p><p class="text-base font-semibold">${escH(val)}</p>${nota ? `<p class="text-[11px] text-slate-400">${escH(nota)}</p>` : ""}</div>`;
+  $("fat-orc-cards").innerHTML =
+    card("Valor do orçamento", fmtBRL(orc.valor_final), `${orc.qtd_turmas || "—"} turma(s) orçadas`) +
+    card("Já faturado", fmtBRL(faturado), `${turmas.filter((t) => t.situacao === "faturada").length} turma(s)`) +
+    card("Disponível para faturar", calc ? fmtBRL(calc.total_final) : "—", `${disp.length} turma(s) com certificados`) +
+    card("Aguardando certificados", String(aguard), "turma(s)");
+  if (fatOrc.erroCalc) mostrarErro("fat-orc-erro", "Não foi possível calcular as turmas disponíveis: " + fatOrc.erroCalc);
+  $("fat-th-adicional").textContent = porAluno ? "Cálculo" : "Adicional de excedentes";
+  const calcTurma = {};
+  ((calc && calc.turmas) || []).forEach((t) => { calcTurma[t.turma_id] = t; });
+  $("fat-turmas-tbody").innerHTML = turmas.length ? turmas.map((t) => {
+    const c = calcTurma[t.id];
+    const periodo = t.data_fim && t.data_fim !== t.data_inicio ? `${fatData(t.data_inicio)} a ${fatData(t.data_fim)}` : fatData(t.data_inicio);
+    const cn = (fatOrc.cnpjsPorTurma[t.id] || []).map((x) => `<span class="inline-block text-[11px] bg-slate-100 text-slate-700 rounded px-1.5 py-0.5 mr-1" title="${escH(x.razao || x.cnpj)}">${escH(x.cnpj)} · ${x.alunos}</span>`).join("");
+    let sit;
+    if (t.situacao === "faturada") sit = fatChip("Faturada · " + t.numerosFat.map(fatNumero).join(", "), FAT_COR.azul);
+    else if (t.situacao === "disponivel") sit = fatChip("Disponível", FAT_COR.verde);
+    else sit = fatChip("Aguardando certificados", FAT_COR.cinza);
+    const adicional = c ? (porAluno ? `${c.certificados} × ${fmtBRL(orc.valor_por_aluno)}` : c.excedentes > 0 ? `+${c.excedentes} × ${fmtBRL(orc.valor_por_aluno)} = ${fmtBRL(c.valor_excedentes)}` : "—") : "—";
+    return `<tr>
+      <td class="px-3 py-2">${t.situacao === "disponivel" && c ? `<input type="checkbox" data-fat-turma="${escH(t.id)}" ${fatSel.has(t.id) ? "checked" : ""} aria-label="Selecionar turma ${escH(t.identificacao || "")} para faturar" class="h-4 w-4 accent-amber-700" />` : ""}</td>
+      <td class="px-3 py-2 font-medium">${escH(t.identificacao || "—")}<div class="text-xs text-slate-400 font-normal">${escH((t.centros_treinamento && t.centros_treinamento.nome) || "")}</div></td>
+      <td class="px-3 py-2 whitespace-nowrap">${escH(periodo)}</td>
+      <td class="px-3 py-2 whitespace-nowrap">${t.situacao === "aguardando" ? `— de ${t.total}` : `${t.certificados} de ${t.total}`}${c && !porAluno ? `<div class="text-xs ${c.excedentes > 0 ? "text-amber-700" : "text-slate-400"}">${c.excedentes > 0 ? `${c.excedentes} acima do orçado (${c.orcados})` : `orçado: ${c.orcados}`}</div>` : ""}</td>
+      <td class="px-3 py-2">${cn || '<span class="text-slate-400">—</span>'}</td>
+      <td class="px-3 py-2 text-right whitespace-nowrap">${escH(adicional)}</td>
+      <td class="px-3 py-2 text-right font-semibold whitespace-nowrap">${c ? escH(fmtBRL(c.bruto)) : "—"}</td>
+      <td class="px-3 py-2">${sit}${t.situacao === "aguardando" && podeFazer("certificados_alunos", "consultar") ? `<div><button type="button" data-fat-ir-cert="1" class="text-xs text-amber-700 hover:underline">Registrar certificados</button></div>` : ""}</td>
+    </tr>`;
+  }).join("") : `<tr><td colspan="8" class="px-3 py-4 text-slate-500">Este orçamento não tem turmas.</td></tr>`;
+}
+
+let fatPrevTimer = null;
+function fatAtualizarPreview() {
+  clearTimeout(fatPrevTimer);
+  fatPrevTimer = setTimeout(fatCalcularPreview, 150);
+}
+async function fatCalcularPreview() {
+  const token = ++fatPrevToken;
+  const ids = [...fatSel];
+  const btn = $("btn-fat-faturar");
+  $("fat-sel-info").textContent = ids.length ? `${ids.length} turma(s) selecionada(s)` : "Nenhuma turma selecionada";
+  if (!ids.length || !fatOrc) { fatPrev = null; $("fat-prev-tbody").innerHTML = `<tr><td colspan="5" class="px-2 py-3 text-slate-400">Selecione as turmas disponíveis que deseja faturar.</td></tr>`; $("fat-prev-tfoot").innerHTML = ""; btn.disabled = true; return; }
+  btn.disabled = true;
+  const { data, error } = await supabase.rpc("faturamento_calcular", { p_orcamento: fatOrc.orc.id, p_turmas: ids });
+  if (token !== fatPrevToken) return;
+  if (error) { fatPrev = null; mostrarErro("fat-orc-erro", "Não foi possível calcular o faturamento: " + fatErroMsg(error)); return; }
+  esconderErro("fat-orc-erro");
+  fatPrev = data;
+  $("fat-prev-tbody").innerHTML = data.faturamentos.map((f) => `<tr>
+      <td class="px-2 py-2"><div class="font-medium">${escH(f.cnpj)}</div><div class="text-xs text-slate-500">${escH(f.razao_social || "—")}</div></td>
+      <td class="px-2 py-2 text-xs text-slate-600">${f.itens.map((i) => `${escH(i.turma_identificacao || "—")} (${i.alunos})`).join(", ")}</td>
+      <td class="px-2 py-2 text-right whitespace-nowrap">${escH(fmtBRL(f.valor_bruto))}</td>
+      <td class="px-2 py-2 text-right whitespace-nowrap text-slate-500">− ${escH(fmtBRL(f.valor_desconto))}</td>
+      <td class="px-2 py-2 text-right whitespace-nowrap font-semibold">${escH(fmtBRL(f.valor_final))}</td>
+    </tr>`).join("");
+  $("fat-prev-tfoot").innerHTML = `<tr class="border-t border-slate-200 font-semibold"><td class="px-2 py-2" colspan="2">Total (${data.faturamentos.length} faturamento${data.faturamentos.length === 1 ? "" : "s"})</td>
+      <td class="px-2 py-2 text-right">${escH(fmtBRL(data.total_bruto))}</td><td class="px-2 py-2 text-right text-slate-500">− ${escH(fmtBRL(data.total_desconto))}</td><td class="px-2 py-2 text-right">${escH(fmtBRL(data.total_final))}</td></tr>`;
+  btn.disabled = !podeFazer("faturamento", "incluir");
+}
+
+function fatAbrirConfirmacao() {
+  if (!fatPrev || !fatPrev.faturamentos.length) return;
+  esconderErro("fat-conf-erro");
+  $("fat-conf-corpo").innerHTML = fatPrev.faturamentos.map((f) => `<div class="border border-slate-200 rounded-lg p-3" data-fat-bloco="${escH(f.cnpj_digitos)}">
+      <div class="flex flex-wrap justify-between gap-2">
+        <div><p class="font-semibold text-sm">${escH(f.cnpj)}</p><p class="text-xs text-slate-500">${escH(f.razao_social || "Empresa não cadastrada")} · ${f.alunos} aluno(s) · ${f.itens.map((i) => escH(i.turma_identificacao || "—")).join(", ")}</p></div>
+        <p class="text-sm">Subtotal ${escH(fmtBRL(f.valor_bruto))} · desconto − ${escH(fmtBRL(f.valor_desconto))} · <strong>${escH(fmtBRL(f.valor_final))}</strong></p>
+      </div>
+      <div class="grid sm:grid-cols-3 gap-2 mt-2">
+        <div><label class="text-[11px] font-medium text-slate-500 uppercase tracking-wide">Ordem de compra</label><input data-fat-campo="oc" class="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" /></div>
+        <div><label class="text-[11px] font-medium text-slate-500 uppercase tracking-wide">Vencimento</label><input data-fat-campo="venc" type="date" class="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" /></div>
+        <div><label class="text-[11px] font-medium text-slate-500 uppercase tracking-wide">Observações</label><input data-fat-campo="obs" class="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" /></div>
+      </div>
+    </div>`).join("");
+  $("fat-modal-confirmar").classList.remove("hidden");
+}
+
+async function fatGerar() {
+  esconderErro("fat-conf-erro");
+  const dados = [...$("fat-conf-corpo").querySelectorAll("[data-fat-bloco]")].map((b) => ({
+    cnpj_digitos: b.getAttribute("data-fat-bloco"),
+    ordem_compra: b.querySelector('[data-fat-campo="oc"]').value,
+    vencimento: b.querySelector('[data-fat-campo="venc"]').value || null,
+    observacoes: b.querySelector('[data-fat-campo="obs"]').value,
+  }));
+  const btn = $("btn-fat-conf-ok");
+  btn.disabled = true;
+  try {
+    const { data, error } = await supabase.rpc("gerar_faturamentos", { p_orcamento: fatOrc.orc.id, p_turmas: [...fatSel], p_dados: dados });
+    if (error) throw error;
+    $("fat-modal-confirmar").classList.add("hidden");
+    const nums = (data.faturamentos || []).map((f) => fatNumero(f.numero)).join(", ");
+    await fatAbrirOrcamento(fatOrc.orc.id);
+    const ok = $("fat-orc-ok");
+    ok.textContent = `Faturamentos gerados: ${nums}.`;
+    ok.classList.remove("hidden");
+  } catch (e) {
+    mostrarErro("fat-conf-erro", "Não foi possível gerar os faturamentos: " + fatErroMsg(e));
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ---------- Faturamentos emitidos ----------
+async function fatBuscarEmitidos() {
+  esconderErro("fat-em-erro");
+  $("fat-em-tbody").innerHTML = `<tr><td colspan="8" class="px-3 py-4 text-slate-500">Carregando…</td></tr>`;
+  const st = $("fat-em-status").value;
+  const { data, error } = await buscarTodos(() => {
+    let q = supabase.from("faturamentos")
+      .select("id, numero, orcamento_id, cnpj, cnpj_digitos, razao_social, modo, alunos, valor_bruto, perc_desconto, valor_desconto, valor_final, ordem_compra, vencimento, observacoes, nota_fiscal, status, criado_por, created_at, cancelado_em, cancelado_por, cancelado_motivo, orcamentos(numero, empresas(nome)), faturamento_itens(turma_identificacao, alunos, valor_base, valor_excedentes, valor)");
+    if (st) q = q.eq("status", st);
+    return q.order("numero", { ascending: false });
+  });
+  if (error) { $("fat-em-tbody").innerHTML = ""; mostrarErro("fat-em-erro", "Não foi possível carregar os faturamentos: " + fatErroMsg(error)); return; }
+  fatEmitidos = data || [];
+  fatRenderEmitidos();
+}
+
+function fatRenderEmitidos() {
+  const busca = $("fat-em-busca").value.trim().toLowerCase();
+  const lista = fatEmitidos.filter((f) => !busca || `${fatNumero(f.numero)} ${f.numero} ${(f.orcamentos && f.orcamentos.numero) || ""} ${f.cnpj} ${f.cnpj_digitos} ${f.razao_social || ""} ${(f.orcamentos && f.orcamentos.empresas && f.orcamentos.empresas.nome) || ""}`.toLowerCase().includes(busca));
+  const soma = lista.filter((f) => f.status === "Emitido").reduce((s, f) => s + Number(f.valor_final), 0);
+  $("fat-em-resumo").textContent = `${lista.length} faturamento(s) · total emitido: ${fmtBRL(soma)}`;
+  $("fat-em-tbody").innerHTML = lista.length ? lista.map((f) => `<tr>
+      <td class="px-3 py-2 font-medium whitespace-nowrap">${escH(fatNumero(f.numero))}<div class="text-xs text-slate-400 font-normal">${escH(fatData(f.created_at))}</div></td>
+      <td class="px-3 py-2">${escH((f.orcamentos && f.orcamentos.numero) || "—")}</td>
+      <td class="px-3 py-2">${escH(f.cnpj)}<div class="text-xs text-slate-500">${escH(f.razao_social || "—")}</div></td>
+      <td class="px-3 py-2 text-right">${f.alunos}</td>
+      <td class="px-3 py-2 text-right font-semibold whitespace-nowrap">${escH(fmtBRL(f.valor_final))}</td>
+      <td class="px-3 py-2 whitespace-nowrap">${escH(fatData(f.vencimento))}</td>
+      <td class="px-3 py-2">${fatChip(f.status, f.status === "Emitido" ? FAT_COR.verde : FAT_COR.rosa)}</td>
+      <td class="px-3 py-2 text-right"><button type="button" data-fat-emitido="${escH(f.id)}" class="text-xs font-medium text-amber-700 hover:underline">Abrir</button></td>
+    </tr>`).join("") : `<tr><td colspan="8" class="px-3 py-4 text-slate-500">Nenhum faturamento encontrado.</td></tr>`;
+}
+
+function fatAbrirEmitido(id) {
+  const f = fatEmitidos.find((x) => x.id === id);
+  if (!f) return;
+  fatEmitidoAberto = f;
+  esconderErro("fat-emi-erro");
+  $("fat-emi-cancel-bloco").classList.add("hidden");
+  $("fat-emi-motivo").value = "";
+  $("fat-emi-titulo").textContent = `${fatNumero(f.numero)} · orçamento ${(f.orcamentos && f.orcamentos.numero) || "—"}`;
+  const emitido = f.status === "Emitido";
+  $("fat-emi-corpo").innerHTML = `
+    <p class="text-sm"><strong>${escH(f.cnpj)}</strong> · ${escH(f.razao_social || "Empresa não cadastrada")}</p>
+    <p class="text-xs text-slate-500 mb-2">${f.modo === "aluno" ? "Faturamento por aluno" : "Faturamento por turma"} · emitido em ${escH(formatarDataHoraBr(f.created_at))}${f.criado_por ? " por " + escH(f.criado_por) : ""}</p>
+    <div class="overflow-x-auto border border-slate-200 rounded-md"><table class="w-full text-sm">
+      <thead class="bg-slate-50 text-left text-[11px] uppercase tracking-wide text-slate-500"><tr><th class="px-3 py-1.5">Turma</th><th class="px-3 py-1.5 text-right">Alunos</th><th class="px-3 py-1.5 text-right">${f.modo === "aluno" ? "Alunos × valor" : "Valor da turma"}</th><th class="px-3 py-1.5 text-right">Adicional de excedentes</th><th class="px-3 py-1.5 text-right">Valor</th></tr></thead>
+      <tbody class="divide-y divide-slate-100">${(f.faturamento_itens || []).map((i) => `<tr><td class="px-3 py-1.5">${escH(i.turma_identificacao || "—")}</td><td class="px-3 py-1.5 text-right">${i.alunos}</td><td class="px-3 py-1.5 text-right">${escH(fmtBRL(i.valor_base))}</td><td class="px-3 py-1.5 text-right">${escH(fmtBRL(i.valor_excedentes))}</td><td class="px-3 py-1.5 text-right">${escH(fmtBRL(i.valor))}</td></tr>`).join("")}</tbody>
+      <tfoot class="text-sm"><tr class="border-t border-slate-200"><td class="px-3 py-1.5" colspan="4">Subtotal</td><td class="px-3 py-1.5 text-right">${escH(fmtBRL(f.valor_bruto))}</td></tr>
+        <tr><td class="px-3 py-1.5" colspan="4">Desconto do orçamento (${escH(Number(f.perc_desconto).toLocaleString("pt-BR", { maximumFractionDigits: 2 }))}%)</td><td class="px-3 py-1.5 text-right">− ${escH(fmtBRL(f.valor_desconto))}</td></tr>
+        <tr class="font-semibold"><td class="px-3 py-1.5" colspan="4">Valor final</td><td class="px-3 py-1.5 text-right">${escH(fmtBRL(f.valor_final))}</td></tr></tfoot>
+    </table></div>
+    ${emitido ? "" : `<p class="mt-2 text-sm text-rose-700">Cancelado em ${escH(formatarDataHoraBr(f.cancelado_em))}${f.cancelado_por ? " por " + escH(f.cancelado_por) : ""}. Motivo: ${escH(f.cancelado_motivo || "—")}</p>`}`;
+  $("fat-emi-oc").value = f.ordem_compra || "";
+  $("fat-emi-venc").value = f.vencimento || "";
+  $("fat-emi-nf").value = f.nota_fiscal || "";
+  $("fat-emi-obs").value = f.observacoes || "";
+  const editar = emitido && podeFazer("faturamento", "alterar");
+  ["fat-emi-oc", "fat-emi-venc", "fat-emi-nf", "fat-emi-obs"].forEach((id) => { $(id).disabled = !editar; });
+  $("btn-fat-emi-salvar").classList.toggle("hidden", !editar);
+  $("btn-fat-emi-cancelar-fat").classList.toggle("hidden", !(emitido && podeFazer("faturamento", "excluir")));
+  $("fat-modal-emitido").classList.remove("hidden");
+}
+
+async function fatSalvarEmitido() {
+  esconderErro("fat-emi-erro");
+  const f = fatEmitidoAberto;
+  const { error } = await supabase.rpc("atualizar_faturamento", { p_id: f.id, p_ordem_compra: $("fat-emi-oc").value, p_vencimento: $("fat-emi-venc").value || null, p_observacoes: $("fat-emi-obs").value, p_nota_fiscal: $("fat-emi-nf").value });
+  if (error) { mostrarErro("fat-emi-erro", "Não foi possível salvar: " + fatErroMsg(error)); return; }
+  $("fat-modal-emitido").classList.add("hidden");
+  fatBuscarEmitidos();
+}
+
+async function fatCancelarEmitido() {
+  esconderErro("fat-emi-erro");
+  const motivo = $("fat-emi-motivo").value.trim();
+  if (motivo.length < 3) { mostrarErro("fat-emi-erro", "Informe o motivo do cancelamento."); return; }
+  const { error } = await supabase.rpc("cancelar_faturamento", { p_id: fatEmitidoAberto.id, p_motivo: motivo });
+  if (error) { mostrarErro("fat-emi-erro", "Não foi possível cancelar: " + fatErroMsg(error)); return; }
+  $("fat-modal-emitido").classList.add("hidden");
+  fatBuscarEmitidos();
+}
+
+$("btn-fat-aba-faturar").addEventListener("click", () => { fatMostrarAba("faturar"); });
+$("btn-fat-aba-emitidos").addEventListener("click", () => { fatMostrarAba("emitidos"); });
+$("btn-fat-buscar").addEventListener("click", fatCarregarOrcamentos);
+$("fat-busca").addEventListener("input", fatRenderOrcs);
+$("fat-orcs-tbody").addEventListener("click", (e) => { const b = e.target.closest("[data-fat-abrir]"); if (b) fatAbrirOrcamento(b.getAttribute("data-fat-abrir")); });
+$("btn-fat-voltar").addEventListener("click", fatMostrarListaOrcs);
+$("fat-turmas-tbody").addEventListener("change", (e) => {
+  const i = e.target.closest("[data-fat-turma]");
+  if (!i) return;
+  if (i.checked) fatSel.add(i.getAttribute("data-fat-turma")); else fatSel.delete(i.getAttribute("data-fat-turma"));
+  fatAtualizarPreview();
+});
+$("fat-turmas-tbody").addEventListener("click", (e) => { if (e.target.closest("[data-fat-ir-cert]")) irParaModulo("certificados_alunos"); });
+$("btn-fat-faturar").addEventListener("click", fatAbrirConfirmacao);
+$("btn-fat-conf-fechar").addEventListener("click", () => $("fat-modal-confirmar").classList.add("hidden"));
+$("btn-fat-conf-cancelar").addEventListener("click", () => $("fat-modal-confirmar").classList.add("hidden"));
+$("btn-fat-conf-ok").addEventListener("click", fatGerar);
+$("btn-fat-em-buscar").addEventListener("click", fatBuscarEmitidos);
+$("fat-em-status").addEventListener("change", fatBuscarEmitidos);
+$("fat-em-busca").addEventListener("input", fatRenderEmitidos);
+$("fat-em-tbody").addEventListener("click", (e) => { const b = e.target.closest("[data-fat-emitido]"); if (b) fatAbrirEmitido(b.getAttribute("data-fat-emitido")); });
+$("btn-fat-emi-fechar").addEventListener("click", () => $("fat-modal-emitido").classList.add("hidden"));
+$("btn-fat-emi-salvar").addEventListener("click", fatSalvarEmitido);
+$("btn-fat-emi-cancelar-fat").addEventListener("click", () => $("fat-emi-cancel-bloco").classList.toggle("hidden"));
+$("btn-fat-emi-cancel-ok").addEventListener("click", fatCancelarEmitido);
+
 
 })();
