@@ -36,7 +36,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.81 · 25/10/2026";
+const APP_VERSAO = "Prod 1.82 · 25/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -443,6 +443,7 @@ const MODULOS = [
   { id: "centros_treinamento", label: "Centros de Treinamento", icone: "🏫", grupo: "Cadastros Básicos" },
   { id: "categorias_treinamento", label: "Tipos de Treinamento", icone: "🗃️", grupo: "Cadastros Básicos" },
   { id: "tipos_treinamento", label: "Treinamentos", icone: "🏷️", grupo: "Cadastros Básicos" },
+  { id: "responsaveis_tecnicos", label: "Responsáveis Técnicos", icone: "🧑‍🔬", grupo: "Cadastros Básicos" },
   { id: "tipos_atividade", label: "Tipos de Atividade", icone: "🗂️", grupo: "Cadastros Básicos" },
   { id: "tipos_material", label: "Tipos de Material", icone: "🧰", grupo: "Cadastros Básicos" },
   { id: "tipos_despesas", label: "Tipos de Despesas", icone: "💸", grupo: "Cadastros Básicos" },
@@ -468,6 +469,7 @@ const MODULOS = [
   { id: "confirmacao_ct", label: "Confirmação do Centro de Treinamento", icone: "✅", grupo: "Operações" },
   { id: "documentos_turmas", label: "Documentos de Turmas", icone: "📷", grupo: "Operações" },
   { id: "certificados_alunos", label: "Alunos Certificados", icone: "🎓", grupo: "Operações" },
+  { id: "emissao_certificados", label: "Emissão de Certificados", icone: "🖨️", grupo: "Operações" },
   // Financeiro
   { id: "aprovacoes_reembolso", label: "Aprovações de Reembolso", icone: "✅", grupo: "Financeiro" },
   { id: "consulta_reembolsos", label: "Consulta de Reembolsos", icone: "🔎", grupo: "Financeiro" },
@@ -588,6 +590,7 @@ function rotulosAptidoes(instrutorId) {
 
 // Tipos de Treinamento (categorias_treinamento) e contagem de treinamentos.
 let treinoRefCategorias = [];
+let treinoRefRespTecnicos = [];
 let catTreinoContagem = {};
 function contagemCategoria(id) {
   return catTreinoContagem[id] || { ativos: 0, inativos: 0 };
@@ -1526,6 +1529,7 @@ function limparFormulario() {
   $("f-cep-status").textContent = "";
   $("f-geo-status").textContent = "";
   $("f-status").value = "Ativo";
+  definirAssinaturaFormInstrutor("");
   if ($("f-gestor-direto")) $("f-gestor-direto").value = "";
   diasStatusForm = {};
   formDatasPreAgendadas = new Set();
@@ -1540,6 +1544,31 @@ function limparFormulario() {
   esconderErro("form-erro");
   logConfirmacaoInstrutorLista = [];
   $("f-log-confirmacao-bloco").classList.add("hidden");
+}
+
+// Assinatura do instrutor (tabela instrutor_assinaturas): fica à parte para não pesar a lista de instrutores.
+let assinaturaInstrutorOriginal = "";
+function definirAssinaturaFormInstrutor(dataUrl) {
+  assinaturaInstrutorOriginal = dataUrl || "";
+  const caixa = document.querySelector('[data-imagem-campo="assinatura-instrutor"]');
+  if (!caixa) return;
+  caixa.querySelector("input[type=hidden]").value = dataUrl || "";
+  const prev = caixa.querySelector("[data-imagem-prev]");
+  if (dataUrl) { prev.src = dataUrl; prev.classList.remove("hidden"); } else { prev.removeAttribute("src"); prev.classList.add("hidden"); }
+  caixa.querySelector("[data-imagem-vazio]").classList.toggle("hidden", !!dataUrl);
+  caixa.querySelector("[data-imagem-remover]").classList.toggle("hidden", !dataUrl);
+}
+async function carregarAssinaturaInstrutor(id) {
+  const { data } = await supabase.from("instrutor_assinaturas").select("assinatura").eq("instrutor_id", id).maybeSingle();
+  if (editandoId === id) definirAssinaturaFormInstrutor(data?.assinatura || "");
+}
+async function salvarAssinaturaInstrutor(id) {
+  const nova = $("f-assinatura").value || "";
+  if (nova === assinaturaInstrutorOriginal) return null;
+  const r = nova
+    ? await supabase.from("instrutor_assinaturas").upsert({ instrutor_id: id, assinatura: nova }, { onConflict: "instrutor_id" })
+    : await supabase.from("instrutor_assinaturas").delete().eq("instrutor_id", id);
+  return r.error || null;
 }
 
 function preencherSelectGestorDireto(valorAtual, excluirId) {
@@ -1607,6 +1636,7 @@ async function abrirEdicao(id) {
   renderizarCalendarioForm();
   $("painel-form").classList.remove("hidden");
   carregarLogConfirmacaoInstrutor(id);
+  carregarAssinaturaInstrutor(id);
   carregarUsuariosSistemaRefGestores().then(() => preencherSelectGestorDireto(inst.gestor_direto_id || null, null));
 }
 
@@ -1820,6 +1850,8 @@ async function salvarInstrutor() {
   }
 
   await salvarAptidoesInstrutor(linha.id);
+  const erroAssinatura = await salvarAssinaturaInstrutor(linha.id);
+  if (erroAssinatura) alert("O instrutor foi salvo, mas não foi possível gravar a assinatura. Abra o cadastro e tente novamente.");
 
   $("btn-salvar-instrutor").disabled = false;
   $("painel-form").classList.add("hidden");
@@ -2020,12 +2052,14 @@ const CRUD_CONFIG = {
     painelLargo: true,
     painelTelaCheia: true,
     carregarRefs: async () => {
-      const [{ data }, { data: itens }, { data: unidades }, { data: contagem }] = await Promise.all([
+      const [{ data }, { data: itens }, { data: unidades }, { data: contagem }, { data: rts }] = await Promise.all([
         supabase.from("categorias_treinamento").select("id, codigo, descricao, status").order("codigo"),
         supabase.from("itens_custo").select("id, item, unidade_medida_id, valor, opcional, status").order("item"),
         supabase.from("unidades_medida").select("id, sigla, descricao, status").order("sigla"),
         supabase.from("treinamento_itens_custo").select("tipo_treinamento_id"),
+        supabase.from("responsaveis_tecnicos").select("id, nome, titulo, status").order("nome"),
       ]);
+      treinoRefRespTecnicos = rts || [];
       treinoRefCategorias = data || [];
       treinoRefItensCusto = itens || [];
       treinoRefUnidades = unidades || [];
@@ -2064,6 +2098,14 @@ const CRUD_CONFIG = {
       { id: "dias_teoria_pratica", label: "Dias de Teoria com Prática", tipo: "number" },
       { id: "alunos_por_instrutor", label: "Alunos por Instrutor", tipo: "number" },
       { id: "somente_locacao_espaco", label: "Somente locação de espaço (sem instrutor — só o Centro de Treinamento confirma)", tipo: "checkbox", padrao: false },
+      { id: "emite_certificado", label: "Emite certificado (desmarque para treinamentos que não geram certificado; no faturamento será perguntado quantos alunos foram treinados)", tipo: "checkbox", padrao: true },
+      {
+        id: "responsavel_tecnico_id", label: "Responsável Técnico (assina o certificado)", tipo: "select",
+        opcoesFn: () => [{ value: "", label: "— Nenhum —" }].concat(
+          treinoRefRespTecnicos.filter((r) => r.status === "Ativo").map((r) => ({ value: r.id, label: r.titulo ? `${r.nome} — ${r.titulo}` : r.nome }))
+        ),
+      },
+      { id: "texto_certificado", label: "Texto do certificado (variáveis: #nome_aluno#, #tip_docto#, #numero_docto#, #data_inicio#, #data_termino#)", tipo: "textarea" },
       { id: "perc_apoio", label: "% de apoio", tipo: "number", min: 0, max: 100, step: "0.01", padrao: 0 },
       { id: "perc_margem", label: "% de margem", tipo: "number", min: 0, max: 100, step: "0.01", padrao: 0 },
       { id: "perc_imposto", label: "% de imposto", tipo: "number", min: 0, max: 100, step: "0.01", padrao: 0 },
@@ -2080,6 +2122,7 @@ const CRUD_CONFIG = {
     cardLinhas: (i) => [
       rotuloCategoriaTreinamento(i.categoria_treinamento_id),
       i.somente_locacao_espaco && "🏢 Somente locação de espaço",
+      i.emite_certificado === false ? "📄 Não emite certificado" : (treinoRefRespTecnicos.find((r) => r.id === i.responsavel_tecnico_id) ? `🎓 Resp. técnico: ${treinoRefRespTecnicos.find((r) => r.id === i.responsavel_tecnico_id).nome}` : "🎓 Emite certificado (sem responsável técnico)"),
       i.categoria,
       i.carga_horaria && `Carga horária: ${i.carga_horaria}`,
       i.dias_teoria && `📘 ${i.dias_teoria} dia(s) de teoria`,
@@ -2089,6 +2132,31 @@ const CRUD_CONFIG = {
       treinoContagemItensCusto[i.id] && `🧾 ${treinoContagemItensCusto[i.id]} item(ns) de custo`,
       (Number(i.perc_apoio) || Number(i.perc_margem) || Number(i.perc_imposto)) && `📊 Apoio ${fmtPerc(i.perc_apoio)} · Margem ${fmtPerc(i.perc_margem)} · Imposto ${fmtPerc(i.perc_imposto)}`,
       (Number(i.perc_margem_minima) || Number(i.valor_margem_minimo)) && `🛡️ Margem mínima ${fmtPerc(i.perc_margem_minima)} · ${fmtBRL(i.valor_margem_minimo)} por turma`,
+    ].filter(Boolean),
+  },
+  responsaveis_tecnicos: {
+    tabela: "responsaveis_tecnicos",
+    titulo: "Responsável Técnico",
+    descricao: "Profissionais que respondem tecnicamente pelos treinamentos e assinam os certificados. Cada treinamento é vinculado a um responsável técnico.",
+    buscaPlaceholder: "Buscar por nome, CPF ou registro",
+    ordenarPor: "nome",
+    campos: [
+      { id: "nome", label: "Nome completo", obrigatorio: true },
+      { id: "titulo", label: "Título / formação (sai no certificado, ex.: Engenheiro de Segurança do Trabalho)" },
+      { id: "registro_profissional", label: "Registro profissional (ex.: CREA-SP 5069999999, MTb 12345)" },
+      { id: "cpf", label: "CPF", mascara: "cpf" },
+      { id: "rg", label: "RG" },
+      { id: "assinatura", label: "Assinatura (imagem — sai impressa no certificado)", tipo: "imagem" },
+      { id: "observacoes", label: "Observações", tipo: "textarea" },
+      { id: "status", label: "Status", tipo: "select", opcoes: ["Ativo", "Inativo"], padrao: "Ativo" },
+    ],
+    campoBusca: (i) => `${i.nome} ${i.cpf || ""} ${i.registro_profissional || ""}`,
+    cardTitulo: (i) => i.nome,
+    cardLinhas: (i) => [
+      i.titulo,
+      i.registro_profissional && `🪪 ${i.registro_profissional}`,
+      i.cpf && `CPF ${i.cpf}`,
+      i.assinatura ? "✍️ Assinatura cadastrada" : "⚠️ Sem assinatura",
     ].filter(Boolean),
   },
   vendedores: {
@@ -12254,6 +12322,7 @@ async function transferirAlunosParaTurmas() {
       payload.push({
         turma_id: turmaId,
         cpf: a.cpf,
+        tipo_documento: a.tipo_documento || "CPF",
         nome: a.nome,
         data_nascimento: a.data_nascimento,
         localidade_id: destino ? destino.id : null,
@@ -12301,6 +12370,8 @@ function definirModoFormAlunoTurma(editando) {
 
 function limparFormAlunoTurma() {
   editandoAlunoId = null;
+  $("aluno-turma-tipodoc").value = "CPF";
+  ajustarCampoDocumentoAluno();
   $("aluno-turma-cpf").value = "";
   $("aluno-turma-nome").value = "";
   $("aluno-turma-nascimento").value = "";
@@ -12313,6 +12384,8 @@ function abrirEdicaoAlunoTurma(id) {
   if (!a) return;
   editandoAlunoId = id;
   esconderErro("aluno-turma-form-erro");
+  $("aluno-turma-tipodoc").value = a.tipo_documento === "RG" ? "RG" : "CPF";
+  ajustarCampoDocumentoAluno();
   $("aluno-turma-cpf").value = a.cpf || "";
   $("aluno-turma-nome").value = a.nome || "";
   $("aluno-turma-nascimento").value = a.data_nascimento || "";
@@ -12340,7 +12413,7 @@ function renderizarListaAlunosTurma() {
     const localidade = localidadesParaAlunosTurma.find((l) => l.id === a.localidade_id);
     return `
     <tr class="border-t border-slate-100">
-      <td class="py-1.5 pr-2">${escH(a.cpf || "—")}</td>
+      <td class="py-1.5 pr-2">${a.tipo_documento === "RG" ? `<span class="text-[10px] font-semibold text-slate-400">RG </span>` : ""}${escH(a.cpf || "—")}</td>
       <td class="py-1.5 pr-2">${escH(a.nome)}</td>
       <td class="py-1.5 pr-2">${escH(a.data_nascimento || "—")}</td>
       <td class="py-1.5 pr-2">${escH(localidade?.nome || "—")}</td>
@@ -12371,7 +12444,9 @@ async function salvarAlunoTurma() {
   const dataNascimento = $("aluno-turma-nascimento").value || null;
 
   if (!nome) return mostrarErro("aluno-turma-form-erro", "Informe o nome do aluno.");
-  if (!cpfValido(cpf)) return mostrarErro("aluno-turma-form-erro", "CPF inválido. Confira os dígitos informados.");
+  const tipoDocumento = $("aluno-turma-tipodoc").value === "RG" ? "RG" : "CPF";
+  if (tipoDocumento === "CPF" && !cpfValido(cpf)) return mostrarErro("aluno-turma-form-erro", "CPF inválido. Confira os dígitos informados.");
+  if (tipoDocumento === "RG" && cpf.replace(/[^0-9A-Za-z]/g, "").length < 4) return mostrarErro("aluno-turma-form-erro", "Informe o número do RG.");
 
   let dados;
   if (editandoAlunoId) {
@@ -12392,12 +12467,12 @@ async function salvarAlunoTurma() {
     const localidadeCorrespondente = localidadesParaAlunosTurma.find(
       (l) => (l.cnpj_atestado || "").replace(/\D/g, "") === cnpjAtestadoDigits && (l.cnpj_faturamento || "").replace(/\D/g, "") === cnpjFaturamentoDigits
     );
-    dados = { cpf, nome, data_nascimento: dataNascimento, cnpj_atestado: cnpjAtestado, cnpj_faturamento: cnpjFaturamento, localidade_id: localidadeCorrespondente?.id || null };
+    dados = { cpf, tipo_documento: tipoDocumento, nome, data_nascimento: dataNascimento, cnpj_atestado: cnpjAtestado, cnpj_faturamento: cnpjFaturamento, localidade_id: localidadeCorrespondente?.id || null };
   } else {
     const localidadeId = $("aluno-turma-localidade").value;
     if (!localidadeId) return mostrarErro("aluno-turma-form-erro", "Selecione a localidade do aluno.");
     const l = localidadesParaAlunosTurma.find((x) => x.id === localidadeId);
-    dados = { cpf, nome, data_nascimento: dataNascimento, cnpj_atestado: l.cnpj_atestado, cnpj_faturamento: l.cnpj_faturamento, localidade_id: localidadeId };
+    dados = { cpf, tipo_documento: tipoDocumento, nome, data_nascimento: dataNascimento, cnpj_atestado: l.cnpj_atestado, cnpj_faturamento: l.cnpj_faturamento, localidade_id: localidadeId };
   }
 
   const btn = $("btn-salvar-aluno-turma");
@@ -12431,7 +12506,20 @@ function ligarMascaraCampo(id, tipo) {
     el.setSelectionRange(pos + (depois - antes), pos + (depois - antes));
   });
 }
-ligarMascaraCampo("aluno-turma-cpf", "cpf");
+// Documento do aluno: CPF (com máscara e dígito verificador) ou RG (texto livre).
+function ajustarCampoDocumentoAluno() {
+  const rg = $("aluno-turma-tipodoc").value === "RG";
+  const el = $("aluno-turma-cpf");
+  el.maxLength = rg ? 20 : 14;
+  el.placeholder = rg ? "Número do RG" : "000.000.000-00";
+  if (!rg) el.value = MASCARAS.cpf(el.value);
+}
+$("aluno-turma-tipodoc").addEventListener("change", ajustarCampoDocumentoAluno);
+$("aluno-turma-cpf").addEventListener("input", () => {
+  const el = $("aluno-turma-cpf");
+  if ($("aluno-turma-tipodoc").value === "RG") { el.value = el.value.replace(/[^0-9A-Za-z.\-\/ ]/g, "").toUpperCase(); return; }
+  el.value = MASCARAS.cpf(el.value);
+});
 ligarMascaraCampo("aluno-turma-cnpj-atestado", "cnpj");
 ligarMascaraCampo("aluno-turma-cnpj-faturamento", "cnpj");
 

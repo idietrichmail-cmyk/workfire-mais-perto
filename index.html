@@ -1503,6 +1503,23 @@
           <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Observações</label>
           <textarea id="f-observacoes" rows="3" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" placeholder="Restrições de horário, certificações, etc."></textarea>
         </div>
+        <div data-imagem-campo="assinatura-instrutor">
+          <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Assinatura (impressa no certificado)</label>
+          <input type="hidden" id="f-assinatura" value="" />
+          <div class="mt-1 flex items-center gap-3">
+            <div class="h-16 w-40 rounded-md border border-dashed border-slate-300 bg-white flex items-center justify-center overflow-hidden">
+              <img data-imagem-prev class="max-h-full max-w-full object-contain hidden" alt="" />
+              <span data-imagem-vazio class="text-[11px] text-slate-400">sem assinatura</span>
+            </div>
+            <div class="flex flex-col gap-1">
+              <label class="text-xs font-medium text-white bg-slate-900 hover:bg-slate-800 rounded-md px-3 py-1.5 cursor-pointer text-center">Escolher imagem
+                <input type="file" accept="image/png,image/jpeg,image/webp" data-imagem-arquivo class="hidden" />
+              </label>
+              <button type="button" data-imagem-remover class="text-xs text-rose-600 hover:text-rose-800 hidden">Remover</button>
+            </div>
+          </div>
+          <p data-imagem-msg class="text-[11px] mt-1 text-slate-400">PNG com fundo transparente fica melhor. A imagem é reduzida automaticamente. Salve o cadastro para gravar.</p>
+        </div>
         <div>
           <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Gestor direto <span class="text-rose-500">*</span></label>
           <select id="f-gestor-direto" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">
@@ -2336,8 +2353,14 @@
         <div id="aluno-turma-form-erro" class="hidden bg-rose-50 text-rose-600 text-sm rounded-md px-3 py-2 mb-3"></div>
         <div class="grid sm:grid-cols-2 gap-3">
           <div>
-            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">CPF</label>
-            <input id="aluno-turma-cpf" maxlength="14" placeholder="000.000.000-00" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
+            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Documento</label>
+            <div class="mt-1 flex gap-2">
+              <select id="aluno-turma-tipodoc" class="w-20 shrink-0 rounded-md border border-slate-300 px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">
+                <option value="CPF">CPF</option>
+                <option value="RG">RG</option>
+              </select>
+              <input id="aluno-turma-cpf" maxlength="14" placeholder="000.000.000-00" class="min-w-0 flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
+            </div>
           </div>
           <div>
             <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Nome</label>
