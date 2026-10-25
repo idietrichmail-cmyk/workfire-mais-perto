@@ -36,7 +36,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.80 · 24/10/2026";
+const APP_VERSAO = "Prod 1.81 · 25/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -11928,7 +11928,7 @@ async function carregarListaConfirmacaoCt(forcar = true) {
   const [ini, fim] = limitesDoMes(cctMes);
   const { data, error } = await supabase
     .from("turmas")
-    .select("*, tipos_treinamento(nome), orcamentos(numero, observacoes, observacao_ct, empresas(nome)), inst1:instrutores!turmas_instrutor1_id_fkey(nome), inst2:instrutores!turmas_instrutor2_id_fkey(nome)")
+    .select("*, turma_alunos(count), tipos_treinamento(nome), orcamentos(numero, observacoes, observacao_ct, empresas(nome)), inst1:instrutores!turmas_instrutor1_id_fkey(nome), inst2:instrutores!turmas_instrutor2_id_fkey(nome)")
     .eq("centro_treinamento_id", centroId)
     .neq("status", "Cancelada")
     .neq("agenda_ct", "Não aplicável")
@@ -11990,6 +11990,15 @@ function agruparTurmasCtPorDia() {
   return mapa;
 }
 
+// Alunos de uma turma/dia para os calendários: o maior entre as vagas planejadas e os alunos já cadastrados.
+function alunosDaTurma(t) {
+  const cadastrados = Number(t?.turma_alunos?.[0]?.count) || 0;
+  return Math.max(Number(t?.vagas) || 0, cadastrados);
+}
+function somaAlunos(turmas) {
+  return (turmas || []).reduce((s, t) => s + alunosDaTurma(t), 0);
+}
+
 function renderizarCalendarioCt() {
   const porDia = agruparTurmasCtPorDia();
   $("cct-mes-label").textContent = `${nomesMeses[cctMes.getMonth()]} ${cctMes.getFullYear()}`;
@@ -12004,6 +12013,7 @@ function renderizarCalendarioCt() {
     const dataStr = formatarData(dia);
     const turmas = porDia.get(dataStr) || [];
     const total = turmas.length;
+    const alunosDia = somaAlunos(turmas);
     const aguardando = turmas.filter((t) => t.agenda_ct === "Aguardando confirmação").length;
     const confirmadas = turmas.filter((t) => t.agenda_ct === "Agendado").length;
 
@@ -12021,11 +12031,11 @@ function renderizarCalendarioCt() {
     btn.type = "button";
     btn.className = `min-h-[74px] w-full rounded-lg border p-1.5 text-left transition-colors hover:border-amber-400 ${cor} ${selecionado}`;
     btn.title = total === 0 ? "Sem turmas"
-      : `${total} turma(s) · ${confirmadas} confirmada(s) pelo CT · ${aguardando} aguardando confirmação${comObservacao ? " · há observação para o CT" : ""}`;
+      : `${total} turma(s) · ${alunosDia} aluno(s) · ${confirmadas} confirmada(s) pelo CT · ${aguardando} aguardando confirmação${comObservacao ? " · há observação para o CT" : ""}`;
     btn.innerHTML = `
       <div class="text-[11px] ${marcaHoje} flex items-center justify-between"><span>${dia.getDate()}</span>${comObservacao ? `<span title="Há observação para o Centro de Treinamento">📌</span>` : ""}</div>
-      ${total > 0 ? `<div class="mt-1 text-lg leading-none font-semibold">${total}</div>
-        <div class="text-[10px] leading-tight mt-0.5">turma${total > 1 ? "s" : ""}</div>
+      ${total > 0 ? `<div class="mt-1 text-lg leading-none font-semibold" title="${total} turma(s) / ${alunosDia} aluno(s)">${total}/${alunosDia}</div>
+        <div class="text-[10px] leading-tight mt-0.5">turmas/alunos</div>
         ${aguardando > 0 ? `<div class="text-[10px] leading-tight font-medium">${aguardando} aguard.</div>` : ""}` : ""}
     `;
     btn.addEventListener("click", () => {
@@ -12040,7 +12050,7 @@ function renderizarCalendarioCt() {
     $("cct-resumo").textContent = "";
   } else {
     const aguardMes = cctLista.filter((t) => t.agenda_ct === "Aguardando confirmação").length;
-    $("cct-resumo").textContent = `${cctLista.length} turma(s) no mês · ${aguardMes} aguardando confirmação no mês · ${cctPendentesTotal} no total`;
+    $("cct-resumo").textContent = `${cctLista.length} turma(s) · ${somaAlunos(cctLista)} aluno(s) no mês · ${aguardMes} aguardando confirmação no mês · ${cctPendentesTotal} no total`;
   }
   renderizarDetalheDiaCt(porDia);
 }
@@ -12061,7 +12071,7 @@ function renderizarDetalheDiaCt(porDia) {
   const filtro = $("cct-filtro-status").value;
   const todas = porDia.get(cctDiaSelecionado) || [];
   const turmas = filtro ? todas.filter((t) => t.agenda_ct === filtro) : todas;
-  titulo.textContent = `${formatarDataBr(cctDiaSelecionado)} — ${turmas.length} turma(s)${filtro && todas.length !== turmas.length ? ` (de ${todas.length} no dia)` : ""}`;
+  titulo.textContent = `${formatarDataBr(cctDiaSelecionado)} — ${turmas.length} turma(s) · ${somaAlunos(turmas)} aluno(s)${filtro && todas.length !== turmas.length ? ` (de ${todas.length} no dia)` : ""}`;
   if (turmas.length === 0) {
     lista.innerHTML = `<p class="text-xs text-slate-400">${todas.length ? "Nenhuma turma neste dia com o filtro escolhido." : "Nenhuma turma neste dia."}</p>`;
     return;
@@ -12845,7 +12855,7 @@ async function carregarAgendaCentros(forcar = true) {
 
   let q = supabase
     .from("turmas")
-    .select("id, identificacao, data_inicio, horario, tipo_dia, status, status_agendamento, eh_pre_agendamento, agenda_ct, agenda_instrutor1, agenda_instrutor2, centro_treinamento_id, centros_treinamento(nome), tipos_treinamento(nome), orcamentos(numero, observacao_ct, empresas(nome)), inst1:instrutores!turmas_instrutor1_id_fkey(nome), inst2:instrutores!turmas_instrutor2_id_fkey(nome)")
+    .select("id, identificacao, data_inicio, horario, vagas, turma_alunos(count), tipo_dia, status, status_agendamento, eh_pre_agendamento, agenda_ct, agenda_instrutor1, agenda_instrutor2, centro_treinamento_id, centros_treinamento(nome), tipos_treinamento(nome), orcamentos(numero, observacao_ct, empresas(nome)), inst1:instrutores!turmas_instrutor1_id_fkey(nome), inst2:instrutores!turmas_instrutor2_id_fkey(nome)")
     .gte("data_inicio", ini)
     .lte("data_inicio", fim)
     .neq("status", "Cancelada")
@@ -12892,6 +12902,7 @@ function renderizarAgendaCentros() {
     const dataStr = formatarData(dia);
     const turmas = porDia.get(dataStr) || [];
     const total = turmas.length;
+    const alunosDia = somaAlunos(turmas);
     const aguardando = turmas.filter((t) => t.status_agendamento === "Aguardando confirmação").length;
     const agendadas = turmas.filter((t) => t.status_agendamento === "Agendado").length;
     const preAgendadas = turmas.filter((t) => t.status_agendamento === "Agendado" && t.eh_pre_agendamento).length;
@@ -12910,11 +12921,11 @@ function renderizarAgendaCentros() {
     btn.className = `min-h-[74px] w-full rounded-lg border p-1.5 text-left transition-colors hover:border-amber-400 ${cor} ${selecionado}`;
     const comObservacao = turmas.some((t) => t.orcamentos?.observacao_ct);
     btn.title = total === 0 ? "Sem turmas"
-      : `${total} turma(s) · ${agendadas} agendada(s)${preAgendadas > 0 ? ` (${preAgendadas} pré-agendada(s))` : ""} · ${aguardando} aguardando confirmação${comObservacao ? " · há observação para o CT" : ""}`;
+      : `${total} turma(s) · ${alunosDia} aluno(s) · ${agendadas} agendada(s)${preAgendadas > 0 ? ` (${preAgendadas} pré-agendada(s))` : ""} · ${aguardando} aguardando confirmação${comObservacao ? " · há observação para o CT" : ""}`;
     btn.innerHTML = `
       <div class="text-[11px] ${marcaHoje} flex items-center justify-between"><span>${dia.getDate()}</span>${comObservacao ? `<span title="Há observação para o Centro de Treinamento">📌</span>` : ""}</div>
-      ${total > 0 ? `<div class="mt-1 text-lg leading-none font-semibold">${total}</div>
-        <div class="text-[10px] leading-tight mt-0.5">turma${total > 1 ? "s" : ""}</div>
+      ${total > 0 ? `<div class="mt-1 text-lg leading-none font-semibold" title="${total} turma(s) / ${alunosDia} aluno(s)">${total}/${alunosDia}</div>
+        <div class="text-[10px] leading-tight mt-0.5">turmas/alunos</div>
         ${aguardando > 0 ? `<div class="text-[10px] leading-tight">${aguardando} aguard.</div>` : ""}` : ""}
     `;
     btn.addEventListener("click", () => {
@@ -12930,7 +12941,7 @@ function renderizarAgendaCentros() {
   const preAgendMes = accTurmasDoMes.filter((t) => t.status_agendamento === "Agendado" && t.eh_pre_agendamento).length;
   const centroTexto = $("acc-centro-select").value === "TODOS"
     ? `${listaCentrosAtivos.length} centro(s)` : $("acc-centro-select").selectedOptions[0].textContent;
-  $("acc-resumo").textContent = `${centroTexto} · ${totalMes} turma(s) no mês · ${agendMes} agendada(s)` +
+  $("acc-resumo").textContent = `${centroTexto} · ${totalMes} turma(s) · ${somaAlunos(accTurmasDoMes)} aluno(s) no mês · ${agendMes} agendada(s)` +
     (preAgendMes > 0 ? ` (${preAgendMes} pré-agendada(s))` : "") +
     ` · ${aguardMes} aguardando confirmação`;
 
@@ -12946,7 +12957,7 @@ function renderizarDetalheDiaAgendaCentros(porDia) {
     return;
   }
   const turmas = porDia.get(accDiaSelecionado) || [];
-  titulo.textContent = `${formatarDataBr(accDiaSelecionado)} — ${turmas.length} turma(s)`;
+  titulo.textContent = `${formatarDataBr(accDiaSelecionado)} — ${turmas.length} turma(s) · ${somaAlunos(turmas)} aluno(s)`;
   if (turmas.length === 0) {
     lista.innerHTML = `<p class="text-xs text-slate-400">Nenhuma turma neste dia.</p>`;
     return;
