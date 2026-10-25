@@ -36,7 +36,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.82 · 25/10/2026";
+const APP_VERSAO = "Prod 1.83 · 25/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -1402,6 +1402,10 @@ function irParaModulo(id) {
     $("admin-descricao-pagina").textContent = "Registre quais alunos de cada turma receberam o certificado. O registro é feito uma única vez; depois dele a turma fica disponível para faturamento.";
     $("secao-certificados-alunos").classList.remove("hidden");
     carregarCertificadosAlunosInit();
+  } else if (id === "emissao_certificados") {
+    $("admin-descricao-pagina").textContent = "Emita os certificados dos alunos no último dia do treinamento: escolha o centro e a data, selecione a turma e os alunos, confira a prévia e emita.";
+    $("secao-emissao-certificados").classList.remove("hidden");
+    carregarEmissaoCertificadosInit();
   } else if (id === "faturamento") {
     $("admin-descricao-pagina").textContent = "Fature as turmas com certificados registrados. É emitido um faturamento por CNPJ de faturamento dos alunos.";
     $("secao-faturamento").classList.remove("hidden");
@@ -14557,7 +14561,7 @@ async function caBuscar() {
     const de = $("ca-data-de").value, ate = $("ca-data-ate").value;
     const { data: turmas, error } = await buscarTodos(() => {
       let q = supabase.from("turmas")
-        .select("id, identificacao, data_inicio, data_fim, status, orcamento_id, certificados_registrados_em, certificados_registrados_por, orcamentos(numero, qtd_alunos_por_turma, empresas(nome)), tipos_treinamento(nome)")
+        .select("id, identificacao, data_inicio, data_fim, status, orcamento_id, certificados_registrados_em, certificados_registrados_por, qtd_alunos_treinados, orcamentos(numero, qtd_alunos_por_turma, empresas(nome)), tipos_treinamento(nome, emite_certificado)")
         .not("orcamento_id", "is", null).neq("status", "Cancelada");
       if (de) q = q.gte("data_inicio", de);
       if (ate) q = q.lte("data_inicio", ate);
@@ -14578,8 +14582,9 @@ async function caBuscar() {
     }
     caTurmas = (turmas || []).map((t) => {
       const total = tot[t.id] || 0;
-      const situacao = fat[t.id] != null ? "faturada" : t.certificados_registrados_em ? "registrado" : total === 0 ? "sem_alunos" : "aguardando";
-      return { ...t, total, certificados: cert[t.id] || 0, situacao, numeroFat: fat[t.id] };
+      const semCert = !!(t.tipos_treinamento && t.tipos_treinamento.emite_certificado === false);
+      const situacao = fat[t.id] != null ? "faturada" : t.certificados_registrados_em ? "registrado" : (total === 0 && !semCert) ? "sem_alunos" : "aguardando";
+      return { ...t, total, semCert, certificados: cert[t.id] || 0, situacao, numeroFat: fat[t.id] };
     });
     caRenderLista();
   } catch (e) {
@@ -14609,7 +14614,7 @@ function caRenderLista() {
       <td class="px-3 py-2">${escH(t.identificacao || "—")}</td>
       <td class="px-3 py-2">${escH((t.tipos_treinamento && t.tipos_treinamento.nome) || "—")}</td>
       <td class="px-3 py-2 whitespace-nowrap">${escH(periodo)}</td>
-      <td class="px-3 py-2 text-right whitespace-nowrap">${t.situacao === "aguardando" || t.situacao === "sem_alunos" ? `— de ${t.total}` : `${t.certificados} de ${t.total}`}</td>
+      <td class="px-3 py-2 text-right whitespace-nowrap">${t.semCert ? (t.situacao === "aguardando" ? "— treinados" : `${t.qtd_alunos_treinados || 0} treinados`) : (t.situacao === "aguardando" || t.situacao === "sem_alunos" ? `— de ${t.total}` : `${t.certificados} de ${t.total}`)}</td>
       <td class="px-3 py-2">${fatChip(t.numeroFat != null ? `${r} (${fatNumero(t.numeroFat)})` : r, cor)}</td>
       <td class="px-3 py-2 text-right"><button type="button" data-ca-abrir="${escH(t.id)}" class="text-xs font-medium text-amber-700 hover:underline">${t.situacao === "aguardando" ? "Registrar" : "Abrir"}</button></td>
     </tr>`;
@@ -14635,6 +14640,26 @@ async function caAbrir(turmaId) {
 function caRenderDetalhe() {
   const { turma: t, alunos, registrada, faturada } = caAberta;
   const o = t.orcamentos || {};
+  // Treinamento que NÃO emite certificado: em vez de marcar alunos, informa-se quantos foram treinados.
+  $("ca-bloco-cert").classList.toggle("hidden", !!t.semCert);
+  $("ca-bloco-treinados").classList.toggle("hidden", !t.semCert);
+  if (t.semCert) {
+    const pode = podeFazer("certificados_alunos", "alterar") && !registrada;
+    $("ca-det-cab").innerHTML = `
+      <div class="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+        <h3 class="text-lg font-semibold">Turma ${escH(t.identificacao || "—")}</h3>
+        <span class="text-sm text-slate-600">Orçamento ${escH(o.numero || "—")} · ${escH((o.empresas && o.empresas.nome) || "—")}</span>
+      </div>
+      <p class="text-sm text-slate-500 mt-1">${escH((t.tipos_treinamento && t.tipos_treinamento.nome) || "—")} · ${escH(fatData(t.data_inicio))}${t.data_fim && t.data_fim !== t.data_inicio ? " a " + escH(fatData(t.data_fim)) : ""} · alunos orçados por turma: ${escH(o.qtd_alunos_por_turma != null ? o.qtd_alunos_por_turma : "—")}</p>
+      <p class="text-xs mt-1 ${registrada ? "text-teal-700" : "text-amber-700"}">${registrada ? `Registrado em ${escH(formatarDataHoraBr(t.certificados_registrados_em))}${t.certificados_registrados_por ? " por " + escH(t.certificados_registrados_por) : ""}` : "Este treinamento não emite certificado: informe quantos alunos foram treinados."}</p>`;
+    $("ca-treinados-qtd").value = registrada ? String(t.qtd_alunos_treinados || "") : ($("ca-treinados-qtd").value || String(alunos.length || ""));
+    $("ca-treinados-qtd").disabled = !pode;
+    $("btn-ca-registrar-treinados").classList.toggle("hidden", !pode);
+    $("ca-treinados-nota").textContent = registrada
+      ? `O registro é feito uma única vez e não pode ser alterado.${faturada ? ` Esta turma já foi faturada (${fatNumero(t.numeroFat)}).` : ""}`
+      : (pode ? `A turma tem ${alunos.length} aluno(s) cadastrado(s). O faturamento usa a quantidade informada aqui (regra do orçamento: até ${o.qtd_alunos_por_turma != null ? o.qtd_alunos_por_turma : "—"} alunos cobra o valor da turma).` : "Você não tem permissão para registrar.");
+    return;
+  }
   const podeAlterar = podeFazer("certificados_alunos", "alterar") && !registrada;
   $("ca-det-cab").innerHTML = `
     <div class="flex flex-wrap items-baseline gap-x-4 gap-y-1">
@@ -14711,6 +14736,29 @@ $("ca-alunos-tbody").addEventListener("change", (e) => {
 $("btn-ca-marcar-todos").addEventListener("click", () => { if (!caAberta) return; caSel = new Set(caAberta.alunos.map((a) => a.id)); caRenderDetalhe(); });
 $("btn-ca-desmarcar-todos").addEventListener("click", () => { if (!caAberta) return; caSel = new Set(); caRenderDetalhe(); });
 $("btn-ca-registrar").addEventListener("click", caRegistrar);
+
+async function caRegistrarTreinados() {
+  esconderErro("ca-det-erro"); $("ca-det-ok").classList.add("hidden");
+  const qtd = parseInt($("ca-treinados-qtd").value, 10);
+  if (!(qtd >= 1 && qtd <= 5000)) { mostrarErro("ca-det-erro", "Informe quantos alunos foram treinados (de 1 a 5000)."); return; }
+  if (!confirm(`Registrar ${qtd} aluno(s) treinado(s) nesta turma?\n\nO registro é feito uma única vez e não poderá ser alterado depois.`)) return;
+  const btn = $("btn-ca-registrar-treinados");
+  btn.disabled = true;
+  try {
+    const { error } = await supabase.rpc("registrar_treinados", { p_turma: caAberta.turma.id, p_qtd: qtd });
+    if (error) throw error;
+    const rotulo = `${caAberta.turma.identificacao || ""}`;
+    await caBuscar();
+    caMostrarLista();
+    caRenderLista();
+    $("ca-resumo").textContent = `Turma ${rotulo} registrada: ${qtd} aluno(s) treinado(s). A turma já está disponível para faturar.`;
+  } catch (e) {
+    mostrarErro("ca-det-erro", "Não foi possível registrar: " + fatErroMsg(e));
+  } finally {
+    btn.disabled = false;
+  }
+}
+$("btn-ca-registrar-treinados").addEventListener("click", caRegistrarTreinados);
 
 // ---------- Faturamento ----------
 let fatOrc = null;          // { orc, turmas, calc, ... }
@@ -14792,7 +14840,7 @@ async function fatAbrirOrcamento(orcId) {
   try {
     const [rO, rT, rF] = await Promise.all([
       supabase.from("orcamentos").select("id, numero, faturar_por_aluno, valor_turma, valor_por_aluno, valor_total, valor_desconto, valor_final, qtd_alunos_por_turma, qtd_turmas, empresas(nome)").eq("id", orcId).single(),
-      supabase.from("turmas").select("id, identificacao, data_inicio, data_fim, status, certificados_registrados_em, centros_treinamento(nome)").eq("orcamento_id", orcId).neq("status", "Cancelada").order("data_inicio", { nullsFirst: false }).order("identificacao"),
+      supabase.from("turmas").select("id, identificacao, data_inicio, data_fim, status, certificados_registrados_em, qtd_alunos_treinados, tipos_treinamento(emite_certificado), centros_treinamento(nome)").eq("orcamento_id", orcId).neq("status", "Cancelada").order("data_inicio", { nullsFirst: false }).order("identificacao"),
       supabase.from("faturamentos").select("id, numero, status, valor_final, faturamento_itens(turma_id)").eq("orcamento_id", orcId).eq("status", "Emitido"),
     ]);
     if (rO.error) throw rO.error; if (rT.error) throw rT.error; if (rF.error) throw rF.error;
@@ -14869,7 +14917,7 @@ function fatRenderOrcamento() {
       <td class="px-3 py-2">${t.situacao === "disponivel" && c ? `<input type="checkbox" data-fat-turma="${escH(t.id)}" ${fatSel.has(t.id) ? "checked" : ""} aria-label="Selecionar turma ${escH(t.identificacao || "")} para faturar" class="h-4 w-4 accent-amber-700" />` : ""}</td>
       <td class="px-3 py-2 font-medium">${escH(t.identificacao || "—")}<div class="text-xs text-slate-400 font-normal">${escH((t.centros_treinamento && t.centros_treinamento.nome) || "")}</div></td>
       <td class="px-3 py-2 whitespace-nowrap">${escH(periodo)}</td>
-      <td class="px-3 py-2 whitespace-nowrap">${t.situacao === "aguardando" ? `— de ${t.total}` : `${t.certificados} de ${t.total}`}${c && !porAluno ? `<div class="text-xs ${c.excedentes > 0 ? "text-amber-700" : "text-slate-400"}">${c.excedentes > 0 ? `${c.excedentes} acima do orçado (${c.orcados})` : `orçado: ${c.orcados}`}</div>` : ""}</td>
+      <td class="px-3 py-2 whitespace-nowrap">${(t.tipos_treinamento && t.tipos_treinamento.emite_certificado === false) ? (t.situacao === "aguardando" ? "— treinados" : `${t.qtd_alunos_treinados || 0} treinados`) : (t.situacao === "aguardando" ? `— de ${t.total}` : `${t.certificados} de ${t.total}`)}${c && !porAluno ? `<div class="text-xs ${c.excedentes > 0 ? "text-amber-700" : "text-slate-400"}">${c.excedentes > 0 ? `${c.excedentes} acima do orçado (${c.orcados})` : `orçado: ${c.orcados}`}</div>` : ""}</td>
       <td class="px-3 py-2">${cn || '<span class="text-slate-400">—</span>'}</td>
       <td class="px-3 py-2 text-right whitespace-nowrap">${escH(adicional)}</td>
       <td class="px-3 py-2 text-right font-semibold whitespace-nowrap">${c ? escH(fmtBRL(c.bruto)) : "—"}</td>
@@ -15059,5 +15107,538 @@ $("btn-fat-emi-salvar").addEventListener("click", fatSalvarEmitido);
 $("btn-fat-emi-cancelar-fat").addEventListener("click", () => $("fat-emi-cancel-bloco").classList.toggle("hidden"));
 $("btn-fat-emi-cancel-ok").addEventListener("click", fatCancelarEmitido);
 
+// ===========================================================
+// OPERAÇÕES: EMISSÃO DE CERTIFICADOS — desenho do certificado (SVG)
+// O mesmo desenho serve para imprimir (sem fundo, no papel pré-impresso) e para a
+// cópia de verificação guardada no banco (com dados parcialmente ocultos, LGPD).
+// Medidas em milímetros, página A4 paisagem (297 × 210). 1 u = 1% da largura = 2,97 mm.
+// ===========================================================
+const CERT_URL_BASE = "https://workfire.com.br/certificados/";
+const CERT_W = 297, CERT_H = 210, CERT_U = 2.97;
+const CERT_MESES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
+const CERT_ARTICULAR = new Set(["de", "da", "do", "dos", "das", "e"]);
+
+const certX = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const certDataBr = (iso) => { const [a, m, d] = String(iso || "").slice(0, 10).split("-"); return a ? `${d}/${m}/${a}` : ""; };
+const certDataExt = (iso) => { const [a, m, d] = String(iso || "").slice(0, 10).split("-"); return a ? `${d} de ${CERT_MESES[Number(m) - 1]} de ${a}` : ""; };
+
+function certMaskNome(n) {
+  return String(n || "").trim().split(/\s+/).map((p, i) => (i === 0 || CERT_ARTICULAR.has(p.toLowerCase()) ? p : p.charAt(0) + "*".repeat(Math.max(p.length - 1, 0)))).join(" ");
+}
+function certMaskDoc(tipo, doc) {
+  const d = String(doc || "");
+  const dig = d.replace(/\D/g, "");
+  if ((tipo || "CPF") === "CPF" && dig.length === 11) return `***.${dig.substr(3, 3)}.${dig.substr(6, 3)}-**`;
+  const tot = d.replace(/[^0-9A-Za-z]/g, "").length;
+  let k = 0;
+  return d.replace(/[0-9A-Za-z]/g, (ch) => { k++; return k > tot - 4 ? ch : "*"; });
+}
+
+// Texto do certificado: variáveis do cadastro de treinamento. Espaços repetidos e aspas soltas são normalizados.
+function certTextoPadrao(d) {
+  return `Certificamos que #nome_aluno#, #tip_docto# n° #numero_docto# participou do Treinamento ${d.treinamento.nome || ""}${d.treinamento.carga_horaria ? " com carga horária de " + d.treinamento.carga_horaria : ""}, no período de #data_inicio# a #data_termino#, em nosso Centro de Treinamento.`;
+}
+function certTexto(d, mascarar) {
+  const modelo = (d.treinamento.texto && String(d.treinamento.texto).trim()) ? String(d.treinamento.texto) : certTextoPadrao(d);
+  const nome = mascarar ? certMaskNome(d.aluno.nome) : d.aluno.nome;
+  const doc = mascarar ? certMaskDoc(d.aluno.tipo_doc, d.aluno.doc) : d.aluno.doc;
+  return modelo.replace(/"/g, "")
+    .replace(/#nome_aluno#/g, nome || "")
+    .replace(/#tip_docto#/g, d.aluno.tipo_doc || "CPF")
+    .replace(/#numero_docto#/g, doc || "")
+    .replace(/#data_inicio#/g, certDataBr(d.periodo.inicio))
+    .replace(/#data_termino#/g, certDataBr(d.periodo.fim))
+    .replace(/\s+/g, " ").replace(/\s+([,.;])/g, "$1").trim();
+}
+
+// Medida de texto (Arial) para quebrar linhas e justificar o parágrafo.
+let certCtxMedida = null;
+function certLargura(txt, fs, negrito) {
+  if (!certCtxMedida) certCtxMedida = document.createElement("canvas").getContext("2d");
+  certCtxMedida.font = `${negrito ? "bold " : ""}100px Arial, Helvetica, sans-serif`;
+  return certCtxMedida.measureText(txt).width / 100 * fs;
+}
+function certQuebra(txt, larg, fs, negrito) {
+  const palavras = String(txt).split(/\s+/).filter(Boolean);
+  const linhas = [];
+  let atual = [];
+  palavras.forEach((p) => {
+    const tent = atual.concat(p).join(" ");
+    if (!atual.length || certLargura(tent, fs, negrito) <= larg) atual.push(p);
+    else { linhas.push(atual); atual = [p]; }
+  });
+  if (atual.length) linhas.push(atual);
+  return linhas;
+}
+
+function certQrModulos(texto) {
+  const q = window.QRCode.create(texto, { errorCorrectionLevel: "M" });
+  return { n: q.modules.size, escuro: (r, c) => !!q.modules.get(r, c) };
+}
+function certQrPath(texto, x, y, tam) {
+  const { n, escuro } = certQrModulos(texto);
+  const c = tam / n;
+  const f = (v) => v.toFixed(3);
+  let p = "";
+  for (let r = 0; r < n; r++) for (let col = 0; col < n; col++) if (escuro(r, col)) p += `M${f(x + col * c)} ${f(y + r * c)}h${f(c)}v${f(c)}h-${f(c)}z`;
+  return p;
+}
+
+// opts: { modelo:'campo'|'escritorio', dados, numero, codigo, modo:'previa'|'final'|'verif', sigs:{id:dataUrl}, mascarar }
+function certSvg(opts) {
+  const { modelo, dados: d, numero, codigo, modo, sigs } = opts;
+  const masc = !!opts.mascarar;
+  const u = CERT_U;
+  const nomeAluno = masc ? certMaskNome(d.aluno.nome) : d.aluno.nome;
+  const docAluno = masc ? certMaskDoc(d.aluno.tipo_doc, d.aluno.doc) : d.aluno.doc;
+  const o = [];
+  const txt = (x, y, s, fs, extra) => o.push(`<text x="${x.toFixed(2)}" y="${y.toFixed(2)}" font-size="${fs.toFixed(2)}"${extra || ""}>${certX(s)}</text>`);
+  const cx = (pct) => pct * CERT_W / 100, cy = (pct) => pct * CERT_H / 100;
+  const centro = (xPct, yPct, s, fs) => txt(cx(xPct), cy(yPct) + 0.35 * fs, s, fs, ' text-anchor="middle"');
+  const esq = (xPct, yPct, s, fs) => txt(cx(xPct), cy(yPct) + 0.35 * fs, s, fs);
+
+  o.push(`<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${CERT_W}mm" height="${CERT_H}mm" viewBox="0 0 ${CERT_W} ${CERT_H}" font-family="Arial, Helvetica, sans-serif" fill="#000">`);
+  if (modo === "verif") {
+    o.push(`<rect x="0" y="0" width="${CERT_W}" height="${CERT_H}" fill="#fff"/><rect x="6" y="6" width="${CERT_W - 12}" height="${CERT_H - 12}" fill="none" stroke="#888" stroke-width="0.6"/>`);
+    txt(CERT_W / 2, 30, "CERTIFICADO", 11, ' text-anchor="middle" font-weight="bold" letter-spacing="2"');
+    txt(CERT_W / 2, 38, (d.local && d.local.nome) || "Work Fire", 4.2, ' text-anchor="middle" fill="#444"');
+  }
+
+  const fim = d.periodo.fim;
+  const ext = certDataExt(fim);
+  let topAss, topQr = 81.5;
+  if (modelo === "campo" && modo !== "verif") {
+    const fs = 1.75 * u;
+    centro(36.5, 27.8, nomeAluno, fs);
+    centro(78.2, 27.8, docAluno, fs);
+    centro(43.6, 35.2, "Treinamento " + (d.treinamento.nome || ""), fs);
+    centro(37.4, 42.7, d.treinamento.carga_horaria || "", fs);
+    centro(76.2, 42.7, certDataBr(fim), fs);
+    centro(77.3, 51, "a Instrução Técnica n°", fs);
+    esq(7.1, 53.6, "17/2025 do decreto estadual n° 69.118/2024", fs);
+    centro(59.8, 60, ext, fs);
+    topAss = 60.5;
+  } else {
+    const fs = 2.02 * u, lh = fs * 1.22, larg = 79.5 * CERT_W / 100, x0 = 11.4 * CERT_W / 100;
+    const linhas = certQuebra(certTexto(d, masc), larg, fs);
+    linhas.forEach((ws, i) => {
+      const y = cy(31.5) + i * lh + (lh - fs) / 2 + 0.905 * fs;
+      const ult = i === linhas.length - 1;
+      if (ult || ws.length < 2) { txt(x0, y, ws.join(" "), fs); return; }
+      const soma = ws.reduce((s, w) => s + certLargura(w, fs), 0);
+      const gap = (larg - soma) / (ws.length - 1);
+      let x = x0;
+      const partes = ws.map((w) => { const p = `<tspan x="${x.toFixed(2)}">${certX(w)}</tspan>`; x += certLargura(w, fs) + gap; return p; });
+      o.push(`<text y="${y.toFixed(2)}" font-size="${fs.toFixed(2)}">${partes.join("")}</text>`);
+    });
+    const cidade = d.local && d.local.cidade ? d.local.cidade + ", " : "";
+    txt(x0, cy(58) + 0.35 * fs, cidade + ext, fs);
+    topAss = 62.5;
+  }
+
+  // blocos de assinatura
+  const bloco = (leftPct, wPct, nome, linhas, assinaturaId) => {
+    const L = cx(leftPct), W = cx(wPct), y0 = cy(topAss);
+    const hImg = 7.6 * u, fs = 0.98 * u, lh = fs * 1.2;
+    const img = assinaturaId && sigs && sigs[assinaturaId];
+    if (img) o.push(`<image x="${L.toFixed(2)}" y="${y0.toFixed(2)}" width="${W.toFixed(2)}" height="${hImg.toFixed(2)}" preserveAspectRatio="xMidYMax meet" xlink:href="${img}"/>`);
+    const yl = y0 + hImg;
+    o.push(`<line x1="${L.toFixed(2)}" y1="${yl.toFixed(2)}" x2="${(L + W).toFixed(2)}" y2="${yl.toFixed(2)}" stroke="#000" stroke-width="0.416"/>`);
+    let y = yl + 0.416 + 0.35 * u;
+    [nome].concat(linhas).filter((l) => l && l.t).forEach((l) => {
+      const f = l.pequena ? 0.9 * u : fs;
+      txt(L + W / 2, y + lh / 2 + 0.35 * f, l.t, f, ' text-anchor="middle"');
+      y += lh;
+    });
+  };
+  const rt = d.rt || {};
+  bloco(9.6, 19, { t: rt.nome }, [
+    { t: rt.titulo },
+    { t: rt.cpf ? "CPF: " + rt.cpf : "" },
+    { t: [rt.rg ? "RG: " + rt.rg : "", rt.registro || ""].filter(Boolean).join(" / ") },
+  ], rt.assinatura_id);
+  bloco(31.1, 19, { t: "Aluno" }, [{ t: nomeAluno, pequena: true }], null);
+  const ins = d.instrutores || [];
+  if (ins[0]) bloco(52.1, 19.5, { t: ins[0].nome }, [{ t: "Instrutor" }, { t: ins[0].doc ? "CPF: " + ins[0].doc : "" }], ins[0].assinatura_id);
+  if (ins[1]) bloco(74.5, 19, { t: ins[1].nome }, [{ t: "Instrutor" }, { t: ins[1].doc ? "CPF: " + ins[1].doc : "" }], ins[1].assinatura_id);
+
+  // QR de verificação + número
+  const qs = 7.4 * u, qx = CERT_W / 2 - qs / 2, qy = cy(topQr);
+  const url = modo === "previa" ? CERT_URL_BASE + "#previa" : CERT_URL_BASE + "#" + codigo;
+  o.push(`<rect x="${(qx - 1.5).toFixed(2)}" y="${(qy - 1.5).toFixed(2)}" width="${(qs + 3).toFixed(2)}" height="${(qs + 3).toFixed(2)}" fill="#fff"/>`);
+  o.push(`<path d="${certQrPath(url, qx, qy, qs)}" fill="#000" shape-rendering="crispEdges"/>`);
+  let yq = qy + qs + 0.5 * u + 1.2;
+  const fm = 0.86 * u;
+  certQuebra("Aponte sua câmera e veja se o certificado é válido", 20 * u, fm).forEach((ws) => {
+    txt(CERT_W / 2, yq + fm * 0.8, ws.join(" "), fm, ' text-anchor="middle"');
+    yq += fm * 1.15;
+  });
+  txt(CERT_W / 2, yq + 0.3 * u + 0.95 * u * 0.8, modo === "previa" ? "PRÉVIA · sem número" : "Certificado nº " + numero, 0.95 * u, ' text-anchor="middle" font-weight="bold"');
+
+  if (modo === "previa") {
+    const fs = 9.5 * u, t = "EM ELABORAÇÃO", w = certLargura(t, fs, true);
+    o.push(`<g transform="rotate(-24 ${CERT_W / 2} ${CERT_H / 2})" fill="rgba(179,38,30,.17)" stroke="rgba(179,38,30,.17)">` +
+      `<rect x="${(CERT_W / 2 - w / 2 - 3 * u).toFixed(2)}" y="${(CERT_H / 2 - fs * 0.75).toFixed(2)}" width="${(w + 6 * u).toFixed(2)}" height="${(fs * 1.4).toFixed(2)}" rx="${(2 * u).toFixed(2)}" fill="none" stroke-width="${(0.6 * u).toFixed(2)}"/>` +
+      `<text x="${CERT_W / 2}" y="${(CERT_H / 2 + fs * 0.35).toFixed(2)}" font-size="${fs.toFixed(2)}" font-weight="bold" text-anchor="middle" stroke="none">${t}</text></g>`);
+  }
+  if (modo === "verif") {
+    o.push(`<rect x="0" y="0" width="${CERT_W}" height="${(1.3 * u + 2 * 0.5 * u).toFixed(2)}" fill="#1d2129"/>`);
+    txt(CERT_W / 2, 0.5 * u + 1.3 * u * 0.82, "CÓPIA PARA VERIFICAÇÃO · dados parcialmente ocultos (LGPD)", 1.3 * u, ' text-anchor="middle" fill="#fff" font-weight="bold"');
+  }
+  o.push("</svg>");
+  return o.join("");
+}
+
+// SVG → PNG (base64, sem o prefixo data:) para guardar a cópia de verificação no banco.
+function certRasterizar(svg, larguraPx) {
+  const w = larguraPx || 1485;
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const cv = document.createElement("canvas");
+      cv.width = w; cv.height = Math.round(w * CERT_H / CERT_W);
+      const cx2 = cv.getContext("2d");
+      cx2.fillStyle = "#fff"; cx2.fillRect(0, 0, cv.width, cv.height);
+      cx2.drawImage(img, 0, 0, cv.width, cv.height);
+      try { resolve(cv.toDataURL("image/png").split(",")[1]); } catch (e) { reject(e); }
+    };
+    img.onerror = () => reject(new Error("Não foi possível gerar a imagem do certificado."));
+    img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+  });
+}
+
+
+// ===========================================================
+// OPERAÇÕES: EMISSÃO DE CERTIFICADOS — tela
+// Centro de Treinamento + data → treinamentos do dia (só o ÚLTIMO dia de cada treinamento) → turma → alunos
+// da lista do último dia → Prévia (marca d'água) ou Emitir. A gravação (número, código do QR, dados congelados,
+// imagem de verificação) é feita por funções do banco: emitir_certificados, gravar_imagem_certificado e
+// cancelar_certificado.
+// ===========================================================
+let ecCts = [];
+let ecTurmas = [];       // turmas do dia (último dia, treinamento com certificado)
+let ecTurma = null;
+let ecAlunos = [];
+let ecCerts = {};        // turma_aluno_id -> certificado válido
+let ecCertsCancelados = {};
+let ecSel = new Set();
+let ecCtx = null;
+let ecModelo = "escritorio";
+const ecHoje = () => formatarData(new Date());
+
+async function carregarEmissaoCertificadosInit() {
+  if (!ecCts.length) {
+    const { data } = await supabase.from("centros_treinamento").select("id, nome, cidade, endereco").order("nome");
+    ecCts = data || [];
+    $("ec-ct").innerHTML = ecCts.map((c) => `<option value="${escH(c.id)}">${escH(c.nome)}</option>`).join("");
+  }
+  if (!$("ec-data").value) $("ec-data").value = ecHoje();
+  ecBuscar();
+}
+
+function ecCidadeDoCentro(ct) {
+  if (!ct) return "";
+  const c = String(ct.cidade || "").trim();
+  if (c) return c;
+  const m = /([^-/,]+)\/[A-Z]{2}\b/.exec(ct.endereco || "");
+  return m ? m[1].trim() : "";
+}
+
+async function ecBuscar() {
+  esconderErro("ec-erro");
+  ecTurma = null;
+  $("ec-detalhe").classList.add("hidden");
+  const ct = $("ec-ct").value, dia = $("ec-data").value;
+  if (!ct || !dia) return;
+  $("ec-turmas").innerHTML = `<p class="text-sm text-slate-500">Carregando…</p>`;
+  $("ec-turmas-nota").textContent = "";
+  try {
+    const { data: rows, error } = await supabase.from("turmas")
+      .select("id, identificacao, data_inicio, data_fim, status, orcamento_id, centro_treinamento_id, instrutor_id, instrutor1_id, instrutor2_id, orcamentos(numero, empresas(nome)), tipos_treinamento(id, nome, carga_horaria, emite_certificado, texto_certificado, responsavel_tecnico_id)")
+      .eq("centro_treinamento_id", ct).neq("status", "Cancelada")
+      .or(`data_fim.eq.${dia},and(data_fim.is.null,data_inicio.eq.${dia})`);
+    if (error) throw error;
+    const lista = rows || [];
+    const orcIds = [...new Set(lista.map((r) => r.orcamento_id).filter(Boolean))];
+    let irmas = [];
+    for (const lote of fatLotes(orcIds, 60)) {
+      const { data, error: e2 } = await buscarTodos(() => supabase.from("turmas").select("id, orcamento_id, identificacao, data_inicio").in("orcamento_id", lote).order("id"));
+      if (e2) throw e2;
+      irmas = irmas.concat(data || []);
+    }
+    const padrao = /^(\D*)(\d+)$/;
+    const visiveis = [];
+    let ocultas = 0;
+    lista.forEach((r) => {
+      const m = padrao.exec(r.identificacao || "");
+      let ultimo = true, inicio = r.data_inicio;
+      if (m) {
+        const grupo = irmas.filter((x) => x.orcamento_id === r.orcamento_id && (padrao.exec(x.identificacao || "") || [])[1] === m[1]);
+        const maxDia = Math.max(...grupo.map((x) => Number(padrao.exec(x.identificacao)[2])));
+        ultimo = Number(m[2]) >= maxDia;
+        const datas = grupo.map((x) => x.data_inicio).filter(Boolean).sort();
+        if (datas.length) inicio = datas[0];
+      }
+      const emite = !(r.tipos_treinamento && r.tipos_treinamento.emite_certificado === false);
+      if (!ultimo || !emite || !r.tipos_treinamento) { ocultas++; return; }
+      visiveis.push({ ...r, ultimoDia: ultimo, inicio, fim: r.data_fim || r.data_inicio });
+    });
+    const ids = visiveis.map((t) => t.id);
+    const alunos = {}, certs = {};
+    for (const lote of fatLotes(ids, 80)) {
+      const [a, c] = await Promise.all([
+        buscarTodos(() => supabase.from("turma_alunos").select("turma_id").in("turma_id", lote).order("id")),
+        buscarTodos(() => supabase.from("certificados").select("turma_id").in("turma_id", lote).eq("status", "valido").order("id")),
+      ]);
+      if (a.error) throw a.error; if (c.error) throw c.error;
+      (a.data || []).forEach((x) => { alunos[x.turma_id] = (alunos[x.turma_id] || 0) + 1; });
+      (c.data || []).forEach((x) => { certs[x.turma_id] = (certs[x.turma_id] || 0) + 1; });
+    }
+    ecTurmas = visiveis.map((t) => ({ ...t, qtdAlunos: alunos[t.id] || 0, qtdCerts: certs[t.id] || 0 }))
+      .sort((x, y) => String(x.orcamentos && x.orcamentos.numero).localeCompare(String(y.orcamentos && y.orcamentos.numero), "pt-BR", { numeric: true }) || String(x.identificacao).localeCompare(String(y.identificacao), "pt-BR", { numeric: true }));
+    ecRenderTurmas();
+    $("ec-turmas-nota").textContent = ocultas ? `${ocultas} turma(s) do dia não listada(s): não é o último dia do treinamento ou o treinamento não emite certificado.` : "";
+  } catch (e) {
+    $("ec-turmas").innerHTML = "";
+    mostrarErro("ec-erro", "Não foi possível carregar as turmas: " + fatErroMsg(e));
+  }
+}
+
+function ecRenderTurmas() {
+  $("ec-turmas").innerHTML = ecTurmas.length ? ecTurmas.map((t) => {
+    const o = t.orcamentos || {};
+    const sel = ecTurma && ecTurma.id === t.id;
+    const rt = t.tipos_treinamento.responsavel_tecnico_id ? "" : `<div class="text-[11px] text-rose-600 mt-1">Treinamento sem Responsável Técnico vinculado</div>`;
+    return `<button type="button" data-ec-turma="${escH(t.id)}" class="w-full text-left rounded-lg border px-3 py-2 ${sel ? "border-amber-500 bg-amber-50" : "border-slate-200 bg-white hover:bg-slate-50"}">
+      <div class="text-sm font-semibold text-slate-800">${escH(t.tipos_treinamento.nome)}</div>
+      <div class="text-xs text-slate-600">Turma ${escH(t.identificacao || "—")} · orçamento ${escH(o.numero || "—")}</div>
+      <div class="text-xs text-slate-500">${escH((o.empresas && o.empresas.nome) || "—")}</div>
+      <div class="text-xs text-slate-500 mt-1">${escH(fatData(t.inicio))}${t.inicio !== t.fim ? " a " + escH(fatData(t.fim)) : ""} · ${t.qtdAlunos} aluno(s) · ${t.qtdCerts} certificado(s) emitido(s)</div>${rt}
+    </button>`;
+  }).join("") : `<p class="text-sm text-slate-500">Nenhum treinamento com emissão de certificado neste centro e data.</p>`;
+}
+
+async function ecCarregarContexto(t) {
+  const tt = t.tipos_treinamento;
+  let rt = null;
+  if (tt.responsavel_tecnico_id) {
+    const { data } = await supabase.from("responsaveis_tecnicos").select("nome, titulo, registro_profissional, cpf, rg, assinatura_id").eq("id", tt.responsavel_tecnico_id).maybeSingle();
+    if (data) rt = { nome: data.nome, titulo: data.titulo, registro: data.registro_profissional, cpf: data.cpf, rg: data.rg, assinatura_id: data.assinatura_id };
+  }
+  let ids = [t.instrutor1_id, t.instrutor2_id].filter(Boolean);
+  if (!ids.length && t.instrutor_id) ids = [t.instrutor_id];
+  let instrutores = [];
+  if (ids.length) {
+    const [{ data: ins }, { data: ass }] = await Promise.all([
+      supabase.from("instrutores").select("id, nome, cpf").in("id", ids),
+      supabase.from("instrutor_assinaturas").select("instrutor_id, assinatura_id").in("instrutor_id", ids),
+    ]);
+    instrutores = ids.map((id) => (ins || []).find((i) => i.id === id)).filter(Boolean)
+      .map((i) => ({ nome: i.nome, doc: i.cpf, assinatura_id: ((ass || []).find((a) => a.instrutor_id === i.id) || {}).assinatura_id || null }));
+  }
+  const ct = ecCts.find((c) => c.id === t.centro_treinamento_id);
+  return { rt, instrutores, local: { nome: ct ? ct.nome : "", cidade: ecCidadeDoCentro(ct) }, inicio: t.inicio, fim: t.fim };
+}
+
+async function ecAbrirTurma(id) {
+  const t = ecTurmas.find((x) => x.id === id);
+  if (!t) return;
+  esconderErro("ec-erro");
+  ecTurma = t; ecSel = new Set(); ecCtx = null;
+  ecRenderTurmas();
+  $("ec-detalhe").classList.remove("hidden");
+  $("ec-alunos-tbody").innerHTML = `<tr><td colspan="4" class="px-3 py-4 text-slate-500">Carregando…</td></tr>`;
+  try {
+    const [rA, rC, ctx] = await Promise.all([
+      buscarTodos(() => supabase.from("turma_alunos").select("id, nome, cpf, tipo_documento").eq("turma_id", id).order("nome").order("id")),
+      buscarTodos(() => supabase.from("certificados").select("id, numero, codigo, status, turma_aluno_id, modelo, emitido_em, cancelado_motivo").eq("turma_id", id).order("emitido_em")),
+      ecCarregarContexto(t),
+    ]);
+    if (rA.error) throw rA.error; if (rC.error) throw rC.error;
+    if (ecTurma !== t) return;
+    ecAlunos = rA.data || [];
+    ecCerts = {}; ecCertsCancelados = {};
+    (rC.data || []).forEach((c) => { if (c.status === "valido") ecCerts[c.turma_aluno_id] = c; else ecCertsCancelados[c.turma_aluno_id] = c; });
+    ecCtx = ctx;
+    ecSel = new Set(ecAlunos.filter((a) => !ecCerts[a.id]).map((a) => a.id));
+    ecRenderDetalhe();
+  } catch (e) {
+    mostrarErro("ec-erro", "Não foi possível carregar a turma: " + fatErroMsg(e));
+  }
+}
+
+function ecRenderDetalhe() {
+  const t = ecTurma, o = t.orcamentos || {}, ctx = ecCtx;
+  const liberado = t.fim <= ecHoje();
+  $("ec-det-cab").innerHTML = `
+    <div class="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+      <h3 class="text-lg font-semibold">${escH(t.tipos_treinamento.nome)}</h3>
+      <span class="text-sm text-slate-600">Turma ${escH(t.identificacao || "—")} · orçamento ${escH(o.numero || "—")} · ${escH((o.empresas && o.empresas.nome) || "—")}</span>
+    </div>
+    <p class="text-sm text-slate-500 mt-1">Período: ${escH(fatData(t.inicio))}${t.inicio !== t.fim ? " a " + escH(fatData(t.fim)) : ""} (último dia do treinamento) · Responsável técnico: ${ctx.rt ? escH(ctx.rt.nome) : `<span class="text-rose-600">não vinculado — vincule no cadastro de Treinamentos</span>`} · Instrutor(es): ${ctx.instrutores.length ? escH(ctx.instrutores.map((i) => i.nome).join(", ")) : "—"}</p>
+    ${liberado ? "" : `<p class="text-xs text-amber-700 mt-1">A emissão só é liberada a partir do último dia do treinamento (${escH(fatData(t.fim))}). A prévia já funciona.</p>`}`;
+  $("ec-alunos-tbody").innerHTML = ecAlunos.length ? ecAlunos.map((a) => {
+    const c = ecCerts[a.id], x = ecCertsCancelados[a.id];
+    const st = c
+      ? `${fatChip("Emitido · " + c.numero, FAT_COR.verde)} <a href="${escH(CERT_URL_BASE + "#" + c.codigo)}" target="_blank" rel="noopener" class="text-xs text-amber-700 hover:underline ml-1">ver verificação</a>${podeFazer("emissao_certificados", "excluir") ? ` <button type="button" data-ec-cancelar="${escH(c.id)}" class="text-xs text-rose-600 hover:underline ml-1">cancelar</button>` : ""}`
+      : (x ? fatChip("Cancelado · " + x.numero, FAT_COR.rosa) : fatChip("Não emitido", FAT_COR.cinza));
+    return `<tr>
+      <td class="px-3 py-2"><input type="checkbox" data-ec-aluno="${escH(a.id)}" ${ecSel.has(a.id) ? "checked" : ""} aria-label="Selecionar ${escH(a.nome)}" class="h-4 w-4 accent-amber-700" /></td>
+      <td class="px-3 py-2">${escH(a.nome)}</td>
+      <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${escH(a.tipo_documento === "RG" ? "RG" : "CPF")} ${escH(a.cpf || "—")}</td>
+      <td class="px-3 py-2">${st}</td>
+    </tr>`;
+  }).join("") : `<tr><td colspan="4" class="px-3 py-4 text-slate-500">A lista do último dia não tem alunos cadastrados.</td></tr>`;
+  document.querySelectorAll("[name=ec-modelo]").forEach((r) => { r.checked = r.value === ecModelo; });
+  ecAtualizarBarra();
+}
+
+function ecAtualizarBarra() {
+  const n = ecSel.size, t = ecTurma;
+  const liberado = t && t.fim <= ecHoje();
+  const podeEmitir = podeFazer("emissao_certificados", "incluir");
+  $("ec-contagem").textContent = n ? `${n} aluno(s) selecionado(s)` : "Selecione ao menos um aluno";
+  $("btn-ec-previa").disabled = !n || !ecCtx || !ecCtx.rt;
+  const be = $("btn-ec-emitir");
+  be.classList.toggle("hidden", !podeEmitir);
+  be.disabled = !n || !liberado || !ecCtx || !ecCtx.rt;
+  be.title = !ecCtx || !ecCtx.rt ? "Vincule um Responsável Técnico ao treinamento" : (!liberado ? "Só é possível emitir a partir do último dia do treinamento" : "");
+}
+
+async function ecCarregarAssinaturas(listaDados) {
+  const ids = new Set();
+  listaDados.forEach((d) => { if (d.rt && d.rt.assinatura_id) ids.add(d.rt.assinatura_id); (d.instrutores || []).forEach((i) => { if (i.assinatura_id) ids.add(i.assinatura_id); }); });
+  const mapa = {};
+  for (const lote of fatLotes([...ids], 20)) {
+    const { data, error } = await supabase.from("assinaturas_imagens").select("id, imagem").in("id", lote);
+    if (error) throw error;
+    (data || []).forEach((r) => { mapa[r.id] = r.imagem; });
+  }
+  return mapa;
+}
+
+function ecDadosDoAluno(a) {
+  const tt = ecTurma.tipos_treinamento, ctx = ecCtx;
+  return {
+    aluno: { nome: a.nome, tipo_doc: a.tipo_documento === "RG" ? "RG" : "CPF", doc: a.cpf },
+    treinamento: { nome: tt.nome, carga_horaria: tt.carga_horaria, texto: tt.texto_certificado },
+    periodo: { inicio: ctx.inicio, fim: ctx.fim },
+    local: ctx.local, rt: ctx.rt, instrutores: ctx.instrutores,
+  };
+}
+
+function ecAbrirJanela(titulo) {
+  const w = window.open("", "_blank");
+  if (!w) { alert("O navegador bloqueou a nova janela. Libere os pop-ups deste site e tente de novo."); return null; }
+  w.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${certX(titulo)}</title></head><body style="font-family:Arial,sans-serif;padding:24px;color:#333">Gerando…</body></html>`);
+  w.document.close();
+  return w;
+}
+
+function ecMostrarJanela(w, titulo, aviso, paginas) {
+  const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${certX(titulo)}</title><style>
+@page{size:A4 landscape;margin:0}
+body{margin:0;background:#6b7280;font-family:Arial,Helvetica,sans-serif}
+.bar{position:sticky;top:0;z-index:5;background:#111827;color:#fff;padding:10px 16px;display:flex;flex-wrap:wrap;gap:12px;align-items:center;font-size:14px}
+.bar button{background:#f59e0b;color:#111;border:0;border-radius:6px;padding:7px 16px;font-weight:700;cursor:pointer}
+.bar small{color:#d1d5db}
+.pg{width:min(1100px,96vw);margin:14px auto;background:#fff;box-shadow:0 4px 18px rgba(0,0,0,.4)}
+.pg svg{display:block;width:100%;height:auto}
+@media print{.bar{display:none}body{background:none}.pg{width:297mm;height:210mm;margin:0;box-shadow:none;page-break-after:always;break-after:page}.pg svg{width:297mm;height:210mm}}
+</style></head><body><div class="bar"><b>${certX(titulo)}</b><span>${paginas.length} página(s)</span><button onclick="window.print()">Imprimir</button><small>${certX(aviso)}</small></div>${paginas.map((p) => `<div class="pg">${p}</div>`).join("")}</body></html>`;
+  w.document.open(); w.document.write(html); w.document.close();
+}
+
+async function ecPrevia() {
+  if (!ecTurma || !ecCtx || !ecSel.size) return;
+  const w = ecAbrirJanela("Prévia dos certificados");
+  if (!w) return;
+  try {
+    const alunos = ecAlunos.filter((a) => ecSel.has(a.id));
+    const listaDados = alunos.map(ecDadosDoAluno);
+    const sigs = await ecCarregarAssinaturas(listaDados);
+    const paginas = listaDados.map((d) => certSvg({ modelo: ecModelo, dados: d, numero: "", codigo: "", modo: "previa", sigs }));
+    ecMostrarJanela(w, `Prévia · modelo ${ecModelo === "campo" ? "Campo" : "Escritório"}`, "Prévia: não tem validade e o QR não funciona.", paginas);
+  } catch (e) {
+    w.close();
+    mostrarErro("ec-erro", "Não foi possível gerar a prévia: " + fatErroMsg(e));
+  }
+}
+
+async function ecEmitir() {
+  if (!ecTurma || !ecCtx || !ecSel.size) return;
+  esconderErro("ec-erro"); $("ec-ok").classList.add("hidden");
+  const ids = ecAlunos.filter((a) => ecSel.has(a.id)).map((a) => a.id);
+  const novos = ids.filter((id) => !ecCerts[id]).length, segundas = ids.length - novos;
+  const modeloNome = ecModelo === "campo" ? "Campo" : "Escritório";
+  if (!confirm(`Emitir ${novos} certificado(s) novo(s) no modelo ${modeloNome}?${segundas ? `\n\n${segundas} aluno(s) selecionado(s) já têm certificado: será impressa a 2ª via, com o mesmo número.` : ""}\n\nCada certificado recebe um número exclusivo e um QR de verificação. Depois de emitido, ele só pode ser cancelado, não alterado.`)) return;
+  const w = ecAbrirJanela("Certificados");
+  if (!w) return;
+  const btn = $("btn-ec-emitir");
+  btn.disabled = true;
+  let mostrou = false;
+  try {
+    const { data, error } = await supabase.rpc("emitir_certificados", { p_turma: ecTurma.id, p_modelo: ecModelo, p_alunos: ids });
+    if (error) throw error;
+    const sigs = await ecCarregarAssinaturas(data.map((c) => c.dados));
+    const paginas = [];
+    let falhas = 0;
+    for (const c of data) {
+      paginas.push(certSvg({ modelo: c.modelo, dados: c.dados, numero: c.numero, codigo: c.codigo, modo: "final", sigs }));
+      if (!c.tem_imagem) {
+        try {
+          const png = await certRasterizar(certSvg({ modelo: "escritorio", dados: c.dados, numero: c.numero, codigo: c.codigo, modo: "verif", sigs, mascarar: true }));
+          const { error: e2 } = await supabase.rpc("gravar_imagem_certificado", { p_id: c.id, p_b64: png });
+          if (e2) throw e2;
+        } catch (e3) { falhas++; }
+      }
+    }
+    ecMostrarJanela(w, `Certificados · ${ecTurma.tipos_treinamento.nome}`, "Confira e imprima. O QR de cada certificado leva à página de verificação.", paginas);
+    mostrou = true;
+    $("ec-ok").textContent = `${data.length} certificado(s) pronto(s) (${novos} novo(s), ${segundas} segunda(s) via).${falhas ? ` Atenção: a imagem de verificação de ${falhas} certificado(s) não foi gravada; emita a 2ª via para tentar de novo.` : ""}`;
+    $("ec-ok").classList.remove("hidden");
+    await ecAbrirTurmaMantendoSelecao(ids);
+  } catch (e) {
+    if (!mostrou) w.close();
+    mostrarErro("ec-erro", "Não foi possível emitir: " + fatErroMsg(e));
+  } finally {
+    btn.disabled = false;
+    ecAtualizarBarra();
+  }
+}
+
+async function ecAbrirTurmaMantendoSelecao(ids) {
+  const id = ecTurma.id;
+  const sel = new Set(ids);
+  await ecBuscar();
+  const t = ecTurmas.find((x) => x.id === id);
+  if (t) { await ecAbrirTurma(id); ecSel = sel; ecRenderDetalhe(); }
+}
+
+async function ecCancelar(certId) {
+  const c = Object.values(ecCerts).find((x) => x.id === certId);
+  const motivo = prompt(`Cancelar o certificado ${c ? c.numero : ""}?\n\nO número não é reutilizado e a página de verificação passa a mostrar "cancelado". Informe o motivo:`);
+  if (motivo == null) return;
+  if (motivo.trim().length < 3) { mostrarErro("ec-erro", "Informe o motivo do cancelamento."); return; }
+  const { error } = await supabase.rpc("cancelar_certificado", { p_id: certId, p_motivo: motivo.trim() });
+  if (error) { mostrarErro("ec-erro", "Não foi possível cancelar: " + fatErroMsg(error)); return; }
+  await ecAbrirTurmaMantendoSelecao([]);
+}
+
+$("btn-ec-buscar").addEventListener("click", ecBuscar);
+$("ec-turmas").addEventListener("click", (e) => { const b = e.target.closest("[data-ec-turma]"); if (b) { $("ec-ok").classList.add("hidden"); ecAbrirTurma(b.getAttribute("data-ec-turma")); } });
+$("ec-alunos-tbody").addEventListener("change", (e) => {
+  const i = e.target.closest("[data-ec-aluno]");
+  if (!i) return;
+  if (i.checked) ecSel.add(i.getAttribute("data-ec-aluno")); else ecSel.delete(i.getAttribute("data-ec-aluno"));
+  ecAtualizarBarra();
+});
+$("ec-alunos-tbody").addEventListener("click", (e) => { const b = e.target.closest("[data-ec-cancelar]"); if (b) ecCancelar(b.getAttribute("data-ec-cancelar")); });
+$("btn-ec-todos").addEventListener("click", () => { ecSel = new Set(ecAlunos.map((a) => a.id)); ecRenderDetalhe(); });
+$("btn-ec-nenhum").addEventListener("click", () => { ecSel = new Set(); ecRenderDetalhe(); });
+$("btn-ec-pendentes").addEventListener("click", () => { ecSel = new Set(ecAlunos.filter((a) => !ecCerts[a.id]).map((a) => a.id)); ecRenderDetalhe(); });
+document.querySelectorAll("[name=ec-modelo]").forEach((r) => r.addEventListener("change", () => { ecModelo = r.value; }));
+$("btn-ec-previa").addEventListener("click", ecPrevia);
+$("btn-ec-emitir").addEventListener("click", ecEmitir);
 
 })();

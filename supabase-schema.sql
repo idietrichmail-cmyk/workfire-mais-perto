@@ -1656,3 +1656,31 @@ where not exists (select 1 from unidades_medida where base_calculo = 'distancia'
 
 -- 24/10/2026 — Prod 1.80: registro de certificados único por turma (sem atualizar/desfazer). O desconto do orçamento incide também sobre o adicional de
 -- alunos excedentes (equivale a descontar o valor de cada aluno excedente). Migração certificados_registro_unico.
+
+
+-- =====================================================================
+-- Prod 1.82 / 1.83 — certificados, responsável técnico, assinaturas
+-- (aplicado no Supabase pelas migrações leva1a..leva2f; as funções abaixo
+--  ficam no banco: cpf_valido, assinatura_versao, cert_mask_nome, cert_mask_doc,
+--  emitir_certificados, gravar_imagem_certificado, cancelar_certificado,
+--  registrar_treinados, verificar_certificado (pública/anon) e a nova _fat_calcular)
+-- =====================================================================
+alter table tipos_treinamento add column if not exists emite_certificado boolean not null default true;
+alter table tipos_treinamento add column if not exists texto_certificado text;
+alter table tipos_treinamento add column if not exists responsavel_tecnico_id uuid references responsaveis_tecnicos(id) on delete set null;
+alter table turma_alunos add column if not exists tipo_documento text not null default 'CPF' check (tipo_documento in ('CPF','RG'));
+alter table turmas add column if not exists qtd_alunos_treinados integer;
+
+create table if not exists assinaturas_imagens (id uuid primary key default gen_random_uuid(), sha256 text not null unique, imagem text not null, created_at timestamptz not null default now());
+create table if not exists responsaveis_tecnicos (id uuid primary key default gen_random_uuid(), nome text not null, titulo text, cpf text, rg text, registro_profissional text, observacoes text, assinatura text, assinatura_id uuid references assinaturas_imagens(id), status text not null default 'Ativo' check (status in ('Ativo','Inativo')), created_at timestamptz not null default now());
+create table if not exists instrutor_assinaturas (instrutor_id uuid primary key references instrutores(id) on delete cascade, assinatura text, assinatura_id uuid references assinaturas_imagens(id), atualizado_em timestamptz not null default now());
+create table if not exists certificado_contadores (ano integer primary key, ultimo integer not null default 0);
+create table if not exists certificados (
+  id uuid primary key default gen_random_uuid(), numero text not null unique, codigo text not null unique,
+  turma_id uuid not null references turmas(id), turma_aluno_id uuid references turma_alunos(id) on delete set null,
+  tipo_treinamento_id uuid references tipos_treinamento(id) on delete set null, modelo text not null check (modelo in ('campo','escritorio')),
+  status text not null default 'valido' check (status in ('valido','cancelado')), dados jsonb not null,
+  emitido_em timestamptz not null default now(), emitido_por text, emitido_por_id uuid, cancelado_em timestamptz, cancelado_por text, cancelado_motivo text);
+create unique index if not exists certificados_um_valido_por_aluno on certificados (turma_aluno_id) where status = 'valido';
+create table if not exists certificado_imagens (certificado_id uuid primary key references certificados(id) on delete cascade, imagem bytea not null, mime text not null default 'image/png', gerada_em timestamptz not null default now());
+-- RLS ligada em todas; leitura pelas políticas pode_acessar_tabela; escrita de certificados só pelas funções acima.
