@@ -1287,6 +1287,7 @@
         <div class="flex gap-1 border-b border-slate-200 mb-4">
           <button id="btn-fat-aba-faturar" type="button" class="px-4 py-2 text-sm font-semibold border-b-2 border-amber-600 text-slate-900">A faturar</button>
           <button id="btn-fat-aba-emitidos" type="button" class="px-4 py-2 text-sm text-slate-500 border-b-2 border-transparent hover:text-slate-800">Faturamentos emitidos</button>
+          <button id="btn-fat-aba-omie" type="button" class="hidden px-4 py-2 text-sm text-slate-500 border-b-2 border-transparent hover:text-slate-800">Integração Omie</button>
         </div>
 
         <div id="fat-painel-faturar">
@@ -1368,6 +1369,21 @@
               </thead>
               <tbody id="fat-em-tbody" class="divide-y divide-slate-100"></tbody>
             </table>
+          </div>
+        </div>
+
+        <div id="fat-painel-omie" class="hidden">
+          <p class="text-xs text-slate-500 mb-3">Os faturamentos viram Ordens de Serviço no Omie, na etapa "Faturar". Turmas de cada centro vão para a empresa Omie indicada abaixo. As chaves de acesso ficam nos segredos do Supabase (OMIE_GRU_APP_KEY, OMIE_GRU_APP_SECRET, OMIE_SAN_APP_KEY, OMIE_SAN_APP_SECRET).</p>
+          <div id="omie-cfg-erro" class="hidden bg-rose-50 text-rose-600 text-sm rounded-md px-3 py-2 mb-3"></div>
+          <div id="omie-cfg-ok" class="hidden bg-emerald-50 text-emerald-700 text-sm rounded-md px-3 py-2 mb-3"></div>
+          <div id="omie-cfg-contas" class="grid md:grid-cols-2 gap-3 mb-3"></div>
+          <div class="bg-white border border-slate-200 rounded-lg p-4 mb-3">
+            <h4 class="text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-2">Centro de treinamento → empresa que fatura</h4>
+            <div id="omie-cfg-centros" class="space-y-2"></div>
+          </div>
+          <div class="flex justify-end gap-2">
+            <button id="btn-omie-cfg-recarregar" type="button" class="border border-slate-300 text-sm px-4 py-2 rounded-md">Testar conexão</button>
+            <button id="btn-omie-cfg-salvar" type="button" class="bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium px-4 py-2 rounded-md">Salvar configuração</button>
           </div>
         </div>
 

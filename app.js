@@ -36,7 +36,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.86 · 26/10/2026";
+const APP_VERSAO = "Prod 1.87 · 26/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -2069,14 +2069,15 @@ const CRUD_CONFIG = {
         supabase.from("responsaveis_tecnicos").select("id, nome, titulo, status").order("nome"),
       ]);
       treinoRefRespTecnicos = rts || [];
+      await carregarVinculosOmieTreinamento();
       treinoRefCategorias = data || [];
       treinoRefItensCusto = itens || [];
       treinoRefUnidades = unidades || [];
       treinoContagemItensCusto = {};
       (contagem || []).forEach((r) => { treinoContagemItensCusto[r.tipo_treinamento_id] = (treinoContagemItensCusto[r.tipo_treinamento_id] || 0) + 1; });
     },
-    camposExtraHtml: () => htmlSecaoItensCustoTreinamento(),
-    aoMontarForm: (item) => iniciarSecaoItensCustoTreinamento(item),
+    camposExtraHtml: () => htmlSecaoItensCustoTreinamento() + htmlSecaoOmieTreinamento(),
+    aoMontarForm: (item) => { const r = iniciarSecaoItensCustoTreinamento(item); iniciarSecaoOmieTreinamento(item); return r; },
     validarForm: () => {
       for (const [id, rot] of [["perc_apoio", "% de apoio"], ["perc_margem", "% de margem"], ["perc_imposto", "% de imposto"], ["perc_margem_minima", "% de margem mínima"]]) {
         const v = ($("crud-campo-" + id)?.value || "").trim();
@@ -2091,7 +2092,7 @@ const CRUD_CONFIG = {
       if (p.validade_padrao_dias == null || !(p.validade_padrao_dias >= 1)) p.validade_padrao_dias = 30;
       p.validade_padrao_dias = Math.round(p.validade_padrao_dias);
     },
-    aoSalvar: async (linha) => { await salvarItensCustoTreinamento(linha.id); },
+    aoSalvar: async (linha) => { await salvarItensCustoTreinamento(linha.id); await salvarSecaoOmieTreinamento(linha.id); },
     campos: [
       { id: "nome", label: "Nome do treinamento", obrigatorio: true },
       {
@@ -2140,6 +2141,7 @@ const CRUD_CONFIG = {
       i.dias_teoria_pratica && `📘🛠️ ${i.dias_teoria_pratica} dia(s) de teoria com prática`,
       i.alunos_por_instrutor && `👥 até ${i.alunos_por_instrutor} aluno(s) por instrutor`,
       treinoContagemItensCusto[i.id] && `🧾 ${treinoContagemItensCusto[i.id]} item(ns) de custo`,
+      treinoOmieServicos[i.id] ? `🔗 Omie: ${["GRU", "SAN"].filter((k) => treinoOmieServicos[i.id][k]).map((k) => OMIE_NOME[k]).join(" e ")}` : "⚠ Sem serviço do Omie",
       (Number(i.perc_apoio) || Number(i.perc_margem) || Number(i.perc_imposto)) && `📊 Apoio ${fmtPerc(i.perc_apoio)} · Margem ${fmtPerc(i.perc_margem)} · Imposto ${fmtPerc(i.perc_imposto)}`,
       (Number(i.perc_margem_minima) || Number(i.valor_margem_minimo)) && `🛡️ Margem mínima ${fmtPerc(i.perc_margem_minima)} · ${fmtBRL(i.valor_margem_minimo)} por turma`,
     ].filter(Boolean),
@@ -14877,12 +14879,16 @@ function carregarFaturamentoInit() {
 }
 
 function fatMostrarAba(aba) {
-  const f = aba === "faturar";
-  $("fat-painel-faturar").classList.toggle("hidden", !f);
-  $("fat-painel-emitidos").classList.toggle("hidden", f);
-  $("btn-fat-aba-faturar").className = `px-4 py-2 text-sm border-b-2 ${f ? "font-semibold border-amber-600 text-slate-900" : "border-transparent text-slate-500 hover:text-slate-800"}`;
-  $("btn-fat-aba-emitidos").className = `px-4 py-2 text-sm border-b-2 ${!f ? "font-semibold border-amber-600 text-slate-900" : "border-transparent text-slate-500 hover:text-slate-800"}`;
-  if (!f) fatBuscarEmitidos();
+  const cls = (on) => `px-4 py-2 text-sm border-b-2 ${on ? "font-semibold border-amber-600 text-slate-900" : "border-transparent text-slate-500 hover:text-slate-800"}`;
+  const admin = !!usuarioSistemaAtual && usuarioSistemaAtual.role === "admin";
+  if (aba === "omie" && !admin) aba = "faturar";
+  ["faturar", "emitidos", "omie"].forEach((a) => {
+    $("fat-painel-" + a).classList.toggle("hidden", a !== aba);
+    $("btn-fat-aba-" + a).className = cls(a === aba);
+  });
+  $("btn-fat-aba-omie").classList.toggle("hidden", !admin);
+  if (aba === "emitidos") fatBuscarEmitidos();
+  if (aba === "omie") omieCarregarConfig();
 }
 
 function fatMostrarListaOrcs() {
@@ -15089,15 +15095,199 @@ async function fatGerar() {
     if (error) throw error;
     $("fat-modal-confirmar").classList.add("hidden");
     const nums = (data.faturamentos || []).map((f) => fatNumero(f.numero)).join(", ");
-    await fatAbrirOrcamento(fatOrc.orc.id);
+    const orcId = fatOrc.orc.id;
+    await fatAbrirOrcamento(orcId);
     const ok = $("fat-orc-ok");
-    ok.textContent = `Faturamentos gerados: ${nums}.`;
+    ok.textContent = `Faturamentos gerados: ${nums}. Enviando ao Omie…`;
     ok.classList.remove("hidden");
+    const msgs = [];
+    let falhou = false;
+    for (const f of data.faturamentos || []) {
+      const r = await omieEnviarFaturamento(f.id);
+      if (!r.ok) falhou = true;
+      msgs.push(`${fatNumero(f.numero)}: ${omieResumoEnvio(r)}`);
+    }
+    ok.textContent = `Faturamentos gerados: ${nums}. Omie — ${msgs.join(" · ")}`;
+    ok.className = `${falhou ? "bg-amber-50 text-amber-800" : "bg-emerald-50 text-emerald-700"} text-sm rounded-md px-3 py-2 mb-3`;
+    if (falhou) ok.textContent += " — corrija e reenvie em Faturamentos emitidos > Abrir.";
   } catch (e) {
     mostrarErro("fat-conf-erro", "Não foi possível gerar os faturamentos: " + fatErroMsg(e));
   } finally {
     btn.disabled = false;
   }
+}
+
+// ---------- Integração Omie ----------
+// As chamadas ao Omie passam pela função "omie" no Supabase (as chaves nunca chegam ao navegador).
+const OMIE_NOME = { GRU: "Guarulhos", SAN: "Santos" };
+async function omieChamar(acao, extra = {}) {
+  try {
+    const resp = await fetch(`${SUPABASE_URL}/functions/v1/omie`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${await tokenAtualFuncoes()}` },
+      body: JSON.stringify({ acao, ...extra }),
+    });
+    const r = await resp.json().catch(() => ({}));
+    if (!resp.ok && r.ok === undefined) return { ok: false, error: `erro ${resp.status}` };
+    return r;
+  } catch (e) { return { ok: false, error: e?.message || "falha de conexão" }; }
+}
+async function omieEnviarFaturamento(id) { return omieChamar("enviar_faturamento", { faturamento_id: id }); }
+function omieResumoEnvio(r) {
+  if (!r || !r.resultados) return `⚠ ${r?.error || "não enviado"}`;
+  return r.resultados.map((x) => x.ok ? `✔ OS ${x.cod_int}${x.c_num_os ? " (nº " + x.c_num_os + ")" : ""} ${OMIE_NOME[x.conta]}` : `⚠ ${OMIE_NOME[x.conta]}: ${x.erro}`).join(" · ");
+}
+function omieChipLista(f) {
+  const os = (f.faturamento_omie_os || []).filter((o) => o.status !== "Excluída");
+  if (!os.length) return `<span class="text-[11px] text-slate-400">Omie: não enviado</span>`;
+  return os.map((o) => {
+    const cor = o.status === "Enviada" ? "text-emerald-700" : o.status === "Erro" ? "text-rose-600" : "text-amber-700";
+    const txt = o.status === "Enviada" ? `OS ${o.cod_int}${o.nfse ? " · NF " + o.nfse : ""}` : o.status === "Erro" ? "erro no envio" : "pendente";
+    return `<div class="text-[11px] ${cor}">Omie ${escH(OMIE_NOME[o.conta] || o.conta)}: ${escH(txt)}</div>`;
+  }).join("");
+}
+function omieBlocoEmitido(f) {
+  const os = (f.faturamento_omie_os || []).filter((o) => o.status !== "Excluída");
+  const pode = podeFazer("faturamento", "incluir") || podeFazer("faturamento", "alterar");
+  const pendente = !os.length || os.some((o) => o.status !== "Enviada");
+  const enviada = os.some((o) => o.status === "Enviada");
+  const linhas = os.map((o) => `<tr>
+      <td class="px-3 py-1.5">${escH(OMIE_NOME[o.conta] || o.conta)}</td>
+      <td class="px-3 py-1.5 font-medium">${escH(o.cod_int)}${o.c_num_os ? `<div class="text-[11px] text-slate-500 font-normal">nº no Omie: ${escH(o.c_num_os)}</div>` : ""}</td>
+      <td class="px-3 py-1.5 text-right">${o.valor != null ? escH(fmtBRL(o.valor)) : "—"}</td>
+      <td class="px-3 py-1.5">${o.status === "Enviada" ? `<span class="text-emerald-700">Enviada (etapa Faturar)</span>` : o.status === "Erro" ? `<span class="text-rose-600">Erro</span><div class="text-[11px] text-rose-600">${escH(o.erro || "")}</div>` : escH(o.status)}${o.enviado_em ? `<div class="text-[11px] text-slate-400">${escH(formatarDataHoraBr(o.enviado_em))}${o.enviado_por ? " · " + escH(o.enviado_por) : ""}</div>` : ""}</td>
+      <td class="px-3 py-1.5">${escH(o.nfse || "—")}</td>
+    </tr>`).join("");
+  return `<div class="border border-slate-200 rounded-md">
+    <div class="flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-slate-50 rounded-t-md">
+      <span class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Omie — Ordem de Serviço</span>
+      <span class="flex gap-3">
+        ${pode && pendente ? `<button type="button" data-omie-acao="enviar" class="text-xs font-medium text-amber-700 hover:underline">${os.length ? "Reenviar ao Omie" : "Enviar ao Omie"}</button>` : ""}
+        ${enviada ? `<button type="button" data-omie-acao="status" class="text-xs font-medium text-slate-700 hover:underline">Buscar nota fiscal no Omie</button>` : ""}
+      </span>
+    </div>
+    ${os.length ? `<div class="overflow-x-auto"><table class="w-full text-sm"><thead class="text-left text-[11px] uppercase tracking-wide text-slate-500"><tr><th class="px-3 py-1">Empresa</th><th class="px-3 py-1">Código da OS</th><th class="px-3 py-1 text-right">Valor</th><th class="px-3 py-1">Situação</th><th class="px-3 py-1">NFS-e</th></tr></thead><tbody class="divide-y divide-slate-100">${linhas}</tbody></table></div>`
+      : `<p class="px-3 py-2 text-sm text-slate-500">Ainda não enviado ao Omie.</p>`}
+  </div>`;
+}
+
+// configuração (aba Integração Omie — administrador)
+let omieCfg = { contas: [], centros: [], listas: {} };
+async function omieCarregarConfig(testar = false) {
+  esconderErro("omie-cfg-erro"); $("omie-cfg-ok").classList.add("hidden");
+  $("omie-cfg-contas").innerHTML = `<div class="text-sm text-slate-500">Carregando…</div>`;
+  const [{ data: contas }, { data: centros }, st] = await Promise.all([
+    supabase.from("omie_contas").select("*").order("conta"),
+    supabase.from("centros_treinamento").select("id, nome, status, omie_conta").order("nome"),
+    omieChamar("status"),
+  ]);
+  omieCfg.contas = contas || []; omieCfg.centros = (centros || []).filter((c) => c.status !== "Inativo");
+  const stMap = {}; ((st && st.contas) || []).forEach((c) => { stMap[c.conta] = c; });
+  // listas de categorias e contas correntes de cada empresa conectada
+  for (const c of omieCfg.contas) {
+    const s = stMap[c.conta];
+    if (s && s.conectada && (testar || !omieCfg.listas[c.conta])) {
+      const [cats, ccs] = await Promise.all([omieChamar("listar_categorias", { conta: c.conta }), omieChamar("listar_contas", { conta: c.conta })]);
+      omieCfg.listas[c.conta] = { cats: cats.ok ? cats.itens : [], ccs: ccs.ok ? ccs.itens : [], erro: cats.ok && ccs.ok ? "" : (cats.error || ccs.error) };
+    }
+  }
+  $("omie-cfg-contas").innerHTML = omieCfg.contas.map((c) => {
+    const s = stMap[c.conta] || {};
+    const l = omieCfg.listas[c.conta] || { cats: [], ccs: [] };
+    const situ = !s.configurada ? `<span class="text-amber-700">Chaves não cadastradas no Supabase (OMIE_${c.conta}_APP_KEY / OMIE_${c.conta}_APP_SECRET)</span>`
+      : s.conectada ? `<span class="text-emerald-700">✔ Conectado${s.razao_social ? " — " + escH(s.razao_social) : ""}${s.cnpj ? " (" + escH(s.cnpj) + ")" : ""}</span>`
+      : `<span class="text-rose-600">⚠ ${escH(s.erro || "falha na conexão")}</span>`;
+    const opc = (lista, valor, desc, campoCod) => {
+      const itens = lista.slice();
+      if (valor && !itens.some((i) => String(i[campoCod]) === String(valor))) itens.unshift({ [campoCod]: valor, descricao: desc || String(valor) });
+      return `<option value="">— padrão (${campoCod === "codigo" && lista === l.cats ? "Receita Serviços" : "Bradesco Alternativa"}) —</option>` + itens.map((i) => `<option value="${escH(i[campoCod])}" ${String(i[campoCod]) === String(valor ?? "") ? "selected" : ""}>${escH((lista === l.cats ? i.codigo + " · " : "") + i.descricao)}</option>`).join("");
+    };
+    return `<div class="bg-white border border-slate-200 rounded-lg p-4" data-omie-conta="${c.conta}">
+      <h4 class="font-semibold text-sm">Omie ${escH(OMIE_NOME[c.conta])}</h4>
+      <p class="text-xs mt-1 mb-3">${situ}</p>
+      ${l.erro ? `<p class="text-xs text-rose-600 mb-2">${escH(l.erro)}</p>` : ""}
+      <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Categoria</label>
+      <select data-omie-campo="cat" class="mt-1 mb-3 w-full rounded-md border border-slate-300 px-3 py-2 text-sm" ${s.conectada ? "" : "disabled"}>${opc(l.cats, c.categoria_codigo, c.categoria_descricao, "codigo")}</select>
+      <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Conta corrente</label>
+      <select data-omie-campo="cc" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm" ${s.conectada ? "" : "disabled"}>${opc(l.ccs, c.conta_corrente_codigo, c.conta_corrente_descricao, "codigo")}</select>
+    </div>`;
+  }).join("");
+  $("omie-cfg-centros").innerHTML = omieCfg.centros.map((c) => `<div class="flex flex-wrap items-center justify-between gap-2">
+      <span class="text-sm">${escH(c.nome)}</span>
+      <select data-omie-centro="${escH(c.id)}" class="rounded-md border border-slate-300 px-3 py-1.5 text-sm">
+        <option value="">— não fatura —</option>
+        ${["GRU", "SAN"].map((k) => `<option value="${k}" ${c.omie_conta === k ? "selected" : ""}>Omie ${OMIE_NOME[k]}</option>`).join("")}
+      </select></div>`).join("");
+  if (st && !st.ok) mostrarErro("omie-cfg-erro", "Omie: " + (st.error || "erro"));
+}
+async function omieSalvarConfig() {
+  esconderErro("omie-cfg-erro"); $("omie-cfg-ok").classList.add("hidden");
+  const contas = [...document.querySelectorAll("[data-omie-conta]")].map((el) => {
+    const conta = el.getAttribute("data-omie-conta");
+    const cat = el.querySelector('[data-omie-campo="cat"]'); const cc = el.querySelector('[data-omie-campo="cc"]');
+    const tx = (sel) => (sel.value ? sel.options[sel.selectedIndex].textContent : "");
+    return { conta, categoria_codigo: cat.value || null, categoria_descricao: cat.value ? tx(cat).replace(/^[\d.]+ · /, "") : null, conta_corrente_codigo: cc.value || null, conta_corrente_descricao: cc.value ? tx(cc) : null };
+  });
+  const centros = [...document.querySelectorAll("[data-omie-centro]")].map((el) => ({ id: el.getAttribute("data-omie-centro"), omie_conta: el.value || null }));
+  const r = await omieChamar("salvar_config", { contas, centros });
+  if (!r.ok) { mostrarErro("omie-cfg-erro", "Não foi possível salvar: " + r.error); return; }
+  const ok = $("omie-cfg-ok"); ok.textContent = "Configuração do Omie salva."; ok.classList.remove("hidden");
+}
+
+// cadastro de Treinamentos: serviço do Omie em cada empresa
+let treinoOmieServicos = {};      // tipo_treinamento_id -> { GRU: {...}, SAN: {...} }
+let omieListaServicos = {};       // conta -> [{ n_cod_serv, codigo, descricao }] | { erro }
+async function carregarVinculosOmieTreinamento() {
+  const { data } = await supabase.from("tipo_treinamento_omie_servico").select("tipo_treinamento_id, conta, n_cod_serv, codigo, descricao");
+  treinoOmieServicos = {};
+  (data || []).forEach((r) => { (treinoOmieServicos[r.tipo_treinamento_id] = treinoOmieServicos[r.tipo_treinamento_id] || {})[r.conta] = r; });
+}
+function htmlSecaoOmieTreinamento() {
+  return `<div class="pt-4 mt-2 border-t border-slate-200" id="treino-omie-secao">
+    <div class="flex flex-wrap items-center justify-between gap-2 mb-1">
+      <p class="text-xs font-medium text-slate-500 uppercase tracking-wide">Serviço no Omie (usado no faturamento)</p>
+      <span id="treino-omie-msg" class="text-xs text-slate-500"></span>
+    </div>
+    <div class="grid sm:grid-cols-2 gap-3">
+      ${["GRU", "SAN"].map((k) => `<div><label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Omie ${OMIE_NOME[k]}</label>
+        <select id="treino-omie-${k}" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"><option value="">Carregando…</option></select></div>`).join("")}
+    </div>
+  </div>`;
+}
+async function iniciarSecaoOmieTreinamento(item) {
+  const atual = (item && treinoOmieServicos[item.id]) || {};
+  const montar = (k) => {
+    const sel = $("treino-omie-" + k); if (!sel) return;
+    const lista = Array.isArray(omieListaServicos[k]) ? omieListaServicos[k].slice() : [];
+    const cur = atual[k];
+    if (cur && !lista.some((s) => Number(s.n_cod_serv) === Number(cur.n_cod_serv))) lista.unshift({ n_cod_serv: cur.n_cod_serv, codigo: cur.codigo, descricao: cur.descricao || "(serviço atual)" });
+    sel.innerHTML = `<option value="">— Nenhum —</option>` + lista.map((s) => `<option value="${escH(s.n_cod_serv)}" data-cod="${escH(s.codigo || "")}" data-desc="${escH(s.descricao || "")}" ${cur && Number(cur.n_cod_serv) === Number(s.n_cod_serv) ? "selected" : ""}>${escH((s.codigo ? s.codigo + " · " : "") + (s.descricao || ""))}</option>`).join("");
+  };
+  ["GRU", "SAN"].forEach(montar);
+  const faltam = ["GRU", "SAN"].filter((k) => !Array.isArray(omieListaServicos[k]));
+  if (!faltam.length) return;
+  if ($("treino-omie-msg")) $("treino-omie-msg").textContent = "Buscando serviços no Omie…";
+  const erros = [];
+  for (const k of faltam) {
+    const r = await omieChamar("listar_servicos", { conta: k });
+    if (r.ok) omieListaServicos[k] = r.itens || []; else erros.push(`${OMIE_NOME[k]}: ${r.error}`);
+  }
+  ["GRU", "SAN"].forEach(montar);
+  if ($("treino-omie-msg")) { $("treino-omie-msg").textContent = erros.join(" · "); $("treino-omie-msg").className = `text-xs ${erros.length ? "text-amber-700" : "text-slate-500"}`; }
+}
+async function salvarSecaoOmieTreinamento(id) {
+  if (!id || !$("treino-omie-GRU")) return;
+  const atual = treinoOmieServicos[id] || {};
+  for (const k of ["GRU", "SAN"]) {
+    const sel = $("treino-omie-" + k);
+    const v = sel.value ? Number(sel.value) : null;
+    if (sel.options.length <= 1 && !v && atual[k]) continue; // lista não carregou: não apaga o vínculo
+    if ((atual[k] ? Number(atual[k].n_cod_serv) : null) === v) continue;
+    const opt = sel.options[sel.selectedIndex];
+    const r = await omieChamar("salvar_servico", { tipo_treinamento_id: id, conta: k, n_cod_serv: v, codigo: opt?.getAttribute("data-cod") || null, descricao: opt?.getAttribute("data-desc") || null });
+    if (!r.ok) { const e = new Error(r.error); e.mensagemUsuario = `Treinamento salvo, mas o serviço do Omie ${OMIE_NOME[k]} não foi gravado: ${r.error}`; throw e; }
+  }
+  await carregarVinculosOmieTreinamento();
 }
 
 // ---------- Faturamentos emitidos ----------
@@ -15107,7 +15297,7 @@ async function fatBuscarEmitidos() {
   const st = $("fat-em-status").value;
   const { data, error } = await buscarTodos(() => {
     let q = supabase.from("faturamentos")
-      .select("id, numero, orcamento_id, cnpj, cnpj_digitos, razao_social, modo, alunos, valor_bruto, perc_desconto, valor_desconto, valor_final, ordem_compra, vencimento, observacoes, nota_fiscal, status, criado_por, created_at, cancelado_em, cancelado_por, cancelado_motivo, orcamentos(numero, empresas(nome)), faturamento_itens(turma_identificacao, alunos, valor_base, valor_excedentes, valor)");
+      .select("id, numero, orcamento_id, cnpj, cnpj_digitos, razao_social, modo, alunos, valor_bruto, perc_desconto, valor_desconto, valor_final, ordem_compra, vencimento, observacoes, nota_fiscal, status, criado_por, created_at, cancelado_em, cancelado_por, cancelado_motivo, orcamentos(numero, empresas(nome)), faturamento_itens(turma_identificacao, alunos, valor_base, valor_excedentes, valor), faturamento_omie_os(id, conta, cod_int, n_cod_os, c_num_os, valor, status, erro, nfse, enviado_em, enviado_por)");
     if (st) q = q.eq("status", st);
     return q.order("numero", { ascending: false });
   });
@@ -15128,7 +15318,7 @@ function fatRenderEmitidos() {
       <td class="px-3 py-2 text-right">${f.alunos}</td>
       <td class="px-3 py-2 text-right font-semibold whitespace-nowrap">${escH(fmtBRL(f.valor_final))}</td>
       <td class="px-3 py-2 whitespace-nowrap">${escH(fatData(f.vencimento))}</td>
-      <td class="px-3 py-2">${fatChip(f.status, f.status === "Emitido" ? FAT_COR.verde : FAT_COR.rosa)}</td>
+      <td class="px-3 py-2">${fatChip(f.status, f.status === "Emitido" ? FAT_COR.verde : FAT_COR.rosa)}${f.status === "Emitido" ? `<div class="mt-1">${omieChipLista(f)}</div>` : ""}</td>
       <td class="px-3 py-2 text-right"><button type="button" data-fat-emitido="${escH(f.id)}" class="text-xs font-medium text-amber-700 hover:underline">Abrir</button></td>
     </tr>`).join("") : `<tr><td colspan="8" class="px-3 py-4 text-slate-500">Nenhum faturamento encontrado.</td></tr>`;
 }
@@ -15152,6 +15342,7 @@ function fatAbrirEmitido(id) {
         <tr><td class="px-3 py-1.5" colspan="4">Desconto do orçamento (${escH(Number(f.perc_desconto).toLocaleString("pt-BR", { maximumFractionDigits: 2 }))}%)</td><td class="px-3 py-1.5 text-right">− ${escH(fmtBRL(f.valor_desconto))}</td></tr>
         <tr class="font-semibold"><td class="px-3 py-1.5" colspan="4">Valor final</td><td class="px-3 py-1.5 text-right">${escH(fmtBRL(f.valor_final))}</td></tr></tfoot>
     </table></div>
+    ${emitido ? `<div id="fat-emi-omie" class="mt-3">${omieBlocoEmitido(f)}</div>` : ""}
     ${emitido ? "" : `<p class="mt-2 text-sm text-rose-700">Cancelado em ${escH(formatarDataHoraBr(f.cancelado_em))}${f.cancelado_por ? " por " + escH(f.cancelado_por) : ""}. Motivo: ${escH(f.cancelado_motivo || "—")}</p>`}`;
   $("fat-emi-oc").value = f.ordem_compra || "";
   $("fat-emi-venc").value = f.vencimento || "";
@@ -15177,6 +15368,10 @@ async function fatCancelarEmitido() {
   esconderErro("fat-emi-erro");
   const motivo = $("fat-emi-motivo").value.trim();
   if (motivo.length < 3) { mostrarErro("fat-emi-erro", "Informe o motivo do cancelamento."); return; }
+  if ((fatEmitidoAberto.faturamento_omie_os || []).some((o) => o.status === "Enviada")) {
+    const r = await omieChamar("excluir_os", { faturamento_id: fatEmitidoAberto.id });
+    if (!r.ok) { mostrarErro("fat-emi-erro", "Não foi possível excluir a OS no Omie: " + r.error); return; }
+  }
   const { error } = await supabase.rpc("cancelar_faturamento", { p_id: fatEmitidoAberto.id, p_motivo: motivo });
   if (error) { mostrarErro("fat-emi-erro", "Não foi possível cancelar: " + fatErroMsg(error)); return; }
   $("fat-modal-emitido").classList.add("hidden");
@@ -15185,6 +15380,24 @@ async function fatCancelarEmitido() {
 
 $("btn-fat-aba-faturar").addEventListener("click", () => { fatMostrarAba("faturar"); });
 $("btn-fat-aba-emitidos").addEventListener("click", () => { fatMostrarAba("emitidos"); });
+$("btn-fat-aba-omie").addEventListener("click", () => { fatMostrarAba("omie"); });
+$("btn-omie-cfg-recarregar").addEventListener("click", () => omieCarregarConfig(true));
+$("btn-omie-cfg-salvar").addEventListener("click", omieSalvarConfig);
+$("fat-emi-corpo").addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-omie-acao]");
+  if (!b || !fatEmitidoAberto) return;
+  esconderErro("fat-emi-erro");
+  const acao = b.getAttribute("data-omie-acao");
+  b.disabled = true; const txt = b.textContent; b.textContent = "Aguarde…";
+  const r = acao === "enviar" ? await omieEnviarFaturamento(fatEmitidoAberto.id) : await omieChamar("atualizar_status", { faturamento_id: fatEmitidoAberto.id });
+  b.disabled = false; b.textContent = txt;
+  if (!r.ok) mostrarErro("fat-emi-erro", "Omie: " + (r.error || "erro desconhecido"));
+  const { data } = await supabase.from("faturamento_omie_os").select("id, conta, cod_int, n_cod_os, c_num_os, valor, status, erro, nfse, enviado_em, enviado_por").eq("faturamento_id", fatEmitidoAberto.id);
+  fatEmitidoAberto.faturamento_omie_os = data || [];
+  if (acao === "status" && r.ok && (r.notas || []).length && !$("fat-emi-nf").value.trim()) $("fat-emi-nf").value = r.notas.join(", ");
+  $("fat-emi-omie").innerHTML = omieBlocoEmitido(fatEmitidoAberto);
+  if (acao === "status" && r.ok && !(r.notas || []).length) mostrarErro("fat-emi-erro", "O Omie ainda não retornou nota fiscal para esta OS (ainda não foi faturada lá).");
+});
 $("btn-fat-buscar").addEventListener("click", fatCarregarOrcamentos);
 $("fat-busca").addEventListener("input", fatRenderOrcs);
 $("fat-orcs-tbody").addEventListener("click", (e) => { const b = e.target.closest("[data-fat-abrir]"); if (b) fatAbrirOrcamento(b.getAttribute("data-fat-abrir")); });
