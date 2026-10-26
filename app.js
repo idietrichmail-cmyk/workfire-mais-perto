@@ -36,7 +36,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.85 · 26/10/2026";
+const APP_VERSAO = "Prod 1.86 · 26/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -14641,7 +14641,88 @@ async function caAbrir(turmaId) {
   // turma ainda sem registro: todos os alunos começam marcados; o usuário desmarca quem não recebeu
   caSel = new Set(caAberta.alunos.filter((a) => (registrada ? a.certificado_emitido : true)).map((a) => a.id));
   caRenderDetalhe();
+  if (t.semCert) caPresencaCarregar(t.id);
 }
+
+// ---------- Lista de presença (mesma tabela/bucket que o instrutor usa no agenda-instrutores) ----------
+const CA_PRESENCA_MAX_MB = 15;
+let caPresencaToken = 0;
+
+async function caPresencaCarregar(turmaId) {
+  const tok = ++caPresencaToken;
+  const status = $("ca-presenca-status"), grade = $("ca-presenca-grade");
+  esconderErro("ca-presenca-erro");
+  status.textContent = "Verificando a lista de presença…";
+  status.className = "text-xs text-slate-500";
+  grade.innerHTML = "";
+  const pode = podeFazer("certificados_alunos", "alterar");
+  $("ca-presenca-envio").classList.toggle("hidden", !pode);
+  const { data, error } = await supabase.from("turma_midias").select("id, caminho_arquivo, criado_em, instrutor_id")
+    .eq("turma_id", turmaId).eq("tipo", "foto_presenca").order("criado_em", { ascending: true });
+  if (tok !== caPresencaToken) return;
+  if (error) { status.textContent = "Não foi possível consultar a lista de presença: " + fatErroMsg(error); status.className = "text-xs text-rose-600"; return; }
+  const arqs = data || [];
+  if (!arqs.length) {
+    status.textContent = "Lista de presença: não carregada.";
+    status.className = "text-xs font-medium text-amber-700";
+    $("btn-ca-presenca-enviar").textContent = "Enviar lista de presença";
+    return;
+  }
+  status.textContent = `Lista de presença: carregada (${arqs.length} arquivo${arqs.length > 1 ? "s" : ""}).`;
+  status.className = "text-xs font-medium text-teal-700";
+  $("btn-ca-presenca-enviar").textContent = "Anexar mais arquivos";
+  const urls = await Promise.all(arqs.map((m) => urlArquivoTurmaMidia(m.caminho_arquivo)));
+  if (tok !== caPresencaToken) return;
+  grade.innerHTML = arqs.map((m, i) => {
+    const u = urls[i];
+    if (!u) return `<div class="aspect-square rounded-md border border-slate-200 bg-slate-50 flex items-center justify-center text-[10px] text-slate-400">indisponível</div>`;
+    const dt = m.criado_em ? formatarDataBr(String(m.criado_em).slice(0, 10)) : "";
+    if (/\.pdf$/i.test(m.caminho_arquivo)) return `<a href="${escH(u)}" target="_blank" rel="noopener" class="aspect-square rounded-md border border-slate-200 bg-slate-50 hover:bg-slate-100 flex flex-col items-center justify-center text-slate-600"><span class="text-2xl">📄</span><span class="text-[11px] font-medium">PDF</span><span class="text-[10px] text-slate-400">${escH(dt)}</span></a>`;
+    return `<a href="${escH(u)}" target="_blank" rel="noopener" title="${escH(dt)}" class="block aspect-square rounded-md overflow-hidden border border-slate-200 bg-slate-50 hover:opacity-80"><img src="${escH(u)}" loading="lazy" class="w-full h-full object-cover" alt="Lista de presença" /></a>`;
+  }).join("");
+}
+
+async function caPresencaEnviar(files) {
+  esconderErro("ca-presenca-erro");
+  if (!caAberta || !files.length) return;
+  const turmaId = caAberta.turma.id;
+  const uid = sessaoAtual && sessaoAtual.user && sessaoAtual.user.id;
+  if (!uid) { mostrarErro("ca-presenca-erro", "Sessão expirada. Entre novamente."); return; }
+  const tiposOk = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "application/pdf": "pdf" };
+  const extDe = (f) => tiposOk[f.type] || ((f.name.match(/\.([a-z0-9]+)$/i) || [])[1] || "").toLowerCase();
+  const permitidas = ["jpg", "jpeg", "png", "webp", "pdf"];
+  for (const f of files) {
+    if (!permitidas.includes(extDe(f))) { mostrarErro("ca-presenca-erro", `Arquivo “${f.name}” não aceito. Envie foto (JPG, PNG) ou PDF.`); return; }
+    if (f.size > CA_PRESENCA_MAX_MB * 1024 * 1024) { mostrarErro("ca-presenca-erro", `Arquivo “${f.name}” passa de ${CA_PRESENCA_MAX_MB} MB.`); return; }
+  }
+  const btn = $("btn-ca-presenca-enviar");
+  btn.disabled = true;
+  const rotuloBtn = btn.textContent;
+  let enviados = 0;
+  try {
+    for (const f of files) {
+      btn.textContent = `Enviando ${enviados + 1} de ${files.length}…`;
+      const ext = extDe(f).replace("jpeg", "jpg");
+      const caminho = `${turmaId}/foto_presenca/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+      const ct = f.type || (ext === "pdf" ? "application/pdf" : "image/" + ext);
+      const up = await supabase.storage.from("turma-midias").upload(caminho, f, { contentType: ct, upsert: false });
+      if (up.error) throw up.error;
+      const ins = await supabase.from("turma_midias").insert({ turma_id: turmaId, instrutor_id: null, tipo: "foto_presenca", caminho_arquivo: caminho, enviado_por_usuario_id: uid });
+      if (ins.error) throw ins.error;
+      enviados++;
+    }
+  } catch (e) {
+    mostrarErro("ca-presenca-erro", `Não foi possível enviar${enviados ? ` (${enviados} enviado(s) antes do erro)` : ""}: ` + fatErroMsg(e));
+  } finally {
+    btn.disabled = false;
+    btn.textContent = rotuloBtn;
+    $("ca-presenca-arquivo").value = "";
+  }
+  if (caAberta && caAberta.turma.id === turmaId) await caPresencaCarregar(turmaId);
+}
+
+$("btn-ca-presenca-enviar").addEventListener("click", () => $("ca-presenca-arquivo").click());
+$("ca-presenca-arquivo").addEventListener("change", (e) => caPresencaEnviar(Array.from(e.target.files || [])));
 
 function caRenderDetalhe() {
   const { turma: t, alunos, registrada, faturada } = caAberta;
@@ -14650,7 +14731,8 @@ function caRenderDetalhe() {
   $("ca-bloco-cert").classList.toggle("hidden", !!t.semCert);
   $("ca-bloco-treinados").classList.toggle("hidden", !t.semCert);
   if (t.semCert) {
-    const pode = podeFazer("certificados_alunos", "alterar") && !registrada;
+    // A quantidade pode ser alterada quantas vezes for preciso, até a turma ser faturada.
+    const pode = podeFazer("certificados_alunos", "alterar") && !faturada;
     $("ca-det-cab").innerHTML = `
       <div class="flex flex-wrap items-baseline gap-x-4 gap-y-1">
         <h3 class="text-lg font-semibold">Turma ${escH(t.identificacao || "—")}</h3>
@@ -14658,12 +14740,18 @@ function caRenderDetalhe() {
       </div>
       <p class="text-sm text-slate-500 mt-1">${escH((t.tipos_treinamento && t.tipos_treinamento.nome) || "—")} · ${escH(fatData(t.data_inicio))}${t.data_fim && t.data_fim !== t.data_inicio ? " a " + escH(fatData(t.data_fim)) : ""} · alunos orçados por turma: ${escH(o.qtd_alunos_por_turma != null ? o.qtd_alunos_por_turma : "—")}</p>
       <p class="text-xs mt-1 ${registrada ? "text-teal-700" : "text-amber-700"}">${registrada ? `Registrado em ${escH(formatarDataHoraBr(t.certificados_registrados_em))}${t.certificados_registrados_por ? " por " + escH(t.certificados_registrados_por) : ""}` : "Este treinamento não emite certificado: informe quantos alunos foram treinados."}</p>`;
-    $("ca-treinados-qtd").value = registrada ? String(t.qtd_alunos_treinados || "") : ($("ca-treinados-qtd").value || String(alunos.length || ""));
+    $("ca-treinados-qtd").value = registrada ? String(t.qtd_alunos_treinados || "") : String(alunos.length || "");
     $("ca-treinados-qtd").disabled = !pode;
     $("btn-ca-registrar-treinados").classList.toggle("hidden", !pode);
-    $("ca-treinados-nota").textContent = registrada
-      ? `O registro é feito uma única vez e não pode ser alterado.${faturada ? ` Esta turma já foi faturada (${t.numeroFat != null ? fatNumero(t.numeroFat) : "no sistema anterior, 3S"}).` : ""}`
-      : (pode ? `A turma tem ${alunos.length} aluno(s) cadastrado(s). O faturamento usa a quantidade informada aqui (regra do orçamento: até ${o.qtd_alunos_por_turma != null ? o.qtd_alunos_por_turma : "—"} alunos cobra o valor da turma).` : "Você não tem permissão para registrar.");
+    $("btn-ca-registrar-treinados").textContent = registrada ? "Alterar quantidade" : "Registrar";
+    const infoFat = faturada ? ` Esta turma já foi faturada (${t.numeroFat != null ? fatNumero(t.numeroFat) : "no sistema anterior, 3S"}) e a quantidade não pode mais ser alterada.` : "";
+    $("ca-treinados-nota").textContent = faturada
+      ? infoFat.trim()
+      : !pode
+        ? "Você não tem permissão para registrar."
+        : registrada
+          ? "A quantidade pode ser alterada até a turma ser faturada. Depois do faturamento ela fica bloqueada."
+          : `A turma tem ${alunos.length} aluno(s) cadastrado(s). O faturamento usa a quantidade informada aqui (regra do orçamento: até ${o.qtd_alunos_por_turma != null ? o.qtd_alunos_por_turma : "—"} alunos cobra o valor da turma). A quantidade pode ser alterada até a turma ser faturada.`;
     return;
   }
   const podeAlterar = podeFazer("certificados_alunos", "alterar") && !registrada;
@@ -14747,7 +14835,13 @@ async function caRegistrarTreinados() {
   esconderErro("ca-det-erro"); $("ca-det-ok").classList.add("hidden");
   const qtd = parseInt($("ca-treinados-qtd").value, 10);
   if (!(qtd >= 1 && qtd <= 5000)) { mostrarErro("ca-det-erro", "Informe quantos alunos foram treinados (de 1 a 5000)."); return; }
-  if (!confirm(`Registrar ${qtd} aluno(s) treinado(s) nesta turma?\n\nO registro é feito uma única vez e não poderá ser alterado depois.`)) return;
+  const t0 = caAberta.turma;
+  const anterior = t0.certificados_registrados_em ? Number(t0.qtd_alunos_treinados) || 0 : null;
+  if (anterior != null && anterior === qtd) { mostrarErro("ca-det-erro", `A quantidade informada (${qtd}) é a mesma já registrada.`); return; }
+  const msgConf = anterior != null
+    ? `Alterar a quantidade de alunos treinados de ${anterior} para ${qtd}?\n\nA alteração só é possível até a turma ser faturada.`
+    : `Registrar ${qtd} aluno(s) treinado(s) nesta turma?\n\nA quantidade poderá ser alterada até a turma ser faturada.`;
+  if (!confirm(msgConf)) return;
   const btn = $("btn-ca-registrar-treinados");
   btn.disabled = true;
   try {
@@ -14757,7 +14851,9 @@ async function caRegistrarTreinados() {
     await caBuscar();
     caMostrarLista();
     caRenderLista();
-    $("ca-resumo").textContent = `Turma ${rotulo} registrada: ${qtd} aluno(s) treinado(s). A turma já está disponível para faturar.`;
+    $("ca-resumo").textContent = anterior != null
+      ? `Turma ${rotulo} atualizada: de ${anterior} para ${qtd} aluno(s) treinado(s).`
+      : `Turma ${rotulo} registrada: ${qtd} aluno(s) treinado(s). A turma já está disponível para faturar.`;
   } catch (e) {
     mostrarErro("ca-det-erro", "Não foi possível registrar: " + fatErroMsg(e));
   } finally {

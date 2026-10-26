@@ -1725,3 +1725,13 @@ create table if not exists certificado_imagens (certificado_id uuid primary key 
 -- (por "Carga 3S (legado)") e alunos com certificado_emitido = true. Tudo registrado em
 -- importacao_legado_log (lote 'a3s-AAAA-MM'), com 'antes' dos campos alterados.
 -- Telas de Emissão de Certificados e de Atestados: filtro por intervalo De/Até + "Orçamento ou empresa".
+
+-- ===========================================================
+-- v1.86 — quantidade de treinados editável até faturar + lista de presença enviada pelo escritório
+-- ===========================================================
+-- registrar_treinados: pode ser refeito; bloqueia só quando a turma foi faturada (faturamento 'Emitido' ou turmas.faturada_3s).
+-- turma_midias.instrutor_id passa a aceitar nulo; nova coluna enviado_por_usuario_id (envio feito pelo escritório).
+-- Políticas: turma_midias_escritorio_insert (tabela) e turma_midias_storage_escritorio_insert (storage, pasta <turma_id>/foto_presenca/...)
+--   para admin do sistema ou módulo certificados_alunos com "alterar".
+-- pode_acessar_tabela: ('certificados_alunos','turma_midias','leitura') para consulta da lista de presença.
+-- (Definição completa aplicada via migration v186_treinados_editavel_lista_presenca.)
