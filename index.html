@@ -1156,17 +1156,25 @@
             <select id="ec-ct" class="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm"></select>
           </div>
           <div>
-            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide" for="ec-data">Data do treinamento</label>
-            <input type="date" id="ec-data" class="mt-1 block rounded-md border border-slate-300 px-3 py-2 text-sm" />
+            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide" for="ec-de">De</label>
+            <input type="date" id="ec-de" class="mt-1 block rounded-md border border-slate-300 px-3 py-2 text-sm" />
+          </div>
+          <div>
+            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide" for="ec-ate">Até</label>
+            <input type="date" id="ec-ate" class="mt-1 block rounded-md border border-slate-300 px-3 py-2 text-sm" />
+          </div>
+          <div class="min-w-[240px] flex-1">
+            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide" for="ec-busca">Orçamento ou empresa</label>
+            <input id="ec-busca" type="search" placeholder="Número do orçamento ou nome da empresa" class="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm" />
           </div>
           <button id="btn-ec-buscar" type="button" class="bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium px-4 py-2 rounded-md">Buscar</button>
         </div>
-        <p class="text-xs text-slate-500 mb-3">Lista os treinamentos que terminam na data escolhida. Em treinamentos de mais de um dia, o certificado é emitido no último dia, para os alunos da lista desse dia. Cada certificado recebe número exclusivo e QR de verificação.</p>
+        <p class="text-xs text-slate-500 mb-3">Lista os treinamentos que terminam no período escolhido (De / Até). Você pode filtrar também pelo número do orçamento ou pelo nome da empresa; para buscar só por orçamento/empresa, apague as datas. Em treinamentos de mais de um dia, o certificado é emitido no último dia, para os alunos da lista desse dia. Cada certificado recebe número exclusivo e QR de verificação.</p>
         <div id="ec-erro" class="hidden bg-rose-50 text-rose-600 text-sm rounded-md px-3 py-2 mb-3"></div>
         <div id="ec-ok" class="hidden bg-emerald-50 text-emerald-700 text-sm rounded-md px-3 py-2 mb-3"></div>
         <div class="grid gap-4 lg:grid-cols-[340px_minmax(0,1fr)] items-start">
           <div>
-            <h3 class="text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-2">Treinamentos do dia</h3>
+            <h3 class="text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-2">Treinamentos do período</h3>
             <div id="ec-turmas" class="space-y-2"></div>
             <p id="ec-turmas-nota" class="mt-2 text-xs text-slate-400"></p>
           </div>
@@ -1205,6 +1213,14 @@
 
         <div id="at-lista">
           <div class="mb-3 bg-white border border-slate-200 rounded-xl p-4 flex flex-wrap items-end gap-3">
+            <div>
+              <label class="text-xs font-medium text-slate-500 uppercase tracking-wide" for="at-de">De</label>
+              <input type="date" id="at-de" class="mt-1 block rounded-md border border-slate-300 px-3 py-2 text-sm" />
+            </div>
+            <div>
+              <label class="text-xs font-medium text-slate-500 uppercase tracking-wide" for="at-ate">Até</label>
+              <input type="date" id="at-ate" class="mt-1 block rounded-md border border-slate-300 px-3 py-2 text-sm" />
+            </div>
             <div class="min-w-[260px] flex-1">
               <label class="text-xs font-medium text-slate-500 uppercase tracking-wide" for="at-busca">Orçamento ou empresa</label>
               <input id="at-busca" type="search" placeholder="Número do orçamento ou nome da empresa" class="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm" />
@@ -2674,6 +2690,6 @@
 </div>
 
 <script src="config.js"></script>
-<script src="app.js?v=20261026a"></script>
+<script src="app.js?v=20261026b"></script>
 </body>
 </html>

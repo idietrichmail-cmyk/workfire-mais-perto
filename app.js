@@ -36,7 +36,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.84 · 26/10/2026";
+const APP_VERSAO = "Prod 1.85 · 26/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -14567,7 +14567,7 @@ async function caBuscar() {
     const de = $("ca-data-de").value, ate = $("ca-data-ate").value;
     const { data: turmas, error } = await buscarTodos(() => {
       let q = supabase.from("turmas")
-        .select("id, identificacao, data_inicio, data_fim, status, orcamento_id, certificados_registrados_em, certificados_registrados_por, qtd_alunos_treinados, orcamentos(numero, qtd_alunos_por_turma, empresas(nome)), tipos_treinamento(nome, emite_certificado)")
+        .select("id, identificacao, data_inicio, data_fim, status, orcamento_id, certificados_registrados_em, certificados_registrados_por, qtd_alunos_treinados, faturada_3s, orcamentos(numero, qtd_alunos_por_turma, empresas(nome)), tipos_treinamento(nome, emite_certificado)")
         .not("orcamento_id", "is", null).neq("status", "Cancelada");
       if (de) q = q.gte("data_inicio", de);
       if (ate) q = q.lte("data_inicio", ate);
@@ -14589,7 +14589,7 @@ async function caBuscar() {
     caTurmas = (turmas || []).map((t) => {
       const total = tot[t.id] || 0;
       const semCert = !!(t.tipos_treinamento && t.tipos_treinamento.emite_certificado === false);
-      const situacao = fat[t.id] != null ? "faturada" : t.certificados_registrados_em ? "registrado" : (total === 0 && !semCert) ? "sem_alunos" : "aguardando";
+      const situacao = (fat[t.id] != null || t.faturada_3s) ? "faturada" : t.certificados_registrados_em ? "registrado" : (total === 0 && !semCert) ? "sem_alunos" : "aguardando";
       return { ...t, total, semCert, certificados: cert[t.id] || 0, situacao, numeroFat: fat[t.id] };
     });
     caRenderLista();
@@ -14621,7 +14621,7 @@ function caRenderLista() {
       <td class="px-3 py-2">${escH((t.tipos_treinamento && t.tipos_treinamento.nome) || "—")}</td>
       <td class="px-3 py-2 whitespace-nowrap">${escH(periodo)}</td>
       <td class="px-3 py-2 text-right whitespace-nowrap">${t.semCert ? (t.situacao === "aguardando" ? "— treinados" : `${t.qtd_alunos_treinados || 0} treinados`) : (t.situacao === "aguardando" || t.situacao === "sem_alunos" ? `— de ${t.total}` : `${t.certificados} de ${t.total}`)}</td>
-      <td class="px-3 py-2">${fatChip(t.numeroFat != null ? `${r} (${fatNumero(t.numeroFat)})` : r, cor)}</td>
+      <td class="px-3 py-2">${fatChip(t.numeroFat != null ? `${r} (${fatNumero(t.numeroFat)})` : (t.situacao === "faturada" && t.faturada_3s ? `${r} (3S)` : r), cor)}</td>
       <td class="px-3 py-2 text-right"><button type="button" data-ca-abrir="${escH(t.id)}" class="text-xs font-medium text-amber-700 hover:underline">${t.situacao === "aguardando" ? "Registrar" : "Abrir"}</button></td>
     </tr>`;
   }).join("") : `<tr><td colspan="8" class="px-3 py-4 text-slate-500">Nenhuma turma encontrada com estes filtros.</td></tr>`;
@@ -14662,7 +14662,7 @@ function caRenderDetalhe() {
     $("ca-treinados-qtd").disabled = !pode;
     $("btn-ca-registrar-treinados").classList.toggle("hidden", !pode);
     $("ca-treinados-nota").textContent = registrada
-      ? `O registro é feito uma única vez e não pode ser alterado.${faturada ? ` Esta turma já foi faturada (${fatNumero(t.numeroFat)}).` : ""}`
+      ? `O registro é feito uma única vez e não pode ser alterado.${faturada ? ` Esta turma já foi faturada (${t.numeroFat != null ? fatNumero(t.numeroFat) : "no sistema anterior, 3S"}).` : ""}`
       : (pode ? `A turma tem ${alunos.length} aluno(s) cadastrado(s). O faturamento usa a quantidade informada aqui (regra do orçamento: até ${o.qtd_alunos_por_turma != null ? o.qtd_alunos_por_turma : "—"} alunos cobra o valor da turma).` : "Você não tem permissão para registrar.");
     return;
   }
@@ -14686,7 +14686,7 @@ function caRenderDetalhe() {
   const nota = $("ca-nota-bloqueio");
   nota.classList.toggle("hidden", podeAlterar);
   nota.textContent = registrada
-    ? `O registro de certificados é feito uma única vez e não pode ser alterado.${faturada ? ` Esta turma já foi faturada (${fatNumero(t.numeroFat)}).` : ""}`
+    ? `O registro de certificados é feito uma única vez e não pode ser alterado.${faturada ? ` Esta turma já foi faturada (${t.numeroFat != null ? fatNumero(t.numeroFat) : "no sistema anterior, 3S"}).` : ""}`
     : "Você não tem permissão para registrar os certificados.";
   caAtualizarResumo();
 }
@@ -14802,10 +14802,10 @@ async function fatCarregarOrcamentos() {
   $("fat-orcs-tbody").innerHTML = `<tr><td colspan="6" class="px-3 py-4 text-slate-500">Carregando…</td></tr>`;
   try {
     const { data: turmas, error } = await buscarTodos(() => supabase.from("turmas")
-      .select("id, orcamento_id, orcamentos(numero, faturar_por_aluno, empresas(nome))").not("certificados_registrados_em", "is", null).order("id"));
+      .select("id, orcamento_id, faturada_3s, orcamentos(numero, faturar_por_aluno, empresas(nome))").not("certificados_registrados_em", "is", null).order("id"));
     if (error) throw error;
     const ids = (turmas || []).map((t) => t.id);
-    const faturadas = new Set();
+    const faturadas = new Set((turmas || []).filter((t) => t.faturada_3s).map((t) => t.id));
     for (const lote of fatLotes(ids, 80)) {
       const { data, error: e2 } = await supabase.from("faturamento_itens").select("turma_id, faturamentos!inner(status)").in("turma_id", lote).eq("faturamentos.status", "Emitido");
       if (e2) throw e2;
@@ -14846,7 +14846,7 @@ async function fatAbrirOrcamento(orcId) {
   try {
     const [rO, rT, rF] = await Promise.all([
       supabase.from("orcamentos").select("id, numero, faturar_por_aluno, valor_turma, valor_por_aluno, valor_total, valor_desconto, valor_final, qtd_alunos_por_turma, qtd_turmas, empresas(nome)").eq("id", orcId).single(),
-      supabase.from("turmas").select("id, identificacao, data_inicio, data_fim, status, certificados_registrados_em, qtd_alunos_treinados, tipos_treinamento(emite_certificado), centros_treinamento(nome)").eq("orcamento_id", orcId).neq("status", "Cancelada").order("data_inicio", { nullsFirst: false }).order("identificacao"),
+      supabase.from("turmas").select("id, identificacao, data_inicio, data_fim, status, certificados_registrados_em, qtd_alunos_treinados, faturada_3s, tipos_treinamento(emite_certificado), centros_treinamento(nome)").eq("orcamento_id", orcId).neq("status", "Cancelada").order("data_inicio", { nullsFirst: false }).order("identificacao"),
       supabase.from("faturamentos").select("id, numero, status, valor_final, faturamento_itens(turma_id)").eq("orcamento_id", orcId).eq("status", "Emitido"),
     ]);
     if (rO.error) throw rO.error; if (rT.error) throw rT.error; if (rF.error) throw rF.error;
@@ -14863,7 +14863,7 @@ async function fatAbrirOrcamento(orcId) {
     (rF.data || []).forEach((f) => { faturado += Number(f.valor_final) || 0; (f.faturamento_itens || []).forEach((i) => { (fatPorTurma[i.turma_id] = fatPorTurma[i.turma_id] || new Set()).add(f.numero); }); });
     const lista = turmas.map((t) => ({
       ...t, total: tot[t.id] || 0, certificados: cert[t.id] || 0,
-      situacao: fatPorTurma[t.id] ? "faturada" : t.certificados_registrados_em ? "disponivel" : "aguardando",
+      situacao: (fatPorTurma[t.id] || t.faturada_3s) ? "faturada" : t.certificados_registrados_em ? "disponivel" : "aguardando",
       numerosFat: fatPorTurma[t.id] ? [...fatPorTurma[t.id]].sort((a, b) => a - b) : [],
     }));
     fatOrc = { orc: rO.data, turmas: lista, faturado, calc: null, erroCalc: null, cnpjsPorTurma: {} };
@@ -14915,7 +14915,7 @@ function fatRenderOrcamento() {
     const periodo = t.data_fim && t.data_fim !== t.data_inicio ? `${fatData(t.data_inicio)} a ${fatData(t.data_fim)}` : fatData(t.data_inicio);
     const cn = (fatOrc.cnpjsPorTurma[t.id] || []).map((x) => `<span class="inline-block text-[11px] bg-slate-100 text-slate-700 rounded px-1.5 py-0.5 mr-1" title="${escH(x.razao || x.cnpj)}">${escH(x.cnpj)} · ${x.alunos}</span>`).join("");
     let sit;
-    if (t.situacao === "faturada") sit = fatChip("Faturada · " + t.numerosFat.map(fatNumero).join(", "), FAT_COR.azul);
+    if (t.situacao === "faturada") sit = fatChip("Faturada · " + (t.numerosFat.length ? t.numerosFat.map(fatNumero).join(", ") : "no 3S"), FAT_COR.azul);
     else if (t.situacao === "disponivel") sit = fatChip("Disponível", FAT_COR.verde);
     else sit = fatChip("Aguardando certificados", FAT_COR.cinza);
     const adicional = c ? (porAluno ? `${c.certificados} × ${fmtBRL(orc.valor_por_aluno)}` : c.excedentes > 0 ? `+${c.excedentes} × ${fmtBRL(orc.valor_por_aluno)} = ${fmtBRL(c.valor_excedentes)}` : "—") : "—";
@@ -15332,13 +15332,37 @@ let ecCtx = null;
 let ecModelo = "escritorio";
 const ecHoje = () => formatarData(new Date());
 
+// Filtro comum às telas de emissão (certificados e atestados): texto livre = número do orçamento ou nome da empresa.
+// Retorna null (sem filtro de texto) ou a lista de ids de orçamentos que combinam (pode ser vazia).
+async function emissaoIdsOrcPorTexto(termoBruto) {
+  const termo = String(termoBruto || "").replace(/[,()%*\\"']/g, " ").trim();
+  if (termo.length < 2) return null;
+  const { data: emps, error: e1 } = await supabase.from("empresas").select("id").ilike("nome", `%${termo}%`).limit(200);
+  if (e1) throw e1;
+  const idsEmp = (emps || []).map((e) => e.id);
+  const filtro = [`numero.ilike.%${termo}%`].concat(idsEmp.length ? [`empresa_id.in.(${idsEmp.join(",")})`] : []).join(",");
+  const { data, error } = await supabase.from("orcamentos").select("id").or(filtro).limit(500);
+  if (error) throw error;
+  return (data || []).map((o) => o.id);
+}
+// Condição PostgREST: turma cujo último dia (data_fim, ou data_inicio se sem fim) cai em [de, ate]. Datas vazias = sem limite.
+function emissaoFiltroPeriodo(de, ate) {
+  const f = [];
+  const a = (c) => [de ? `${c}.gte.${de}` : null, ate ? `${c}.lte.${ate}` : null].filter(Boolean);
+  const fim = a("data_fim"), ini = a("data_inicio");
+  if (!fim.length) return null;
+  return `and(${fim.join(",")}),and(data_fim.is.null,${ini.join(",")})`;
+}
+function emissaoDataBr(iso) { const [a, m, d] = String(iso || "").slice(0, 10).split("-"); return a ? `${d}/${m}/${a}` : ""; }
+
 async function carregarEmissaoCertificadosInit() {
   if (!ecCts.length) {
     const { data } = await supabase.from("centros_treinamento").select("id, nome, cidade, endereco").order("nome");
     ecCts = data || [];
-    $("ec-ct").innerHTML = ecCts.map((c) => `<option value="${escH(c.id)}">${escH(c.nome)}</option>`).join("");
+    $("ec-ct").innerHTML = `<option value="">Todos os centros</option>` + ecCts.map((c) => `<option value="${escH(c.id)}">${escH(c.nome)}</option>`).join("");
   }
-  if (!$("ec-data").value) $("ec-data").value = ecHoje();
+  if (!$("ec-de").value) $("ec-de").value = ecHoje();
+  if (!$("ec-ate").value) $("ec-ate").value = ecHoje();
   ecBuscar();
 }
 
@@ -15354,17 +15378,37 @@ async function ecBuscar() {
   esconderErro("ec-erro");
   ecTurma = null;
   $("ec-detalhe").classList.add("hidden");
-  const ct = $("ec-ct").value, dia = $("ec-data").value;
-  if (!ct || !dia) return;
+  const ct = $("ec-ct").value, de = $("ec-de").value, ate = $("ec-ate").value, texto = $("ec-busca").value;
+  const temTexto = String(texto || "").replace(/[,()%*\\"']/g, " ").trim().length >= 2;
+  if (!de && !ate && !temTexto) { mostrarErro("ec-erro", "Informe o período (De / Até) ou o número do orçamento / nome da empresa."); return; }
+  if (de && ate && de > ate) { mostrarErro("ec-erro", "A data inicial não pode ser maior que a data final."); return; }
   $("ec-turmas").innerHTML = `<p class="text-sm text-slate-500">Carregando…</p>`;
   $("ec-turmas-nota").textContent = "";
   try {
-    const { data: rows, error } = await supabase.from("turmas")
-      .select("id, identificacao, data_inicio, data_fim, status, orcamento_id, centro_treinamento_id, instrutor_id, instrutor1_id, instrutor2_id, orcamentos(numero, empresas(nome)), tipos_treinamento(id, nome, carga_horaria, emite_certificado, texto_certificado, responsavel_tecnico_id)")
-      .eq("centro_treinamento_id", ct).neq("status", "Cancelada")
-      .or(`data_fim.eq.${dia},and(data_fim.is.null,data_inicio.eq.${dia})`);
-    if (error) throw error;
-    const lista = rows || [];
+    const idsOrc = await emissaoIdsOrcPorTexto(texto);
+    if (idsOrc && !idsOrc.length) { ecTurmas = []; ecRenderTurmas(); $("ec-turmas-nota").textContent = "Nenhum orçamento ou empresa encontrado para esse texto."; return; }
+    const filtroPer = emissaoFiltroPeriodo(de, ate);
+    const SEL = "id, identificacao, data_inicio, data_fim, status, orcamento_id, centro_treinamento_id, instrutor_id, instrutor1_id, instrutor2_id, orcamentos(numero, empresas(nome)), tipos_treinamento(id, nome, carga_horaria, emite_certificado, texto_certificado, responsavel_tecnico_id)";
+    const consulta = (ids) => () => {
+      let q = supabase.from("turmas").select(SEL).neq("status", "Cancelada");
+      if (ct) q = q.eq("centro_treinamento_id", ct);
+      if (filtroPer) q = q.or(filtroPer);
+      if (ids) q = q.in("orcamento_id", ids);
+      return q.order("id");
+    };
+    let rows = [];
+    if (idsOrc) {
+      for (const lote of fatLotes(idsOrc, 60)) {
+        const r = await buscarTodos(consulta(lote));
+        if (r.error) throw r.error;
+        rows = rows.concat(r.data || []);
+      }
+    } else {
+      const r = await buscarTodos(consulta(null));
+      if (r.error) throw r.error;
+      rows = r.data || [];
+    }
+    const lista = rows;
     const orcIds = [...new Set(lista.map((r) => r.orcamento_id).filter(Boolean))];
     let irmas = [];
     for (const lote of fatLotes(orcIds, 60)) {
@@ -15401,9 +15445,12 @@ async function ecBuscar() {
       (c.data || []).forEach((x) => { certs[x.turma_id] = (certs[x.turma_id] || 0) + 1; });
     }
     ecTurmas = visiveis.map((t) => ({ ...t, qtdAlunos: alunos[t.id] || 0, qtdCerts: certs[t.id] || 0 }))
-      .sort((x, y) => String(x.orcamentos && x.orcamentos.numero).localeCompare(String(y.orcamentos && y.orcamentos.numero), "pt-BR", { numeric: true }) || String(x.identificacao).localeCompare(String(y.identificacao), "pt-BR", { numeric: true }));
+      .sort((x, y) => String(x.fim).localeCompare(String(y.fim)) || String(x.orcamentos && x.orcamentos.numero).localeCompare(String(y.orcamentos && y.orcamentos.numero), "pt-BR", { numeric: true }) || String(x.identificacao).localeCompare(String(y.identificacao), "pt-BR", { numeric: true }));
     ecRenderTurmas();
-    $("ec-turmas-nota").textContent = ocultas ? `${ocultas} turma(s) do dia não listada(s): não é o último dia do treinamento ou o treinamento não emite certificado.` : "";
+    const notas = [];
+    if (lista.length > 400) notas.push(`Muitas turmas no período (${lista.length}). Reduza o período ou filtre por orçamento/empresa.`);
+    if (ocultas) notas.push(`${ocultas} turma(s) do período não listada(s): não é o último dia do treinamento ou o treinamento não emite certificado.`);
+    $("ec-turmas-nota").textContent = notas.join(" ");
   } catch (e) {
     $("ec-turmas").innerHTML = "";
     mostrarErro("ec-erro", "Não foi possível carregar as turmas: " + fatErroMsg(e));
@@ -15421,7 +15468,7 @@ function ecRenderTurmas() {
       <div class="text-xs text-slate-500">${escH((o.empresas && o.empresas.nome) || "—")}</div>
       <div class="text-xs text-slate-500 mt-1">${escH(fatData(t.inicio))}${t.inicio !== t.fim ? " a " + escH(fatData(t.fim)) : ""} · ${t.qtdAlunos} aluno(s) · ${t.qtdCerts} certificado(s) emitido(s)</div>${rt}
     </button>`;
-  }).join("") : `<p class="text-sm text-slate-500">Nenhum treinamento com emissão de certificado neste centro e data.</p>`;
+  }).join("") : `<p class="text-sm text-slate-500">Nenhum treinamento com emissão de certificado encontrado para esse filtro.</p>`;
 }
 
 async function ecCarregarContexto(t) {
@@ -15632,6 +15679,7 @@ async function ecCancelar(certId) {
 }
 
 $("btn-ec-buscar").addEventListener("click", ecBuscar);
+$("ec-busca").addEventListener("keydown", (e) => { if (e.key === "Enter") ecBuscar(); });
 $("ec-turmas").addEventListener("click", (e) => { const b = e.target.closest("[data-ec-turma]"); if (b) { $("ec-ok").classList.add("hidden"); ecAbrirTurma(b.getAttribute("data-ec-turma")); } });
 $("ec-alunos-tbody").addEventListener("change", (e) => {
   const i = e.target.closest("[data-ec-aluno]");
@@ -15825,6 +15873,10 @@ const atHoje = () => formatarData(new Date());
 const atLimpa = (s) => String(s || "").replace(/[,()%*\\"']/g, " ").trim();
 
 async function carregarEmissaoAtestadosInit() {
+  if (!$("at-de").value || !$("at-ate").value) {
+    const d = new Date(); d.setDate(d.getDate() - 7);
+    $("at-de").value = formatarData(d); $("at-ate").value = atHoje();
+  }
   $("at-detalhe").classList.add("hidden");
   $("at-lista").classList.remove("hidden");
   esconderErro("at-erro"); $("at-ok").classList.add("hidden");
@@ -15834,33 +15886,43 @@ async function carregarEmissaoAtestadosInit() {
 async function atBuscarOrcs() {
   esconderErro("at-erro");
   const termo = atLimpa($("at-busca").value);
+  const de = $("at-de").value, ate = $("at-ate").value;
+  const temTexto = termo.length >= 2;
   const tb = $("at-orcs-tbody");
+  if (!de && !ate && !temTexto) { mostrarErro("at-erro", "Informe o período (De / Até) ou o número do orçamento / nome da empresa."); tb.innerHTML = ""; return; }
+  if (de && ate && de > ate) { mostrarErro("at-erro", "A data inicial não pode ser maior que a data final."); return; }
   tb.innerHTML = `<tr><td colspan="4" class="px-3 py-4 text-slate-500">Carregando…</td></tr>`;
   try {
     let orcs = [];
-    if (termo.length >= 2) {
-      const { data: emps, error: e1 } = await supabase.from("empresas").select("id").ilike("nome", `%${termo}%`).limit(60);
-      if (e1) throw e1;
-      const ids = (emps || []).map((e) => e.id);
-      const filtro = [`numero.ilike.%${termo}%`].concat(ids.length ? [`empresa_id.in.(${ids.join(",")})`] : []).join(",");
-      const { data, error } = await supabase.from("orcamentos").select("id, numero, empresa_id, empresas(nome)").or(filtro).order("created_at", { ascending: false }).limit(60);
-      if (error) throw error;
-      orcs = data || [];
-      $("at-orcs-nota").textContent = orcs.length ? `${orcs.length} orçamento(s) encontrado(s).` : "";
-    } else {
-      const d = new Date(); d.setDate(d.getDate() - 45);
-      const ini = formatarData(d), fim = atHoje();
-      const { data: ts, error } = await buscarTodos(() => supabase.from("turmas").select("orcamento_id").not("orcamento_id", "is", null)
-        .or(`and(data_fim.gte.${ini},data_fim.lte.${fim}),and(data_fim.is.null,data_inicio.gte.${ini},data_inicio.lte.${fim})`).order("id"));
-      if (error) throw error;
-      const ids = [...new Set((ts || []).map((t) => t.orcamento_id))];
-      for (const lote of fatLotes(ids, 60)) {
-        const { data, error: e2 } = await supabase.from("orcamentos").select("id, numero, empresa_id, empresas(nome)").in("id", lote);
-        if (e2) throw e2;
-        orcs = orcs.concat(data || []);
+    const idsTexto = await emissaoIdsOrcPorTexto(termo);
+    const filtroPer = emissaoFiltroPeriodo(de, ate);
+    let ids = null;
+    if (idsTexto && !idsTexto.length) ids = [];
+    else if (filtroPer) {
+      ids = [];
+      const lotes = idsTexto ? fatLotes(idsTexto, 60) : [null];
+      for (const lote of lotes) {
+        const r = await buscarTodos(() => {
+          let q = supabase.from("turmas").select("orcamento_id").not("orcamento_id", "is", null).or(filtroPer);
+          if (lote) q = q.in("orcamento_id", lote);
+          return q.order("id");
+        });
+        if (r.error) throw r.error;
+        ids = ids.concat((r.data || []).map((t) => t.orcamento_id));
       }
-      $("at-orcs-nota").textContent = "Mostrando orçamentos com treinamento nos últimos 45 dias. Use a busca para outros.";
+      ids = [...new Set(ids)];
+    } else {
+      ids = idsTexto;
     }
+    for (const lote of fatLotes(ids, 60)) {
+      const { data, error: e2 } = await supabase.from("orcamentos").select("id, numero, empresa_id, empresas(nome)").in("id", lote);
+      if (e2) throw e2;
+      orcs = orcs.concat(data || []);
+    }
+    const partes = [];
+    if (de || ate) partes.push(`treinamentos terminando ${de ? "a partir de " + emissaoDataBr(de) : ""}${de && ate ? " " : ""}${ate ? "até " + emissaoDataBr(ate) : ""}`);
+    if (temTexto) partes.push(`filtro "${termo}"`);
+    $("at-orcs-nota").textContent = `${orcs.length} orçamento(s) — ${partes.join(", ")}.`;
     orcs.sort((a, b) => String(b.numero).localeCompare(String(a.numero), "pt-BR", { numeric: true }));
     tb.innerHTML = orcs.length ? orcs.map((o) => `<tr>
       <td class="px-3 py-2 whitespace-nowrap font-medium">${escH(o.numero || "—")}</td>
@@ -16111,6 +16173,7 @@ async function atCancelar(id) {
 
 $("btn-at-buscar").addEventListener("click", atBuscarOrcs);
 $("at-busca").addEventListener("keydown", (e) => { if (e.key === "Enter") atBuscarOrcs(); });
+["at-de", "at-ate"].forEach((id) => $(id).addEventListener("keydown", (e) => { if (e.key === "Enter") atBuscarOrcs(); }));
 $("at-orcs-tbody").addEventListener("click", (e) => { const b = e.target.closest("[data-at-abrir]"); if (b) atAbrirOrcamento(b.getAttribute("data-at-abrir"), b.getAttribute("data-at-num"), b.getAttribute("data-at-emp")); });
 $("btn-at-voltar").addEventListener("click", () => { atOrc = null; atSeq++; carregarEmissaoAtestadosInit(); });
 document.querySelectorAll("[name=at-esc]").forEach((r) => r.addEventListener("change", () => { if (!r.checked) return; atEsc = r.value; atRenderTurmas(); atAtualizar(); }));

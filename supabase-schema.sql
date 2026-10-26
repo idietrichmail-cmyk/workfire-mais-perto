@@ -1684,3 +1684,44 @@ create table if not exists certificados (
 create unique index if not exists certificados_um_valido_por_aluno on certificados (turma_aluno_id) where status = 'valido';
 create table if not exists certificado_imagens (certificado_id uuid primary key references certificados(id) on delete cascade, imagem bytea not null, mime text not null default 'image/png', gerada_em timestamptz not null default now());
 -- RLS ligada em todas; leitura pelas políticas pode_acessar_tabela; escrita de certificados só pelas funções acima.
+
+
+-- =====================================================================
+-- v1.84 · Atestados em nome da empresa (migrations atestado_a1 … atestado_a5, aplicadas no Supabase)
+-- Documentação: o que existe no banco. Um atestado por CNPJ de atestado dos alunos, com número AT-AAAA-000001,
+-- QR de verificação (https://workfire.com.br/atestados/#<código>) e cópia mascarada (LGPD) guardada em bytea.
+-- =====================================================================
+-- alter table tipos_treinamento add column texto_atestado text;   -- variáveis: #razao_social_empresa# #cnpj_empresa# #endereco_empresa# (+ #nome_treinamento# #carga_horaria# #data_inicio# #data_termino#)
+--
+-- atestado_contadores (ano pk, ultimo)                  -- sequência própria, separada dos certificados
+-- atestados (id, numero unique, codigo unique, orcamento_id, cnpj_digitos, empresa_nome, escopo 'orcamento'|'turma',
+--            status 'valido'|'cancelado', dados jsonb (empresa, treinamentos, alunos, instrutores, cidade, data), emitido_em/por,
+--            cancelado_em/por/motivo)
+-- atestado_alunos (atestado_id, turma_aluno_id, ativo)  -- índice único parcial: um atestado válido por aluno (where ativo)
+-- atestado_imagens (atestado_id, pagina, imagem bytea, mime, gerada_em)   -- cópia de verificação, uma por página
+-- RLS ligado; select via pode_acessar_tabela(uid, tabela, 'select'); anon/authenticated sem escrita direta.
+--
+-- Funções (security definer):
+--   _atestados_montar(p_orcamento, p_turmas)   -- interna: turmas realizadas (último dia), alunos sem atestado válido, grupos por CNPJ,
+--                                                 razão social/endereço em empresas (por cnpj_digitos), instrutores, cidade do CT
+--   previa_atestados(p_orcamento, p_turmas)    -- authenticated, módulo emissao_atestados/consultar
+--   emitir_atestados(p_orcamento, p_turmas, p_cnpjs)  -- módulo emissao_atestados/incluir; bloqueia a emissão inteira se houver aluno sem CNPJ de atestado
+--   gravar_imagem_atestado(p_id, p_pagina, p_b64)     -- grava a cópia mascarada (uma vez por página)
+--   cancelar_atestado(p_id, p_motivo)                 -- módulo emissao_atestados/excluir; libera os alunos para novo atestado
+--   verificar_atestado(p_codigo, p_numero, p_cnpj4)   -- anon: nome/documento mascarados (cert_mask_nome / cert_mask_doc); sem QR: número + 4 últimos dígitos do CNPJ
+-- Trigger turma_alunos_proteger_atestado_emitido_trg: aluno em atestado válido não pode ser excluído nem ter nome, documento, CNPJ de atestado ou turma alterados.
+-- pode_acessar_tabela: novo módulo 'emissao_atestados' (leitura de turmas, turma_alunos, orcamentos, empresas, tipos_treinamento, centros_treinamento,
+--   instrutores, instrutor_assinaturas, assinaturas_imagens, atestados, atestado_alunos, atestado_imagens).
+
+-- =====================================================================
+-- v1.85 (26/10/2026) — carga do 3S: marca "turma já faturada no 3S"
+-- =====================================================================
+-- turmas.faturada_3s: turma já faturada no sistema legado (3S). O faturamento
+-- (_fat_calcular) recusa essas turmas e a tela de Faturamento as trata como "faturadas";
+-- turma_alunos_proteger_certificado passa a tratá-las como faturadas (sem excluir alunos
+-- nem alterar CNPJ de faturamento).
+--   alter table public.turmas add column if not exists faturada_3s boolean not null default false;
+-- Turmas carregadas do 3S também entram com certificados_registrados_em preenchido
+-- (por "Carga 3S (legado)") e alunos com certificado_emitido = true. Tudo registrado em
+-- importacao_legado_log (lote 'a3s-AAAA-MM'), com 'antes' dos campos alterados.
+-- Telas de Emissão de Certificados e de Atestados: filtro por intervalo De/Até + "Orçamento ou empresa".
