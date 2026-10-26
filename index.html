@@ -1198,6 +1198,63 @@
         </div>
       </section>
 
+      <!-- ---------- OPERAÇÕES: EMISSÃO DE ATESTADOS ---------- -->
+      <section id="secao-emissao-atestados" class="hidden">
+        <div id="at-erro" class="hidden bg-rose-50 text-rose-600 text-sm rounded-md px-3 py-2 mb-3"></div>
+        <div id="at-ok" class="hidden bg-emerald-50 text-emerald-700 text-sm rounded-md px-3 py-2 mb-3"></div>
+
+        <div id="at-lista">
+          <div class="mb-3 bg-white border border-slate-200 rounded-xl p-4 flex flex-wrap items-end gap-3">
+            <div class="min-w-[260px] flex-1">
+              <label class="text-xs font-medium text-slate-500 uppercase tracking-wide" for="at-busca">Orçamento ou empresa</label>
+              <input id="at-busca" type="search" placeholder="Número do orçamento ou nome da empresa" class="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm" />
+            </div>
+            <button id="btn-at-buscar" type="button" class="bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium px-4 py-2 rounded-md">Buscar</button>
+          </div>
+          <p class="text-xs text-slate-500 mb-3">O atestado é emitido em nome da empresa do CNPJ de atestado informado ao lado de cada aluno (a razão social vem do cadastro de Empresas). Um orçamento pode ter várias turmas: emita para todas ou só para algumas; se houver CNPJs diferentes, sai um atestado para cada CNPJ.</p>
+          <div class="bg-white border border-slate-200 rounded-lg overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead class="bg-slate-50 text-left text-[11px] uppercase tracking-wide text-slate-500"><tr><th class="px-3 py-2">Orçamento</th><th class="px-3 py-2">Empresa</th><th class="px-3 py-2"></th></tr></thead>
+              <tbody id="at-orcs-tbody" class="divide-y divide-slate-100"></tbody>
+            </table>
+          </div>
+          <p id="at-orcs-nota" class="mt-2 text-xs text-slate-400"></p>
+        </div>
+
+        <div id="at-detalhe" class="hidden">
+          <button id="btn-at-voltar" type="button" class="text-sm text-slate-600 hover:text-slate-900 mb-2">← Orçamentos</button>
+          <div id="at-det-cab" class="bg-white border border-slate-200 rounded-lg p-4 mb-3"></div>
+
+          <h3 class="text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-2">1 · Turmas</h3>
+          <div class="flex flex-wrap items-center gap-x-5 gap-y-2 mb-2">
+            <label class="text-sm flex items-center gap-1.5"><input type="radio" name="at-esc" value="todas" class="accent-amber-700" checked /> Todas as turmas do orçamento</label>
+            <label class="text-sm flex items-center gap-1.5"><input type="radio" name="at-esc" value="sel" class="accent-amber-700" /> Por turma (marque uma ou mais)</label>
+            <button id="btn-at-atualizar" type="button" class="text-xs border border-slate-300 rounded-md px-2.5 py-1 text-slate-700 hover:bg-slate-50">Atualizar</button>
+          </div>
+          <div id="at-turmas" class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 mb-1"></div>
+          <p class="text-xs text-slate-400 mb-4">Os alunos ficam na turma do último dia de cada treinamento. A emissão é liberada a partir do último dia do treinamento.</p>
+
+          <h3 class="text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-2">2 · Atestados a emitir (um por CNPJ de atestado)</h3>
+          <div id="at-sem-cnpj"></div>
+          <div id="at-grupos"></div>
+          <p id="at-ignoradas" class="text-xs text-slate-400 mb-2"></p>
+          <div class="mt-3 flex flex-wrap items-center gap-3">
+            <span id="at-contagem" class="text-sm font-medium text-slate-700 mr-auto"></span>
+            <button id="btn-at-previa-todos" type="button" class="border border-slate-300 bg-white hover:bg-slate-50 text-slate-800 text-sm font-medium px-4 py-2.5 rounded-md disabled:opacity-40">Prévia (marcados)</button>
+            <button id="btn-at-emitir" type="button" class="bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium px-4 py-2.5 rounded-md disabled:opacity-40">Emitir atestados</button>
+          </div>
+          <p class="mt-2 text-xs text-slate-400">A prévia sai com a marca d'água "Em elaboração" e não tem validade. O texto do atestado é editado no campo "Texto de impressão do atestado" do cadastro de Treinamentos.</p>
+
+          <h3 class="text-[11px] font-semibold uppercase tracking-wide text-slate-500 mt-6 mb-2">Atestados emitidos neste orçamento</h3>
+          <div class="bg-white border border-slate-200 rounded-lg overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead class="bg-slate-50 text-left text-[11px] uppercase tracking-wide text-slate-500"><tr><th class="px-3 py-2">Número</th><th class="px-3 py-2">Empresa</th><th class="px-3 py-2">Emitido em</th><th class="px-3 py-2">Situação</th><th class="px-3 py-2"></th></tr></thead>
+              <tbody id="at-emitidos-tbody" class="divide-y divide-slate-100"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
       <!-- ---------- FINANCEIRO: FATURAMENTO ---------- -->
       <section id="secao-faturamento" class="hidden">
         <div class="flex gap-1 border-b border-slate-200 mb-4">
@@ -2617,6 +2674,6 @@
 </div>
 
 <script src="config.js"></script>
-<script src="app.js?v=20261025a"></script>
+<script src="app.js?v=20261026a"></script>
 </body>
 </html>

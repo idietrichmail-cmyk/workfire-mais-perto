@@ -36,7 +36,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.83 · 25/10/2026";
+const APP_VERSAO = "Prod 1.84 · 26/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -470,6 +470,7 @@ const MODULOS = [
   { id: "documentos_turmas", label: "Documentos de Turmas", icone: "📷", grupo: "Operações" },
   { id: "certificados_alunos", label: "Alunos Certificados", icone: "🎓", grupo: "Operações" },
   { id: "emissao_certificados", label: "Emissão de Certificados", icone: "🖨️", grupo: "Operações" },
+  { id: "emissao_atestados", label: "Emissão de Atestados", icone: "📄", grupo: "Operações" },
   // Financeiro
   { id: "aprovacoes_reembolso", label: "Aprovações de Reembolso", icone: "✅", grupo: "Financeiro" },
   { id: "consulta_reembolsos", label: "Consulta de Reembolsos", icone: "🔎", grupo: "Financeiro" },
@@ -1406,6 +1407,10 @@ function irParaModulo(id) {
     $("admin-descricao-pagina").textContent = "Emita os certificados dos alunos no último dia do treinamento: escolha o centro e a data, selecione a turma e os alunos, confira a prévia e emita.";
     $("secao-emissao-certificados").classList.remove("hidden");
     carregarEmissaoCertificadosInit();
+  } else if (id === "emissao_atestados") {
+    $("admin-descricao-pagina").textContent = "Emita os atestados em nome das empresas: escolha o orçamento e as turmas; é emitido um atestado para cada CNPJ de atestado dos alunos.";
+    $("secao-emissao-atestados").classList.remove("hidden");
+    carregarEmissaoAtestadosInit();
   } else if (id === "faturamento") {
     $("admin-descricao-pagina").textContent = "Fature as turmas com certificados registrados. É emitido um faturamento por CNPJ de faturamento dos alunos.";
     $("secao-faturamento").classList.remove("hidden");
@@ -2110,6 +2115,7 @@ const CRUD_CONFIG = {
         ),
       },
       { id: "texto_certificado", label: "Texto do certificado (variáveis: #nome_aluno#, #tip_docto#, #numero_docto#, #data_inicio#, #data_termino#)", tipo: "textarea" },
+      { id: "texto_atestado", label: "Texto de impressão do atestado (variáveis: #razao_social_empresa#, #cnpj_empresa#, #endereco_empresa#; opcionais: #nome_treinamento#, #carga_horaria#, #data_inicio#, #data_termino#)", tipo: "textarea" },
       { id: "perc_apoio", label: "% de apoio", tipo: "number", min: 0, max: 100, step: "0.01", padrao: 0 },
       { id: "perc_margem", label: "% de margem", tipo: "number", min: 0, max: 100, step: "0.01", padrao: 0 },
       { id: "perc_imposto", label: "% de imposto", tipo: "number", min: 0, max: 100, step: "0.01", padrao: 0 },
@@ -15640,5 +15646,493 @@ $("btn-ec-pendentes").addEventListener("click", () => { ecSel = new Set(ecAlunos
 document.querySelectorAll("[name=ec-modelo]").forEach((r) => r.addEventListener("change", () => { ecModelo = r.value; }));
 $("btn-ec-previa").addEventListener("click", ecPrevia);
 $("btn-ec-emitir").addEventListener("click", ecEmitir);
+
+// ===========================================================
+// OPERAÇÕES: EMISSÃO DE ATESTADOS (em nome da empresa do CNPJ de atestado dos alunos)
+// Orçamento → turmas (todas ou só algumas) → um atestado por CNPJ de atestado. A montagem dos grupos (razão social,
+// endereço da empresa, treinamentos, alunos, instrutores) e a gravação (número AT-AAAA-000001, código do QR, dados
+// congelados) são feitas por funções do banco: previa_atestados, emitir_atestados, gravar_imagem_atestado e
+// cancelar_atestado. Se houver aluno sem CNPJ de atestado, a emissão inteira é bloqueada.
+// O desenho é SVG em A4 retrato; a cópia de verificação (nome/documento parcialmente ocultos) é guardada no banco.
+// ===========================================================
+const AT_URL_BASE = "https://workfire.com.br/atestados/";
+const AT_W = 210, AT_H = 297, AT_M = 18;
+
+function atTexto(modelo, d, t) {
+  const emp = (d && d.empresa) || {};
+  const v = {
+    razao_social_empresa: emp.nome || "", razao_socia_empresa: emp.nome || "",
+    cnpj_empresa: emp.cnpj || "",
+    endereco_empresa: emp.endereco || "", "endereço_empresa": emp.endereco || "",
+    nome_treinamento: t.nome || "", carga_horaria: t.carga_horaria || "",
+    data_inicio: certDataBr(t.inicio), data_termino: certDataBr(t.fim),
+  };
+  return String(modelo || "").replace(/"/g, "")
+    .replace(/#([A-Za-zçÇãÃ_]+)#/g, (m, k) => (Object.prototype.hasOwnProperty.call(v, k.toLowerCase()) ? v[k.toLowerCase()] : m))
+    .replace(/\s+/g, " ").replace(/\s+([,.;])/g, "$1").trim();
+}
+
+function atFit(txt, maxW, fs, negrito) {
+  const w = certLargura(txt, fs, negrito);
+  return w > maxW ? Math.max(fs * 0.62, fs * maxW / w) : fs;
+}
+
+// opts: { dados, numero, codigo, modo:'previa'|'final'|'verif', sigs:{id:dataUrl}, mascarar } → array de SVG (uma string por página)
+function atSvgPaginas(opts) {
+  const { dados: d, numero, codigo, modo, sigs } = opts;
+  const masc = !!opts.mascarar;
+  const M = AT_M, larg = AT_W - 2 * M;
+  const treins = d.treinamentos || [];
+  const ins = (d.instrutores || []).slice(0, 4);
+  const footH = 30 + Math.ceil(ins.length / 2) * 28;
+  const footTop = AT_H - 14 - footH;
+  const fsP = 3.45, lhP = fsP * 1.34, rowH = 5, fsR = 3.05;
+  const titulo = "ATESTADO DE " + (treins.length === 1 ? String(treins[0].nome || "").toUpperCase() : "TREINAMENTOS");
+  const paragrafos = treins.map((t) => certQuebra(atTexto(t.texto, d, t), larg, fsP));
+  const yTit = 23 + (modo === "verif" ? 3 : 0);
+  const alt1 = paragrafos.reduce((s, ls) => s + ls.length * lhP + 2.2, 0);
+  const yPart = yTit + 10 + alt1 + 3;
+  const yHead1 = yPart + 7, yRows1 = yHead1 + 3;
+  const yHead2 = yTit + 12, yRows2 = yHead2 + 3;
+  const cap1 = Math.max(0, Math.floor((footTop - 4 - yRows1) / rowH));
+  const cap2 = Math.max(1, Math.floor((footTop - 4 - yRows2) / rowH));
+  const alunos = d.alunos || [];
+  const paginas = [[0, alunos.slice(0, cap1)]];
+  for (let i = cap1; i < alunos.length; i += cap2) paginas.push([i, alunos.slice(i, i + cap2)]);
+  const total = paginas.length;
+  const cols = [{ x: M, w: 62, h: "NOME:" }, { x: M + 64, w: 28, h: "DOCUMENTO:" }, { x: M + 94, w: 52, h: "TREINAMENTO:" }, { x: M + 148, w: 26, h: "CARGA HORÁRIA:" }];
+  const url = modo === "previa" ? AT_URL_BASE + "#previa" : AT_URL_BASE + "#" + codigo;
+  const qrPath = certQrPath(url, 0, 0, 22);
+  const dataTxt = (d.cidade ? d.cidade + ", " : "") + certDataExt(d.data);
+
+  return paginas.map(([off, linhas], pi) => {
+    const o = [];
+    const f2 = (n) => Number(n).toFixed(2);
+    const txt = (x, y, s, fs, extra) => o.push(`<text x="${f2(x)}" y="${f2(y)}" font-size="${f2(fs)}"${extra || ""}>${certX(s)}</text>`);
+    o.push(`<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${AT_W}mm" height="${AT_H}mm" viewBox="0 0 ${AT_W} ${AT_H}" font-family="Arial, Helvetica, sans-serif" fill="#000">`);
+    o.push(`<rect x="0" y="0" width="${AT_W}" height="${AT_H}" fill="#fff"/>`);
+    // título (sublinhado)
+    const fsT = atFit(titulo, larg, 4.7, true);
+    const wT = certLargura(titulo, fsT, true);
+    txt(AT_W / 2, yTit, titulo, fsT, ' text-anchor="middle" font-weight="bold"');
+    o.push(`<line x1="${f2(AT_W / 2 - wT / 2)}" y1="${f2(yTit + 1.3)}" x2="${f2(AT_W / 2 + wT / 2)}" y2="${f2(yTit + 1.3)}" stroke="#000" stroke-width="0.35"/>`);
+    let yHead, yRows;
+    if (pi === 0) {
+      let y = yTit + 10;
+      paragrafos.forEach((ls) => {
+        ls.forEach((ws, i) => {
+          const yy = y + i * lhP + 0.8 * fsP;
+          const ult = i === ls.length - 1;
+          if (ult || ws.length < 2) { txt(M, yy, ws.join(" "), fsP); return; }
+          const soma = ws.reduce((s, w) => s + certLargura(w, fsP), 0);
+          const gap = (larg - soma) / (ws.length - 1);
+          let x = M;
+          const partes = ws.map((w) => { const p = `<tspan x="${f2(x)}">${certX(w)}</tspan>`; x += certLargura(w, fsP) + gap; return p; });
+          o.push(`<text y="${f2(yy)}" font-size="${f2(fsP)}">${partes.join("")}</text>`);
+        });
+        y += ls.length * lhP + 2.2;
+      });
+      const wPart = certLargura("PARTICIPANTES:", 3.5, true);
+      txt(AT_W / 2, yPart, "PARTICIPANTES:", 3.5, ' text-anchor="middle" font-weight="bold"');
+      o.push(`<line x1="${f2(AT_W / 2 - wPart / 2)}" y1="${f2(yPart + 0.9)}" x2="${f2(AT_W / 2 + wPart / 2)}" y2="${f2(yPart + 0.9)}" stroke="#000" stroke-width="0.3"/>`);
+      yHead = yHead1; yRows = yRows1;
+    } else { yHead = yHead2; yRows = yRows2; }
+    // cabeçalho da tabela
+    cols.forEach((c, ci) => {
+      const wH = certLargura(c.h, 2.8, true);
+      const cx = ci === 3 ? c.x + c.w / 2 : c.x;
+      txt(cx, yHead, c.h, 2.8, ci === 3 ? ' text-anchor="middle" font-weight="bold"' : ' font-weight="bold"');
+      const x1 = ci === 3 ? cx - wH / 2 : c.x;
+      o.push(`<line x1="${f2(x1)}" y1="${f2(yHead + 0.8)}" x2="${f2(x1 + wH)}" y2="${f2(yHead + 0.8)}" stroke="#000" stroke-width="0.25"/>`);
+    });
+    // linhas
+    linhas.forEach((a, i) => {
+      const y = yRows + i * rowH + rowH * 0.68;
+      const nome = (off + i + 1) + ". " + (masc ? certMaskNome(a.nome) : a.nome);
+      const doc = (masc ? certMaskDoc(a.tipo_doc, a.doc) : (a.doc || "")) + (a.tipo_doc === "RG" ? " (RG)" : "");
+      txt(cols[0].x, y, nome, atFit(nome, cols[0].w, fsR));
+      txt(cols[1].x, y, doc, atFit(doc, cols[1].w, fsR));
+      const tr = a.treinamento || "";
+      txt(cols[2].x, y, tr, atFit(tr, cols[2].w, fsR));
+      const ch = a.carga_horaria || "";
+      txt(cols[3].x + cols[3].w / 2, y, ch, atFit(ch, cols[3].w, fsR), ' text-anchor="middle"');
+    });
+    // rodapé: data, QR e assinaturas
+    txt(M, footTop + 5, dataTxt, 3.4);
+    const qs = 22, qx = AT_W - M - qs, qy = footTop;
+    o.push(`<rect x="${f2(qx - 1.2)}" y="${f2(qy - 1.2)}" width="${f2(qs + 2.4)}" height="${f2(qs + 2.4)}" fill="#fff"/>`);
+    o.push(`<g transform="translate(${f2(qx)} ${f2(qy)})"><path d="${qrPath}" fill="#000" shape-rendering="crispEdges"/></g>`);
+    let yc = qy + 4;
+    txt(qx - 3, yc, modo === "previa" ? "PRÉVIA · sem número" : "Atestado nº " + numero, 3.1, ' text-anchor="end" font-weight="bold"');
+    yc += 4.2;
+    certQuebra("Aponte sua câmera e veja se o atestado é válido", 62, 2.6).forEach((ws) => { txt(qx - 3, yc, ws.join(" "), 2.6, ' text-anchor="end"'); yc += 3.4; });
+    ins.forEach((p, k) => {
+      const row = Math.floor(k / 2), col = k % 2;
+      const sozinho = ins.length % 2 === 1 && k === ins.length - 1;
+      const W = 76, L = sozinho ? (AT_W - W) / 2 : (col === 0 ? 20 : AT_W - 20 - W);
+      const y0 = footTop + 30 + row * 28;
+      const img = p.assinatura_id && sigs && sigs[p.assinatura_id];
+      if (img) o.push(`<image x="${f2(L)}" y="${f2(y0)}" width="${W}" height="14" preserveAspectRatio="xMidYMax meet" xlink:href="${img}"/>`);
+      o.push(`<line x1="${f2(L)}" y1="${f2(y0 + 14)}" x2="${f2(L + W)}" y2="${f2(y0 + 14)}" stroke="#000" stroke-width="0.35"/>`);
+      const nm = String(p.nome || "").toUpperCase();
+      txt(L + W / 2, y0 + 18, nm, atFit(nm, W, 3.1, true), ' text-anchor="middle" font-weight="bold"');
+      txt(L + W / 2, y0 + 21.8, "Instrutor", 2.9, ' text-anchor="middle" font-style="italic"');
+      if (p.doc) txt(L + W / 2, y0 + 25.4, "CPF n° " + p.doc, 2.9, ' text-anchor="middle" font-style="italic"');
+    });
+    txt(AT_W - M, AT_H - 7, `Página ${pi + 1} de ${total}`, 2.4, ' text-anchor="end" fill="#666"');
+    if (modo === "previa") {
+      const fs = 17, t = "EM ELABORAÇÃO", w = certLargura(t, fs, true);
+      o.push(`<g transform="rotate(-38 ${AT_W / 2} ${AT_H / 2})" fill="rgba(179,38,30,.17)" stroke="rgba(179,38,30,.17)">` +
+        `<rect x="${f2(AT_W / 2 - w / 2 - 5)}" y="${f2(AT_H / 2 - fs * 0.8)}" width="${f2(w + 10)}" height="${f2(fs * 1.4)}" rx="2" fill="none" stroke-width="0.6"/>` +
+        `<text x="${AT_W / 2}" y="${f2(AT_H / 2 + fs * 0.3)}" font-size="${f2(fs)}" font-weight="bold" text-anchor="middle" stroke="none">${t}</text></g>`);
+    }
+    if (modo === "verif") {
+      o.push(`<rect x="0" y="0" width="${AT_W}" height="7" fill="#1d2129"/>`);
+      txt(AT_W / 2, 4.7, "CÓPIA PARA VERIFICAÇÃO · dados parcialmente ocultos (LGPD)", 3, ' text-anchor="middle" fill="#fff" font-weight="bold"');
+    }
+    o.push("</svg>");
+    return o.join("");
+  });
+}
+
+function atRasterizar(svg, larguraPx) {
+  const w = larguraPx || 1240;
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const cv = document.createElement("canvas");
+      cv.width = w; cv.height = Math.round(w * AT_H / AT_W);
+      const cx2 = cv.getContext("2d");
+      cx2.fillStyle = "#fff"; cx2.fillRect(0, 0, cv.width, cv.height);
+      cx2.drawImage(img, 0, 0, cv.width, cv.height);
+      try { resolve(cv.toDataURL("image/png").split(",")[1]); } catch (e) { reject(e); }
+    };
+    img.onerror = () => reject(new Error("Não foi possível gerar a imagem do atestado."));
+    img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+  });
+}
+
+// ---------------- tela ----------------
+let atOrc = null;          // { id, numero, empresa }
+let atTurmas = [];         // turmas do orçamento que têm alunos
+let atEsc = "todas";       // 'todas' | 'sel'
+let atSelTurmas = new Set();
+let atPrevia = null;       // retorno de previa_atestados
+let atMarcados = new Set();
+let atEmitidos = [];
+let atSeq = 0;
+const atHoje = () => formatarData(new Date());
+const atLimpa = (s) => String(s || "").replace(/[,()%*\\"']/g, " ").trim();
+
+async function carregarEmissaoAtestadosInit() {
+  $("at-detalhe").classList.add("hidden");
+  $("at-lista").classList.remove("hidden");
+  esconderErro("at-erro"); $("at-ok").classList.add("hidden");
+  atBuscarOrcs();
+}
+
+async function atBuscarOrcs() {
+  esconderErro("at-erro");
+  const termo = atLimpa($("at-busca").value);
+  const tb = $("at-orcs-tbody");
+  tb.innerHTML = `<tr><td colspan="4" class="px-3 py-4 text-slate-500">Carregando…</td></tr>`;
+  try {
+    let orcs = [];
+    if (termo.length >= 2) {
+      const { data: emps, error: e1 } = await supabase.from("empresas").select("id").ilike("nome", `%${termo}%`).limit(60);
+      if (e1) throw e1;
+      const ids = (emps || []).map((e) => e.id);
+      const filtro = [`numero.ilike.%${termo}%`].concat(ids.length ? [`empresa_id.in.(${ids.join(",")})`] : []).join(",");
+      const { data, error } = await supabase.from("orcamentos").select("id, numero, empresa_id, empresas(nome)").or(filtro).order("created_at", { ascending: false }).limit(60);
+      if (error) throw error;
+      orcs = data || [];
+      $("at-orcs-nota").textContent = orcs.length ? `${orcs.length} orçamento(s) encontrado(s).` : "";
+    } else {
+      const d = new Date(); d.setDate(d.getDate() - 45);
+      const ini = formatarData(d), fim = atHoje();
+      const { data: ts, error } = await buscarTodos(() => supabase.from("turmas").select("orcamento_id").not("orcamento_id", "is", null)
+        .or(`and(data_fim.gte.${ini},data_fim.lte.${fim}),and(data_fim.is.null,data_inicio.gte.${ini},data_inicio.lte.${fim})`).order("id"));
+      if (error) throw error;
+      const ids = [...new Set((ts || []).map((t) => t.orcamento_id))];
+      for (const lote of fatLotes(ids, 60)) {
+        const { data, error: e2 } = await supabase.from("orcamentos").select("id, numero, empresa_id, empresas(nome)").in("id", lote);
+        if (e2) throw e2;
+        orcs = orcs.concat(data || []);
+      }
+      $("at-orcs-nota").textContent = "Mostrando orçamentos com treinamento nos últimos 45 dias. Use a busca para outros.";
+    }
+    orcs.sort((a, b) => String(b.numero).localeCompare(String(a.numero), "pt-BR", { numeric: true }));
+    tb.innerHTML = orcs.length ? orcs.map((o) => `<tr>
+      <td class="px-3 py-2 whitespace-nowrap font-medium">${escH(o.numero || "—")}</td>
+      <td class="px-3 py-2">${escH((o.empresas && o.empresas.nome) || "—")}</td>
+      <td class="px-3 py-2 text-right"><button type="button" data-at-abrir="${escH(o.id)}" data-at-num="${escH(o.numero || "")}" data-at-emp="${escH((o.empresas && o.empresas.nome) || "")}" class="text-sm border border-slate-300 rounded-md px-3 py-1 hover:bg-slate-50">Abrir</button></td>
+    </tr>`).join("") : `<tr><td colspan="3" class="px-3 py-4 text-slate-500">Nenhum orçamento encontrado.</td></tr>`;
+  } catch (e) {
+    tb.innerHTML = "";
+    mostrarErro("at-erro", "Não foi possível carregar os orçamentos: " + fatErroMsg(e));
+  }
+}
+
+async function atAbrirOrcamento(id, numero, empresa) {
+  esconderErro("at-erro"); $("at-ok").classList.add("hidden");
+  atOrc = { id, numero, empresa };
+  atEsc = "todas"; atSelTurmas = new Set(); atPrevia = null; atMarcados = new Set(); atTurmas = [];
+  $("at-lista").classList.add("hidden");
+  $("at-detalhe").classList.remove("hidden");
+  document.querySelectorAll("[name=at-esc]").forEach((r) => { r.checked = r.value === "todas"; });
+  $("at-det-cab").innerHTML = `<h3 class="text-lg font-semibold">Orçamento ${escH(numero || "—")}</h3><p class="text-sm text-slate-600">${escH(empresa || "—")}</p>`;
+  $("at-grupos").innerHTML = `<p class="text-sm text-slate-500">Carregando…</p>`;
+  try {
+    const { data: ts, error } = await supabase.from("turmas")
+      .select("id, identificacao, data_inicio, data_fim, tipos_treinamento(nome, carga_horaria)").eq("orcamento_id", id).order("data_inicio").order("identificacao");
+    if (error) throw error;
+    const ids = (ts || []).map((t) => t.id);
+    const qtd = {};
+    for (const lote of fatLotes(ids, 80)) {
+      const { data, error: e2 } = await buscarTodos(() => supabase.from("turma_alunos").select("turma_id").in("turma_id", lote).order("id"));
+      if (e2) throw e2;
+      (data || []).forEach((x) => { qtd[x.turma_id] = (qtd[x.turma_id] || 0) + 1; });
+    }
+    atTurmas = (ts || []).filter((t) => qtd[t.id]).map((t) => ({ ...t, qtd: qtd[t.id], fim: t.data_fim || t.data_inicio }));
+    atRenderTurmas();
+    await atAtualizar();
+  } catch (e) {
+    mostrarErro("at-erro", "Não foi possível abrir o orçamento: " + fatErroMsg(e));
+  }
+}
+
+function atRenderTurmas() {
+  const sel = atEsc === "sel";
+  $("at-turmas").innerHTML = atTurmas.length ? atTurmas.map((t) => {
+    const on = !sel || atSelTurmas.has(t.id);
+    const feita = t.fim && t.fim <= atHoje();
+    const tt = t.tipos_treinamento || {};
+    return `<label class="rounded-lg border px-3 py-2 flex gap-2 items-start ${on ? "border-amber-500 bg-amber-50" : "border-slate-200 bg-white opacity-70"} ${sel ? "cursor-pointer" : ""}">
+      <input type="checkbox" data-at-turma="${escH(t.id)}" ${on ? "checked" : ""} ${sel ? "" : "disabled"} class="mt-1 h-4 w-4 accent-amber-700" />
+      <span class="text-sm"><b>Turma ${escH(t.identificacao || "—")}</b> · ${t.qtd} aluno(s)<br>${escH(tt.nome || "—")}<br>
+      <span class="text-xs text-slate-500">${escH(fatData(t.data_inicio))}${t.data_fim && t.data_fim !== t.data_inicio ? " a " + escH(fatData(t.data_fim)) : ""}${feita ? "" : " · ainda não realizada"}</span></span></label>`;
+  }).join("") : `<p class="text-sm text-slate-500">Este orçamento não tem turmas com alunos cadastrados.</p>`;
+}
+
+async function atAtualizar() {
+  if (!atOrc) return;
+  const seq = ++atSeq;
+  esconderErro("at-erro");
+  const turmas = atEsc === "sel" ? [...atSelTurmas] : null;
+  $("at-sem-cnpj").innerHTML = ""; $("at-ignoradas").textContent = "";
+  if (atEsc === "sel" && !turmas.length) {
+    atPrevia = null; atMarcados = new Set();
+    $("at-grupos").innerHTML = `<p class="text-sm text-slate-500">Marque ao menos uma turma.</p>`;
+    atRenderBarra(); await atCarregarEmitidos(); return;
+  }
+  $("at-grupos").innerHTML = `<p class="text-sm text-slate-500">Carregando…</p>`;
+  try {
+    const { data, error } = await supabase.rpc("previa_atestados", { p_orcamento: atOrc.id, p_turmas: turmas });
+    if (error) throw error;
+    if (seq !== atSeq) return;
+    atPrevia = data;
+    atMarcados = new Set((data.grupos || []).filter((g) => !g.erro).map((g) => g.cnpj_digitos));
+    atRenderGrupos();
+  } catch (e) {
+    if (seq !== atSeq) return;
+    atPrevia = null; atMarcados = new Set();
+    $("at-grupos").innerHTML = "";
+    mostrarErro("at-erro", fatErroMsg(e));
+    atRenderBarra();
+  }
+  await atCarregarEmitidos();
+}
+
+function atRenderGrupos() {
+  const p = atPrevia || { grupos: [], sem_cnpj: [], ignoradas: [] };
+  const sem = p.sem_cnpj || [];
+  $("at-sem-cnpj").innerHTML = sem.length ? `<div class="bg-rose-50 text-rose-700 text-sm rounded-md px-3 py-2 mb-3"><b>Emissão bloqueada: ${sem.length} aluno(s) sem CNPJ de atestado.</b><br>${escH(sem.slice(0, 8).map((a) => `${a.aluno} (turma ${a.turma})`).join(" · "))}${sem.length > 8 ? " · …" : ""}<br>Preencha o CNPJ de atestado ao lado do nome do aluno na turma (ou desmarque a turma) e atualize.</div>` : "";
+  const ign = p.ignoradas || [];
+  $("at-ignoradas").textContent = ign.length ? "Turmas fora desta emissão: " + ign.map((x) => `${x.turma} (${x.motivo})`).join(", ") + "." : "";
+  const gs = p.grupos || [];
+  $("at-grupos").innerHTML = gs.length ? gs.map((g, i) => {
+    const bloq = !!g.erro;
+    const sigs = ((g.dados || {}).instrutores || []).length;
+    const trs = ((g.dados || {}).treinamentos || []).map((t) => t.nome).join(" + ");
+    return `<div class="bg-white border ${bloq ? "border-rose-200" : "border-slate-200"} rounded-lg px-4 py-3 mb-2 flex flex-wrap gap-3 items-start">
+      <input type="checkbox" data-at-grupo="${escH(g.cnpj_digitos)}" ${atMarcados.has(g.cnpj_digitos) && !bloq ? "checked" : ""} ${bloq ? "disabled" : ""} class="mt-1 h-4 w-4 accent-amber-700" aria-label="Emitir para ${escH(g.empresa_nome || g.cnpj)}" />
+      <div class="flex-1 min-w-[260px]">
+        <div class="font-semibold text-slate-800">${g.empresa_nome ? escH(g.empresa_nome) : `<span class="text-rose-600">Razão social não cadastrada</span>`}</div>
+        <div class="text-xs text-slate-500">CNPJ ${escH(g.cnpj)} · <b>${g.qtd} aluno(s)</b> · turma(s) ${escH((g.turmas || []).join(", "))} · ${escH(trs)}</div>
+        ${bloq ? `<div class="text-xs text-rose-600 mt-1">${escH(g.erro)}. ${g.erro.indexOf("Empresas") >= 0 ? "Corrija no cadastro de Empresas (ou o CNPJ nos alunos) para liberar." : ""}</div>` : ""}
+        ${!bloq && !sigs ? `<div class="text-xs text-amber-700 mt-1">As turmas não têm instrutor definido: o atestado sai sem assinatura.</div>` : ""}
+      </div>
+      <button type="button" data-at-previa="${i}" ${bloq ? "disabled" : ""} class="text-sm border border-slate-300 rounded-md px-3 py-1.5 hover:bg-slate-50 disabled:opacity-40">Prévia</button>
+    </div>`;
+  }).join("") : (sem.length ? "" : `<p class="text-sm text-slate-500">Não há atestados a emitir neste escopo: os alunos já têm atestado válido ou as turmas ainda não foram realizadas.</p>`);
+  atRenderBarra();
+}
+
+function atRenderBarra() {
+  const p = atPrevia || { grupos: [], sem_cnpj: [] };
+  const sel = (p.grupos || []).filter((g) => !g.erro && atMarcados.has(g.cnpj_digitos));
+  const al = sel.reduce((s, g) => s + g.qtd, 0);
+  const bloqueado = (p.sem_cnpj || []).length > 0;
+  $("at-contagem").textContent = bloqueado ? "Emissão bloqueada (alunos sem CNPJ de atestado)" : `${sel.length} atestado(s) marcado(s) · ${al} aluno(s)`;
+  $("btn-at-previa-todos").disabled = !sel.length;
+  const be = $("btn-at-emitir");
+  be.classList.toggle("hidden", !podeFazer("emissao_atestados", "incluir"));
+  be.disabled = !sel.length || bloqueado;
+  be.textContent = `Emitir ${sel.length || ""} atestado${sel.length === 1 ? "" : "s"}`.replace("Emitir  ", "Emitir ");
+}
+
+function atAbrirJanela(titulo) {
+  const w = window.open("", "_blank");
+  if (!w) { alert("O navegador bloqueou a nova janela. Libere os pop-ups deste site e tente de novo."); return null; }
+  w.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${certX(titulo)}</title></head><body style="font-family:Arial,sans-serif;padding:24px;color:#333">Gerando…</body></html>`);
+  w.document.close();
+  return w;
+}
+
+function atMostrarJanela(w, titulo, aviso, paginas) {
+  const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${certX(titulo)}</title><style>
+@page{size:A4 portrait;margin:0}
+body{margin:0;background:#6b7280;font-family:Arial,Helvetica,sans-serif}
+.bar{position:sticky;top:0;z-index:5;background:#111827;color:#fff;padding:10px 16px;display:flex;flex-wrap:wrap;gap:12px;align-items:center;font-size:14px}
+.bar button{background:#f59e0b;color:#111;border:0;border-radius:6px;padding:7px 16px;font-weight:700;cursor:pointer}
+.bar small{color:#d1d5db}
+.pg{width:min(794px,96vw);margin:14px auto;background:#fff;box-shadow:0 4px 18px rgba(0,0,0,.4)}
+.pg svg{display:block;width:100%;height:auto}
+@media print{.bar{display:none}body{background:none}.pg{width:210mm;height:297mm;margin:0;box-shadow:none;page-break-after:always;break-after:page}.pg svg{width:210mm;height:297mm}}
+</style></head><body><div class="bar"><b>${certX(titulo)}</b><span>${paginas.length} página(s)</span><button onclick="window.print()">Imprimir</button><small>${certX(aviso)}</small></div>${paginas.map((p) => `<div class="pg">${p}</div>`).join("")}</body></html>`;
+  w.document.open(); w.document.write(html); w.document.close();
+}
+
+async function atPreviaGrupos(lista) {
+  if (!lista.length) return;
+  const w = atAbrirJanela("Prévia dos atestados");
+  if (!w) return;
+  try {
+    const sigs = await ecCarregarAssinaturas(lista.map((g) => g.dados));
+    const paginas = [];
+    lista.forEach((g) => atSvgPaginas({ dados: g.dados, numero: "", codigo: "", modo: "previa", sigs }).forEach((s) => paginas.push(s)));
+    atMostrarJanela(w, "Prévia dos atestados", "Prévia: não tem validade e o QR não funciona.", paginas);
+  } catch (e) {
+    w.close();
+    mostrarErro("at-erro", "Não foi possível gerar a prévia: " + fatErroMsg(e));
+  }
+}
+
+async function atEmitir() {
+  if (!atOrc || !atPrevia) return;
+  esconderErro("at-erro"); $("at-ok").classList.add("hidden");
+  const sel = (atPrevia.grupos || []).filter((g) => !g.erro && atMarcados.has(g.cnpj_digitos));
+  if (!sel.length) return;
+  const escopo = atEsc === "sel" ? `das turmas ${[...atSelTurmas].map((id) => (atTurmas.find((t) => t.id === id) || {}).identificacao).filter(Boolean).join(", ")}` : "de todas as turmas do orçamento";
+  if (!confirm(`Emitir ${sel.length} atestado(s) ${escopo}?\n\n${sel.map((g) => `• ${g.empresa_nome} — ${g.qtd} aluno(s)`).join("\n")}\n\nCada atestado recebe um número exclusivo (AT-AAAA-000000) e um QR de verificação. Depois de emitido, ele só pode ser cancelado, não alterado.`)) return;
+  const w = atAbrirJanela("Atestados");
+  if (!w) return;
+  const btn = $("btn-at-emitir");
+  btn.disabled = true;
+  let mostrou = false;
+  try {
+    const { data, error } = await supabase.rpc("emitir_atestados", { p_orcamento: atOrc.id, p_turmas: atEsc === "sel" ? [...atSelTurmas] : null, p_cnpjs: sel.map((g) => g.cnpj_digitos) });
+    if (error) throw error;
+    const lista = data.atestados || [];
+    const sigs = await ecCarregarAssinaturas(lista.map((a) => a.dados));
+    const paginas = [];
+    let falhas = 0;
+    for (const a of lista) {
+      atSvgPaginas({ dados: a.dados, numero: a.numero, codigo: a.codigo, modo: "final", sigs }).forEach((s) => paginas.push(s));
+      try {
+        const verif = atSvgPaginas({ dados: a.dados, numero: a.numero, codigo: a.codigo, modo: "verif", sigs, mascarar: true });
+        for (let i = 0; i < verif.length; i++) {
+          const png = await atRasterizar(verif[i]);
+          const { error: e2 } = await supabase.rpc("gravar_imagem_atestado", { p_id: a.id, p_pagina: i + 1, p_b64: png });
+          if (e2) throw e2;
+        }
+      } catch (e3) { falhas++; }
+    }
+    atMostrarJanela(w, `Atestados · orçamento ${atOrc.numero || ""}`, "Confira e imprima. O QR de cada atestado leva à página de verificação.", paginas);
+    mostrou = true;
+    $("at-ok").textContent = `${lista.length} atestado(s) emitido(s): ${lista.map((a) => a.numero).join(", ")}.${falhas ? ` Atenção: a imagem de verificação de ${falhas} atestado(s) não foi gravada; cancele e emita de novo, ou avise o suporte.` : ""}`;
+    $("at-ok").classList.remove("hidden");
+    await atAtualizar();
+  } catch (e) {
+    if (!mostrou) w.close();
+    mostrarErro("at-erro", "Não foi possível emitir: " + fatErroMsg(e));
+  } finally {
+    atRenderBarra();
+  }
+}
+
+async function atCarregarEmitidos() {
+  if (!atOrc) return;
+  const id = atOrc.id;
+  const { data, error } = await supabase.from("atestados")
+    .select("id, numero, codigo, status, empresa_nome, cnpj_digitos, escopo, emitido_em, cancelado_motivo, atestado_alunos(count)")
+    .eq("orcamento_id", id).order("emitido_em", { ascending: false });
+  if (!atOrc || atOrc.id !== id) return;
+  if (error) { $("at-emitidos-tbody").innerHTML = `<tr><td colspan="5" class="px-3 py-3 text-rose-600">Não foi possível carregar os atestados emitidos: ${escH(fatErroMsg(error))}</td></tr>`; return; }
+  atEmitidos = data || [];
+  const podeCancelar = podeFazer("emissao_atestados", "excluir");
+  $("at-emitidos-tbody").innerHTML = atEmitidos.length ? atEmitidos.map((a) => {
+    const valido = a.status === "valido";
+    const qtd = a.atestado_alunos && a.atestado_alunos[0] ? a.atestado_alunos[0].count : "";
+    const cn = String(a.cnpj_digitos || "");
+    return `<tr>
+      <td class="px-3 py-2 whitespace-nowrap font-medium">${escH(a.numero)}</td>
+      <td class="px-3 py-2">${escH(a.empresa_nome)}<div class="text-xs text-slate-500">CNPJ ${escH(cn.length === 14 ? `${cn.slice(0, 2)}.${cn.slice(2, 5)}.${cn.slice(5, 8)}/${cn.slice(8, 12)}-${cn.slice(12)}` : cn)} · ${qtd} aluno(s) · ${a.escopo === "turma" ? "por turma" : "todas as turmas"}</div></td>
+      <td class="px-3 py-2 whitespace-nowrap">${escH(fatData(a.emitido_em))}</td>
+      <td class="px-3 py-2">${valido ? fatChip("Válido", FAT_COR.verde) : fatChip("Cancelado", FAT_COR.rosa)}${valido ? "" : `<div class="text-xs text-slate-500 mt-0.5">${escH(a.cancelado_motivo || "")}</div>`}</td>
+      <td class="px-3 py-2 whitespace-nowrap text-right">${valido ? `<button type="button" data-at-reimprimir="${escH(a.id)}" class="text-xs text-amber-700 hover:underline">imprimir 2ª via</button> <a href="${escH(AT_URL_BASE + "#" + a.codigo)}" target="_blank" rel="noopener" class="text-xs text-amber-700 hover:underline ml-2">ver verificação</a>${podeCancelar ? ` <button type="button" data-at-cancelar="${escH(a.id)}" class="text-xs text-rose-600 hover:underline ml-2">cancelar</button>` : ""}` : ""}</td>
+    </tr>`;
+  }).join("") : `<tr><td colspan="5" class="px-3 py-3 text-slate-500">Nenhum atestado emitido neste orçamento.</td></tr>`;
+}
+
+async function atReimprimir(id) {
+  const w = atAbrirJanela("Atestado");
+  if (!w) return;
+  try {
+    const { data, error } = await supabase.from("atestados").select("numero, codigo, dados").eq("id", id).single();
+    if (error) throw error;
+    const sigs = await ecCarregarAssinaturas([data.dados]);
+    atMostrarJanela(w, `Atestado ${data.numero} (2ª via)`, "2ª via: mesmo número e mesmo QR do atestado original.", atSvgPaginas({ dados: data.dados, numero: data.numero, codigo: data.codigo, modo: "final", sigs }));
+  } catch (e) {
+    w.close();
+    mostrarErro("at-erro", "Não foi possível abrir o atestado: " + fatErroMsg(e));
+  }
+}
+
+async function atCancelar(id) {
+  const a = atEmitidos.find((x) => x.id === id);
+  const motivo = prompt(`Cancelar o atestado ${a ? a.numero : ""}?\n\nO número não é reutilizado, os alunos voltam a poder receber um novo atestado e a página de verificação passa a mostrar "cancelado". Informe o motivo:`);
+  if (motivo == null) return;
+  if (motivo.trim().length < 3) { mostrarErro("at-erro", "Informe o motivo do cancelamento."); return; }
+  const { error } = await supabase.rpc("cancelar_atestado", { p_id: id, p_motivo: motivo.trim() });
+  if (error) { mostrarErro("at-erro", "Não foi possível cancelar: " + fatErroMsg(error)); return; }
+  await atAtualizar();
+}
+
+$("btn-at-buscar").addEventListener("click", atBuscarOrcs);
+$("at-busca").addEventListener("keydown", (e) => { if (e.key === "Enter") atBuscarOrcs(); });
+$("at-orcs-tbody").addEventListener("click", (e) => { const b = e.target.closest("[data-at-abrir]"); if (b) atAbrirOrcamento(b.getAttribute("data-at-abrir"), b.getAttribute("data-at-num"), b.getAttribute("data-at-emp")); });
+$("btn-at-voltar").addEventListener("click", () => { atOrc = null; atSeq++; carregarEmissaoAtestadosInit(); });
+document.querySelectorAll("[name=at-esc]").forEach((r) => r.addEventListener("change", () => { if (!r.checked) return; atEsc = r.value; atRenderTurmas(); atAtualizar(); }));
+$("at-turmas").addEventListener("change", (e) => {
+  const i = e.target.closest("[data-at-turma]");
+  if (!i || atEsc !== "sel") return;
+  if (i.checked) atSelTurmas.add(i.getAttribute("data-at-turma")); else atSelTurmas.delete(i.getAttribute("data-at-turma"));
+  atRenderTurmas(); atAtualizar();
+});
+$("at-grupos").addEventListener("change", (e) => {
+  const i = e.target.closest("[data-at-grupo]");
+  if (!i) return;
+  if (i.checked) atMarcados.add(i.getAttribute("data-at-grupo")); else atMarcados.delete(i.getAttribute("data-at-grupo"));
+  atRenderBarra();
+});
+$("at-grupos").addEventListener("click", (e) => { const b = e.target.closest("[data-at-previa]"); if (b && atPrevia) atPreviaGrupos([atPrevia.grupos[Number(b.getAttribute("data-at-previa"))]]); });
+$("btn-at-previa-todos").addEventListener("click", () => { if (atPrevia) atPreviaGrupos(atPrevia.grupos.filter((g) => !g.erro && atMarcados.has(g.cnpj_digitos))); });
+$("btn-at-emitir").addEventListener("click", atEmitir);
+$("btn-at-atualizar").addEventListener("click", atAtualizar);
+$("at-emitidos-tbody").addEventListener("click", (e) => {
+  const r = e.target.closest("[data-at-reimprimir]"); if (r) { atReimprimir(r.getAttribute("data-at-reimprimir")); return; }
+  const c = e.target.closest("[data-at-cancelar]"); if (c) atCancelar(c.getAttribute("data-at-cancelar"));
+});
 
 })();
