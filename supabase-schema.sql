@@ -1735,3 +1735,27 @@ create table if not exists certificado_imagens (certificado_id uuid primary key 
 --   para admin do sistema ou módulo certificados_alunos com "alterar".
 -- pode_acessar_tabela: ('certificados_alunos','turma_midias','leitura') para consulta da lista de presença.
 -- (Definição completa aplicada via migration v186_treinados_editavel_lista_presenca.)
+
+-- ===========================================================
+-- Prod 1.88 — Proteção contra exclusão acidental de orçamento (27/10/2026)
+-- Criados no banco (migration log_exclusao_orcamento_e_resumo; resumo):
+--   table orcamentos_excluidos_log (RLS: select só admin; gatilho orcamentos_excluidos_log_imutavel_trg recusa UPDATE/DELETE)
+--     -> um registro por orçamento excluído: quem, quando, número, empresa, valor, contagens (resumo) e a linha do orçamento (JSON).
+--        Não guarda dados pessoais de alunos.
+--   function orcamento_resumo_exclusao(p_orcamento_id uuid) returns jsonb (só admin; somente leitura)
+--     -> turmas, alunos, certificados válidos, atestados, faturamentos, OS Omie, envios de proposta ao Bitrix, agendamentos.
+--   function excluir_orcamento(p_orcamento_id uuid): mesma regra de antes + grava o log na mesma transação, antes de apagar.
+-- App: a lixeira saiu da tela de edição do orçamento (fica só na lista); a exclusão mostra o resumo e exige digitar o número.
+-- ===========================================================
+
+-- ===========================================================
+-- Segurança (27/10/2026) — migrations fixar_search_path_funcoes e revogar_acesso_anonimo_funcoes_secdef
+--   * Todas as funções de public sem search_path passaram a ter: set search_path = public, extensions, pg_temp.
+--   * Funções SECURITY DEFINER deixaram de ser executáveis por anon/PUBLIC (continuam para authenticated e service_role).
+--     Ficaram abertas a anon de propósito: verificar_certificado, verificar_atestado, pode_criar_senha_primeiro_acesso,
+--     solicitar_redefinicao_senha, turma_em_aula_hoje (política de cadastro do aluno por QR) e os auxiliares usados em
+--     políticas RLS: is_admin, is_admin_sistema, tem_permissao, pode_acessar_tabela, pode_editar_atividade, meu_usuario_sistema_id.
+--   * imp3s_* (importação temporária do 3S) ficou só para service_role.
+--   * Desfazer para uma função: grant execute on function public.<nome>(<args>) to anon;
+--   * Ligar no painel do Supabase: Authentication > Policies/Providers > "Leaked password protection".
+-- ===========================================================

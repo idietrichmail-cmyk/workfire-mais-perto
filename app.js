@@ -36,7 +36,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.87 · 26/10/2026";
+const APP_VERSAO = "Prod 1.88 · 27/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -7558,7 +7558,6 @@ async function abrirNovoOrcamento() {
   try { falhasRefs = await carregarReferenciasOrcamento(); } finally { btn.disabled = false; } // sempre busca as listas atuais no banco
   editandoOrcamentoId = null;
   orcEmpresaDoOrcamento = null;
-  $("btn-orc-excluir-editor").classList.add("hidden");
   esconderErro("orc-form-erro");
   $("orc-numero").value = "";
   $("orc-numero").disabled = false;
@@ -7672,7 +7671,6 @@ async function abrirEdicaoOrcamento(id) {
   $("orc-tag-numero").textContent = o.numero || "";
   $("orc-tag-numero").classList.remove("hidden");
   $("btn-salvar-orcamento").textContent = "Salvar alterações";
-  $("btn-orc-excluir-editor").classList.toggle("hidden", !usuarioEhAdmin());
   abrirEditorOrcamento();
   if (falhasRefs.length) mostrarErro("orc-form-erro", `Não foi possível carregar: ${falhasRefs.join(", ")}. Clique no campo para tentar de novo ou verifique a conexão.`);
   await Promise.all([
@@ -7810,9 +7808,6 @@ function renderizarDockTurmas(msgVazio) {
 }
 
 $("btn-orc-novo").addEventListener("click", abrirNovoOrcamento);
-$("btn-orc-excluir-editor").addEventListener("click", () => {
-  if (editandoOrcamentoId) excluirOrcamento(editandoOrcamentoId, $("orc-tag-numero").textContent);
-});
 $("btn-cancelar-painel-orcamento").addEventListener("click", () => { sairEditorOrcamentoPermitido(); });
 
 // Mostra o erro e leva o usuário à aba onde está o campo com problema.
@@ -10446,8 +10441,33 @@ $("orc-importar-arquivo").addEventListener("change", (ev) => {
 async function excluirOrcamento(id, numeroInformado) {
   if (!usuarioEhAdmin()) return alert("Somente o administrador pode excluir orçamentos.");
   const o = listaOrcamentos.find((x) => x.id === id);
-  const numero = numeroInformado || o?.numero || "";
-  if (!confirm(`Excluir o orçamento ${numero}?\n\nSerão apagados também o cálculo, as propostas e as turmas deste orçamento. Agendamentos que ainda aguardam confirmação serão cancelados (os instrutores são avisados). Se houver agendamento CONFIRMADO, a exclusão não é permitida.\n\nEsta ação não pode ser desfeita.`)) return false;
+  const numero = String(numeroInformado || o?.numero || "").trim();
+  if (!numero) return alert("Não foi possível identificar o número do orçamento.");
+  // O que será apagado (consulta somente leitura no banco); se falhar, a exclusão ainda exige digitar o número.
+  let resumo = "";
+  try {
+    const { data: r } = await supabase.rpc("orcamento_resumo_exclusao", { p_orcamento_id: id });
+    if (r) {
+      const n = (k) => Number(r[k]) || 0;
+      const itens = [`${n("turmas")} turma(s)`, `${n("alunos")} aluno(s)`];
+      if (n("certificados")) itens.push(`${n("certificados")} certificado(s) válido(s)`);
+      if (n("atestados")) itens.push(`${n("atestados")} atestado(s)`);
+      if (n("faturamentos")) itens.push(`${n("faturamentos")} faturamento(s)`);
+      if (n("agendamentos")) itens.push(`${n("agendamentos")} agendamento(s)`);
+      resumo = `\n\nSerão apagados: ${itens.join(", ")}, além do cálculo e das propostas.`;
+      if (n("propostas_bitrix")) resumo += `\nATENÇÃO: já houve ${n("propostas_bitrix")} envio(s) de proposta ao Bitrix para este orçamento.`;
+      if (n("omie_os")) resumo += `\nATENÇÃO: há ${n("omie_os")} OS no Omie ligada(s) a este orçamento (a exclusão aqui NÃO apaga a OS no Omie).`;
+    }
+  } catch (_) { /* segue só com a confirmação */ }
+  const digitado = prompt(
+    `EXCLUIR O ORÇAMENTO ${numero}?${resumo}\n\nAgendamentos que aguardam confirmação serão cancelados (instrutores avisados). Se houver agendamento CONFIRMADO, a exclusão não é permitida. A exclusão fica registrada em log e NÃO pode ser desfeita.\n\nPara confirmar, digite o número do orçamento (${numero}):`,
+    ""
+  );
+  if (digitado === null) return false;
+  if (String(digitado).trim() !== numero) {
+    alert("O número digitado não confere. Nada foi excluído.");
+    return false;
+  }
   const { data, error } = await supabase.rpc("excluir_orcamento", { p_orcamento_id: id });
   if (error) {
     alert(`Não foi possível excluir o orçamento ${numero}.\n\n${error.message}`);
