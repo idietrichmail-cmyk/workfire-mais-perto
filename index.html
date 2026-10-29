@@ -636,25 +636,33 @@
             </table>
           </div>
         </div>
-        <div class="mb-5 bg-white border border-slate-200 rounded-xl p-4">
-          <div class="flex items-center justify-between gap-3 mb-1">
-            <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Centro de Treinamento onde o treinamento será realizado</label>
-            <span id="auto-refresh-indicador" class="text-[11px] text-slate-400"></span>
+        <div class="mb-3 bg-white border border-slate-200 rounded-xl p-4">
+          <div class="grid gap-x-4 gap-y-2 md:grid-cols-3 items-start">
+            <div>
+              <div class="flex items-center justify-between gap-3">
+                <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Centro de Treinamento onde o treinamento será realizado</label>
+                <span id="auto-refresh-indicador" class="text-[11px] text-slate-400"></span>
+              </div>
+              <select id="agend-centro-select" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">
+                <option value="">— Selecione —</option>
+              </select>
+            </div>
+            <div>
+              <label class="text-xs font-medium text-slate-500 uppercase tracking-wide block">Buscar orçamento</label>
+              <input id="agend-orcamento-busca" disabled placeholder="Número, empresa ou nome fantasia (todos os orçamentos)" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 disabled:bg-slate-100" />
+              <p id="agend-orcamento-busca-info" class="mt-1 text-[11px] text-slate-400"></p>
+            </div>
+            <div>
+              <label class="text-xs font-medium text-slate-500 uppercase tracking-wide block">Selecione o orçamento</label>
+              <select id="agend-orcamento-select" disabled class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 disabled:bg-slate-100">
+                <option value="">— Selecione —</option>
+              </select>
+            </div>
           </div>
-          <select id="agend-centro-select" class="mt-1 w-full max-w-md rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">
-            <option value="">— Selecione —</option>
-          </select>
-
-          <label class="text-xs font-medium text-slate-500 uppercase tracking-wide mt-4 block">Selecione o orçamento</label>
-          <input id="agend-orcamento-busca" disabled placeholder="Buscar em todos os orçamentos: número, empresa ou nome fantasia" class="mt-1 w-full max-w-md rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 disabled:bg-slate-100" />
-          <p id="agend-orcamento-busca-info" class="mt-1 text-[11px] text-slate-400"></p>
-          <select id="agend-orcamento-select" disabled class="mt-2 w-full max-w-md rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 disabled:bg-slate-100">
-            <option value="">— Selecione —</option>
-          </select>
           <div id="agend-orcamento-info" class="hidden mt-3 text-xs text-slate-500 space-y-1"></div>
         </div>
         <div id="agend-turma-conteudo" class="hidden">
-          <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
+          <div id="agend-turma-barra" class="flex flex-wrap items-center justify-between gap-3 mb-3">
             <div class="flex flex-wrap items-center gap-2 text-xs">
               <span class="font-medium text-slate-600">Seleção:</span>
               <button id="btn-agend-marcar-todas" type="button" class="text-amber-700 hover:underline">marcar todas</button>
@@ -678,9 +686,9 @@
             </div>
           </div>
           <div id="agend-solicitacao-resultado" class="hidden mb-3 text-sm rounded-md px-3 py-2"></div>
-          <div class="bg-white border border-slate-200 rounded-lg overflow-x-auto">
+          <div id="agend-turma-wrap" class="bg-white border border-slate-200 rounded-lg overflow-auto" style="max-height: 70vh;">
             <table class="w-full text-sm">
-              <thead>
+              <thead class="sticky top-0 z-10 bg-slate-50 shadow-[0_1px_0_0_#e2e8f0]">
                 <tr class="bg-slate-50 text-slate-500 text-left text-xs">
                   <th class="px-3 py-2 font-medium">#</th>
                   <th class="px-3 py-2 font-medium">Turma</th>
@@ -1504,6 +1512,11 @@
         </div>
         <div id="cr-detalhe-corpo" class="mt-3 border border-slate-200 rounded-lg p-4 bg-white space-y-3"></div>
        </div>
+      </section>
+
+      <!-- ---------- COMERCIAL: VENDAS POR PESSOA (turmas abertas) ---------- -->
+      <section id="secao-vendas-pessoa" class="hidden">
+        <div id="vp-raiz"></div>
       </section>
     </main>
   </div>
@@ -2716,6 +2729,18 @@
 </div>
 
 <script src="config.js"></script>
-<script src="app.js?v=20261027a"></script>
+<!-- Vendas por pessoa: janela de venda, turma e detalhe -->
+<div id="vp-modal" class="hidden fixed inset-0 z-[60] bg-slate-900/50 overflow-y-auto p-4">
+  <div id="vp-modal-caixa" class="mx-auto max-w-3xl bg-white rounded-xl shadow-xl p-5 mt-6 mb-10">
+    <div class="flex items-start justify-between gap-3">
+      <h3 id="vp-modal-titulo" class="text-lg font-semibold"></h3>
+      <button type="button" data-vp-fechar class="text-slate-500 hover:text-slate-800 text-sm">Fechar</button>
+    </div>
+    <div id="vp-modal-erro" class="hidden bg-rose-50 text-rose-600 text-sm rounded-md px-3 py-2 mt-3"></div>
+    <div id="vp-modal-ok" class="hidden bg-emerald-50 text-emerald-700 text-sm rounded-md px-3 py-2 mt-3"></div>
+    <div id="vp-modal-corpo" class="mt-3"></div>
+  </div>
+</div>
+<script src="app.js?v=20261029b"></script>
 </body>
 </html>

@@ -1759,3 +1759,670 @@ create table if not exists certificado_imagens (certificado_id uuid primary key 
 --   * Desfazer para uma função: grant execute on function public.<nome>(<args>) to anon;
 --   * Ligar no painel do Supabase: Authentication > Policies/Providers > "Leaked password protection".
 -- ===========================================================
+
+
+-- =====================================================================
+-- v1.89 (29/10/2026) — VENDAS POR PESSOA / TURMAS ABERTAS (Fase 1, sem pagamento online)
+-- Aplicado no Supabase pelas migrations: vendas_pessoa_fase1_tabelas,
+-- vendas_pessoa_fase1_funcoes_base e vendas_pessoa_fase1_funcoes_fluxo.
+-- Pessoa física compra 1 vaga e paga antes (PIX/cartão fora do sistema, pagamento registrado na tela);
+-- empresa compra várias vagas por proposta e aceite; faturamento no CPF (PF) ou CNPJ (empresa).
+-- Toda gravação passa pelas funções abaixo (SECURITY DEFINER, conferem a permissão do módulo "vendas_pessoa").
+-- =====================================================================
+alter table public.tipos_treinamento
+  add column if not exists vendido_por_pessoa boolean not null default false,
+  add column if not exists valor_individual numeric(12,2),
+  add column if not exists minimo_pessoas_turma integer;
+alter table public.tipos_treinamento drop constraint if exists tipos_treinamento_valor_individual_chk;
+alter table public.tipos_treinamento add constraint tipos_treinamento_valor_individual_chk check (valor_individual is null or valor_individual >= 0);
+alter table public.tipos_treinamento drop constraint if exists tipos_treinamento_minimo_pessoas_chk;
+alter table public.tipos_treinamento add constraint tipos_treinamento_minimo_pessoas_chk check (minimo_pessoas_turma is null or minimo_pessoas_turma >= 1);
+
+alter table public.orcamentos add column if not exists turma_aberta boolean not null default false;
+create index if not exists orcamentos_turma_aberta_idx on public.orcamentos (turma_aberta) where turma_aberta;
+create sequence if not exists public.turmas_abertas_numero_seq;
+create sequence if not exists public.vendas_pessoa_numero_seq;
+
+insert into public.empresas (nome, status, origem)
+select 'TURMA ABERTA (venda por pessoa)', 'Ativo', 'sistema'
+where not exists (select 1 from public.empresas where origem = 'sistema' and nome = 'TURMA ABERTA (venda por pessoa)');
+
+create table if not exists public.vendas_pessoa (
+  id uuid primary key default gen_random_uuid(),
+  numero text not null unique,
+  tipo_comprador text not null check (tipo_comprador in ('pf','empresa')),
+  comprador_nome text not null,
+  comprador_doc text,
+  empresa_id uuid references public.empresas(id),
+  contato_nome text, contato_telefone text, contato_email text,
+  tipo_treinamento_id uuid not null references public.tipos_treinamento(id),
+  turma_aberta_id uuid references public.orcamentos(id),
+  centro_treinamento_id uuid references public.centros_treinamento(id),
+  periodo_preferido text,
+  qtd_vagas integer not null check (qtd_vagas >= 1),
+  valor_unitario numeric(12,2) not null check (valor_unitario >= 0),
+  valor_total numeric(12,2) generated always as (valor_unitario * qtd_vagas) stored,
+  fechamento text not null check (fechamento in ('antes','proposta')),
+  forma_pagamento text, prazo_pagamento text, ordem_compra text,
+  status text not null check (status in ('Na fila','Aguardando aprovação','Aguardando pagamento','Aguardando aceite','Alunos a indicar','Vaga confirmada','Reserva expirada','Cancelada')),
+  reserva_horas integer, reserva_ate timestamptz,
+  aprovacao_necessaria boolean not null default false,
+  aprovado_em timestamptz, aprovado_por text, aprovado_por_id uuid, aprovacao_justificativa text,
+  pagamento_confirmado_em timestamptz, pagamento_confirmado_por text, pagamento_forma text, pagamento_obs text,
+  aceite_em timestamptz, aceite_por text, aceite_obs text,
+  faturado_em timestamptz, faturamento_ref text,
+  vendedor_id uuid references public.vendedores(id),
+  observacoes text,
+  cancelado_em timestamptz, cancelado_por text, cancelado_motivo text,
+  criado_por text, criado_por_id uuid,
+  created_at timestamptz not null default now(), updated_at timestamptz not null default now()
+);
+create index if not exists vendas_pessoa_turma_idx on public.vendas_pessoa (turma_aberta_id);
+create index if not exists vendas_pessoa_status_idx on public.vendas_pessoa (status);
+create index if not exists vendas_pessoa_tipo_idx on public.vendas_pessoa (tipo_treinamento_id);
+
+create table if not exists public.venda_alunos (
+  id uuid primary key default gen_random_uuid(),
+  venda_id uuid not null references public.vendas_pessoa(id) on delete cascade,
+  nome text not null, cpf text,
+  tipo_documento text not null default 'CPF' check (tipo_documento in ('CPF','RG')),
+  data_nascimento date, turma_aluno_id uuid,
+  created_at timestamptz not null default now()
+);
+create index if not exists venda_alunos_venda_idx on public.venda_alunos (venda_id);
+
+create table if not exists public.vendas_pessoa_log (
+  id bigserial primary key,
+  venda_id uuid not null references public.vendas_pessoa(id) on delete cascade,
+  em timestamptz not null default now(), por text, evento text not null, detalhe text
+);
+create index if not exists vendas_pessoa_log_venda_idx on public.vendas_pessoa_log (venda_id, em);
+
+alter table public.vendas_pessoa enable row level security;
+alter table public.venda_alunos enable row level security;
+alter table public.vendas_pessoa_log enable row level security;
+create policy vendas_pessoa_select on public.vendas_pessoa for select to authenticated
+  using (public.is_admin_sistema((select auth.uid())) or public.tem_permissao((select auth.uid()), 'vendas_pessoa', 'consultar'));
+create policy venda_alunos_select on public.venda_alunos for select to authenticated
+  using (public.is_admin_sistema((select auth.uid())) or public.tem_permissao((select auth.uid()), 'vendas_pessoa', 'consultar'));
+create policy vendas_pessoa_log_select on public.vendas_pessoa_log for select to authenticated
+  using (public.is_admin_sistema((select auth.uid())) or public.tem_permissao((select auth.uid()), 'vendas_pessoa', 'consultar'));
+revoke all on public.vendas_pessoa, public.venda_alunos, public.vendas_pessoa_log from anon, public;
+revoke insert, update, delete, truncate on public.vendas_pessoa, public.venda_alunos, public.vendas_pessoa_log from authenticated;
+grant select on public.vendas_pessoa, public.venda_alunos, public.vendas_pessoa_log to authenticated;
+revoke all on sequence public.turmas_abertas_numero_seq, public.vendas_pessoa_numero_seq from anon, public, authenticated;
+
+-- ---- Funções auxiliares (internas: sem acesso direto pelo app) ----
+create or replace function public._vp_exigir(p_acao text) returns void
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if auth.uid() is null then raise exception 'Sessão expirada. Entre novamente.' using errcode = '42501'; end if;
+  if not (is_admin_sistema(auth.uid()) or tem_permissao(auth.uid(), 'vendas_pessoa', p_acao)) then
+    raise exception 'Você não tem permissão para esta ação em Vendas por pessoa.' using errcode = '42501';
+  end if;
+end $$;
+
+create or replace function public._vp_usuario() returns text
+language sql stable security definer set search_path = public as $$
+  select coalesce((select nome from usuarios_sistema where user_id = auth.uid() limit 1), 'Sistema') $$;
+
+create or replace function public._vp_pode_aprovar() returns boolean
+language sql stable security definer set search_path = public as $$
+  select is_admin_sistema(auth.uid()) or exists (
+    select 1 from usuarios_sistema where user_id = auth.uid() and status = 'Ativo' and aprovador_comercial) $$;
+
+create or replace function public._vp_digitos(t text) returns text
+language sql immutable set search_path = public as $$ select regexp_replace(coalesce(t, ''), '\D', '', 'g') $$;
+
+create or replace function public._vp_fmt_doc(t text) returns text
+language sql immutable set search_path = public as $$
+  select case length(public._vp_digitos(t))
+    when 11 then regexp_replace(public._vp_digitos(t), '^(\d{3})(\d{3})(\d{3})(\d{2})$', '\1.\2.\3-\4')
+    when 14 then regexp_replace(public._vp_digitos(t), '^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$', '\1.\2.\3/\4-\5')
+    else nullif(btrim(coalesce(t, '')), '') end $$;
+
+create or replace function public._vp_cpf_valido(t text) returns boolean
+language plpgsql immutable set search_path = public as $$
+declare d text := public._vp_digitos(t); s int; r int; i int;
+begin
+  if length(d) <> 11 or d ~ '^(\d)\1{10}$' then return false; end if;
+  s := 0; for i in 1..9 loop s := s + substr(d, i, 1)::int * (11 - i); end loop;
+  r := (s * 10) % 11; if r = 10 then r := 0; end if;
+  if r <> substr(d, 10, 1)::int then return false; end if;
+  s := 0; for i in 1..10 loop s := s + substr(d, i, 1)::int * (12 - i); end loop;
+  r := (s * 10) % 11; if r = 10 then r := 0; end if;
+  return r = substr(d, 11, 1)::int;
+end $$;
+
+create or replace function public._vp_log(p_venda uuid, p_evento text, p_detalhe text default null) returns void
+language sql security definer set search_path = public as $$
+  insert into vendas_pessoa_log (venda_id, por, evento, detalhe) values (p_venda, public._vp_usuario(), p_evento, p_detalhe) $$;
+
+create or replace function public._vp_ocupacao(p_orc uuid, out confirmadas int, out reservadas int)
+language sql stable security definer set search_path = public as $$
+  select coalesce(sum(qtd_vagas) filter (where status in ('Alunos a indicar','Vaga confirmada')), 0)::int,
+         coalesce(sum(qtd_vagas) filter (where status in ('Aguardando aprovação','Aguardando pagamento','Aguardando aceite')), 0)::int
+  from vendas_pessoa where turma_aberta_id = p_orc $$;
+
+create or replace function public._vp_reservar(p_orc uuid, p_qtd int, p_ignorar uuid default null) returns void
+language plpgsql security definer set search_path = public as $$
+declare v_o orcamentos; v_conf int; v_res int; v_livres int; v_ini date;
+begin
+  select * into v_o from orcamentos where id = p_orc and turma_aberta for update;
+  if not found then raise exception 'Turma aberta não encontrada.'; end if;
+  if v_o.status in ('Recusado','Concluído') then raise exception 'Esta turma aberta não está mais disponível.'; end if;
+  select min(data_inicio) into v_ini from turmas where orcamento_id = p_orc and status <> 'Cancelada';
+  if v_ini is not null and v_ini < current_date then raise exception 'Esta turma já começou: não é possível vender vagas.'; end if;
+  select coalesce(sum(qtd_vagas) filter (where status in ('Alunos a indicar','Vaga confirmada')), 0),
+         coalesce(sum(qtd_vagas) filter (where status in ('Aguardando aprovação','Aguardando pagamento','Aguardando aceite')), 0)
+    into v_conf, v_res from vendas_pessoa where turma_aberta_id = p_orc and (p_ignorar is null or id <> p_ignorar);
+  v_livres := coalesce(v_o.qtd_alunos_por_turma, 0) - v_conf - v_res;
+  if v_livres < p_qtd then
+    raise exception 'Não há vagas suficientes nesta turma: % livre(s) para % solicitada(s).', greatest(v_livres, 0), p_qtd;
+  end if;
+end $$;
+
+create or replace function public._vp_status_inicial(p_aprov_nec boolean, p_aprovado_em timestamptz, p_fechamento text) returns text
+language sql immutable set search_path = public as $$
+  select case when p_aprov_nec and p_aprovado_em is null then 'Aguardando aprovação'
+              when p_fechamento = 'antes' then 'Aguardando pagamento' else 'Aguardando aceite' end $$;
+
+create or replace function public._vp_turma_ultimo_dia(p_orc uuid) returns uuid
+language sql stable security definer set search_path = public as $$
+  select id from turmas where orcamento_id = p_orc and status <> 'Cancelada'
+  order by coalesce(nullif(regexp_replace(identificacao, '\D', '', 'g'), '')::int, 0) desc, data_inicio desc nulls last limit 1 $$;
+
+create or replace function public._vp_sincronizar_alunos(p_venda uuid) returns int
+language plpgsql security definer set search_path = public as $$
+declare v vendas_pessoa; v_turma uuid; a record; v_novo uuid; v_n int := 0; v_doc text; v_atest text;
+begin
+  select * into v from vendas_pessoa where id = p_venda;
+  if not found or v.turma_aberta_id is null or v.status not in ('Alunos a indicar','Vaga confirmada') then return 0; end if;
+  v_turma := public._vp_turma_ultimo_dia(v.turma_aberta_id);
+  if v_turma is null then raise exception 'A turma aberta não tem linhas de turma na operação.'; end if;
+  if v.tipo_comprador = 'pf' then v_doc := public._vp_fmt_doc(v.comprador_doc); v_atest := null;
+  else v_doc := public._vp_fmt_doc(coalesce((select cnpj from empresas where id = v.empresa_id), v.comprador_doc)); v_atest := v_doc; end if;
+  for a in select * from venda_alunos where venda_id = p_venda and turma_aluno_id is null order by created_at, id loop
+    insert into turma_alunos (turma_id, nome, cpf, tipo_documento, data_nascimento, cnpj_atestado, cnpj_faturamento)
+    values (v_turma, a.nome, case when a.cpf is null then null else public._vp_fmt_doc(a.cpf) end, a.tipo_documento, a.data_nascimento, v_atest, v_doc)
+    returning id into v_novo;
+    update venda_alunos set turma_aluno_id = v_novo where id = a.id;
+    v_n := v_n + 1;
+  end loop;
+  return v_n;
+end $$;
+
+-- ---- Abrir turma aberta (orçamento interno TA-nnnn + uma linha de turma por dia) ----
+create or replace function public.abrir_turma_aberta(p jsonb) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  v_tipo tipos_treinamento; v_emp uuid; v_orc uuid; v_num text; v_vagas int; v_data date;
+  v_ct uuid; v_h_t time; v_h_p time; v_dois boolean; v_locacao boolean; v_seq text[] := '{}';
+  v_n int; i int; d date; v_prev date;
+begin
+  perform public._vp_exigir('incluir');
+  select * into v_tipo from tipos_treinamento where id = nullif(p->>'tipo_treinamento_id', '')::uuid;
+  if not found or v_tipo.status <> 'Ativo' or not v_tipo.vendido_por_pessoa then
+    raise exception 'Escolha um treinamento ativo marcado como "vendido por pessoa".'; end if;
+  v_vagas := coalesce(nullif(p->>'vagas', '')::int, 0);
+  if v_vagas < 1 then raise exception 'Informe o número de vagas da turma.'; end if;
+  v_data := nullif(p->>'data_inicio', '')::date;
+  if v_data is null then raise exception 'Informe a data de início.'; end if;
+  if v_data < current_date then raise exception 'A data de início não pode estar no passado.'; end if;
+  v_ct := nullif(p->>'centro_treinamento_id', '')::uuid;
+  if v_ct is null or not exists (select 1 from centros_treinamento where id = v_ct and status = 'Ativo') then
+    raise exception 'Escolha o centro de treinamento.'; end if;
+  v_h_t := coalesce(nullif(p->>'horario_teoria', '')::time, time '07:30');
+  v_h_p := coalesce(nullif(p->>'horario_pratica', '')::time, v_h_t);
+  select id into v_emp from empresas where origem = 'sistema' and nome = 'TURMA ABERTA (venda por pessoa)' limit 1;
+  if v_emp is null then raise exception 'Empresa interna de turma aberta não encontrada.'; end if;
+  v_locacao := coalesce(v_tipo.somente_locacao_espaco, false);
+  v_dois := (not v_locacao) and v_tipo.alunos_por_instrutor is not null and v_tipo.alunos_por_instrutor > 0 and v_vagas > v_tipo.alunos_por_instrutor;
+  v_num := 'TA-' || lpad(nextval('turmas_abertas_numero_seq')::text, 4, '0');
+  insert into orcamentos (numero, empresa_id, status, observacoes, centro_treinamento_id, tipo_treinamento_id,
+      qtd_turmas, qtd_alunos, qtd_alunos_por_turma, formato_teoria, formato_pratica, necessita_dois_instrutores,
+      horario_inicio_teoria, horario_inicio_pratica, faturar_por_aluno, turma_aberta)
+  values (v_num, v_emp, 'Aprovado', nullif(p->>'observacoes', ''), v_ct, v_tipo.id,
+      1, v_vagas, v_vagas, 'CT', 'CT', v_dois, v_h_t, v_h_p, true, true) returning id into v_orc;
+  v_seq := array_cat(array_cat(
+      array_fill('Teoria'::text, array[greatest(coalesce(v_tipo.dias_teoria, 0), 0)]),
+      array_fill('Prática'::text, array[greatest(coalesce(v_tipo.dias_pratica, 0), 0)])),
+      array_fill('Teoria com Prática'::text, array[greatest(coalesce(v_tipo.dias_teoria_pratica, 0), 0)]));
+  v_n := coalesce(array_length(v_seq, 1), 0);
+  if v_n = 0 then v_seq := array[null]::text[]; v_n := 1; end if;
+  v_prev := null;
+  for i in 1..v_n loop
+    if i = 1 then d := v_data;
+    else d := v_prev + 1; while extract(dow from d) in (0, 6) loop d := d + 1; end loop; end if;
+    v_prev := d;
+    insert into turmas (orcamento_id, identificacao, tipo_dia, tipo_treinamento_id, centro_treinamento_id,
+        formato_teoria, formato_pratica, horario, vagas, dias_totais, status, data_inicio, data_fim,
+        agenda_ct, agenda_movel, agenda_instrutor1, agenda_instrutor2, agenda_transporte)
+    values (v_orc, 'A' || i, v_seq[i], v_tipo.id, v_ct, 'CT', 'CT',
+        to_char(case when v_seq[i] = 'Prática' then v_h_p else v_h_t end, 'HH24:MI'),
+        v_vagas, case when v_n > 0 and v_seq[1] is not null then v_n else null end, 'Planejada', d, d,
+        'A agendar', 'Não aplicável', case when v_locacao then 'Não aplicável' else 'A agendar' end,
+        case when v_dois then 'A agendar' else 'Não aplicável' end, 'Não aplicável');
+  end loop;
+  return jsonb_build_object('id', v_orc, 'numero', v_num);
+end $$;
+
+-- ---- Criar venda / aprovar valor ----
+create or replace function public.criar_venda_pessoa(p jsonb) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  v_tipo tipos_treinamento; v_emp empresas; v_tc text := p->>'tipo_comprador';
+  v_qtd int; v_valor numeric; v_fech text; v_nome text; v_doc text; v_turma uuid;
+  v_id uuid := gen_random_uuid(); v_num text; v_status text; v_aprov boolean; v_aut boolean;
+  v_horas int; v_reserva timestamptz; v_alunos jsonb := '[]'::jsonb; a jsonb; v_dup text; v_cpf text; v_td text;
+  v_vend uuid := nullif(p->>'vendedor_id', '')::uuid; v_ct uuid := nullif(p->>'centro_treinamento_id', '')::uuid;
+begin
+  perform public._vp_exigir('incluir');
+  if v_tc not in ('pf', 'empresa') then raise exception 'Informe se o comprador é pessoa física ou empresa.'; end if;
+  select * into v_tipo from tipos_treinamento where id = nullif(p->>'tipo_treinamento_id', '')::uuid;
+  if not found or v_tipo.status <> 'Ativo' or not v_tipo.vendido_por_pessoa then
+    raise exception 'Escolha um treinamento ativo marcado como "vendido por pessoa".'; end if;
+  v_qtd := coalesce(nullif(p->>'qtd_vagas', '')::int, 1);
+  if v_qtd < 1 then raise exception 'Informe ao menos 1 vaga.'; end if;
+  v_valor := coalesce(nullif(p->>'valor_unitario', '')::numeric, v_tipo.valor_individual);
+  if v_valor is null then raise exception 'Informe o valor por pessoa (o treinamento não tem valor individual cadastrado).'; end if;
+  if v_valor < 0 then raise exception 'O valor por pessoa não pode ser negativo.'; end if;
+  v_turma := nullif(p->>'turma_aberta_id', '')::uuid;
+  if v_tc = 'pf' then
+    if v_qtd <> 1 then raise exception 'Pessoa física compra uma vaga por venda.'; end if;
+    v_nome := btrim(coalesce(p->>'comprador_nome', '')); v_doc := public._vp_digitos(p->>'comprador_doc');
+    if v_nome = '' then raise exception 'Informe o nome do comprador.'; end if;
+    if not public._vp_cpf_valido(v_doc) then raise exception 'CPF do comprador inválido.'; end if;
+    v_fech := coalesce(nullif(p->>'fechamento', ''), 'antes');
+    v_alunos := jsonb_build_array(jsonb_build_object('nome', v_nome, 'cpf', v_doc, 'tipo_documento', 'CPF', 'data_nascimento', p->>'comprador_nascimento'));
+  else
+    if nullif(p->>'empresa_id', '') is not null then
+      select * into v_emp from empresas where id = (p->>'empresa_id')::uuid;
+      if not found then raise exception 'Empresa não encontrada.'; end if;
+      v_nome := v_emp.nome; v_doc := public._vp_digitos(v_emp.cnpj);
+    else v_nome := btrim(coalesce(p->>'comprador_nome', '')); v_doc := public._vp_digitos(p->>'comprador_doc'); end if;
+    if v_nome = '' then raise exception 'Informe a empresa compradora.'; end if;
+    if v_doc <> '' and length(v_doc) <> 14 then raise exception 'CNPJ inválido.'; end if;
+    v_fech := coalesce(nullif(p->>'fechamento', ''), 'proposta');
+    v_alunos := coalesce(p->'alunos', '[]'::jsonb);
+    if jsonb_array_length(v_alunos) > v_qtd then raise exception 'Há mais alunos indicados do que vagas compradas.'; end if;
+  end if;
+  if v_fech not in ('antes', 'proposta') then raise exception 'Fechamento inválido.'; end if;
+  for a in select * from jsonb_array_elements(v_alunos) loop
+    if btrim(coalesce(a->>'nome', '')) = '' then raise exception 'Informe o nome de todos os alunos.'; end if;
+    v_td := coalesce(nullif(a->>'tipo_documento', ''), 'CPF'); v_cpf := public._vp_digitos(a->>'cpf');
+    if v_td = 'CPF' and not public._vp_cpf_valido(v_cpf) then raise exception 'CPF inválido para o aluno %.', a->>'nome'; end if;
+    if v_td = 'RG' and v_cpf = '' then raise exception 'Informe o RG do aluno %.', a->>'nome'; end if;
+    if v_turma is not null then
+      select vp.numero into v_dup from venda_alunos va join vendas_pessoa vp on vp.id = va.venda_id
+       where vp.turma_aberta_id = v_turma and vp.status not in ('Cancelada', 'Reserva expirada')
+         and public._vp_digitos(va.cpf) = v_cpf and va.tipo_documento = v_td limit 1;
+      if v_dup is not null then raise exception 'O aluno % já está na venda % desta turma.', a->>'nome', v_dup; end if;
+    end if;
+  end loop;
+  if v_turma is not null then
+    perform public._vp_reservar(v_turma, v_qtd);
+    if (select tipo_treinamento_id from orcamentos where id = v_turma) is distinct from v_tipo.id then
+      raise exception 'A turma escolhida é de outro treinamento.'; end if;
+  end if;
+  v_aprov := v_tipo.valor_individual is not null and v_valor < v_tipo.valor_individual;
+  v_aut := v_aprov and public._vp_pode_aprovar();
+  v_horas := coalesce(nullif(p->>'reserva_horas', '')::int, case when v_fech = 'antes' then 24 else 120 end);
+  v_status := case when v_turma is null then 'Na fila'
+                   else public._vp_status_inicial(v_aprov, case when v_aut then now() else null end, v_fech) end;
+  v_reserva := case when v_status in ('Aguardando pagamento', 'Aguardando aceite') then now() + make_interval(hours => v_horas) else null end;
+  v_num := 'V-' || lpad(nextval('vendas_pessoa_numero_seq')::text, 4, '0');
+  insert into vendas_pessoa (id, numero, tipo_comprador, comprador_nome, comprador_doc, empresa_id, contato_nome, contato_telefone,
+      contato_email, tipo_treinamento_id, turma_aberta_id, centro_treinamento_id, periodo_preferido, qtd_vagas, valor_unitario,
+      fechamento, forma_pagamento, prazo_pagamento, ordem_compra, status, reserva_horas, reserva_ate, aprovacao_necessaria,
+      aprovado_em, aprovado_por, aprovado_por_id, vendedor_id, observacoes, criado_por, criado_por_id)
+  values (v_id, v_num, v_tc, v_nome, nullif(v_doc, ''), v_emp.id, nullif(p->>'contato_nome', ''), nullif(p->>'contato_telefone', ''),
+      nullif(p->>'contato_email', ''), v_tipo.id, v_turma, v_ct, nullif(p->>'periodo_preferido', ''), v_qtd, v_valor,
+      v_fech, nullif(p->>'forma_pagamento', ''), nullif(p->>'prazo_pagamento', ''), nullif(p->>'ordem_compra', ''), v_status, v_horas, v_reserva, v_aprov,
+      case when v_aut then now() end, case when v_aut then public._vp_usuario() end, case when v_aut then auth.uid() end,
+      v_vend, nullif(p->>'observacoes', ''), public._vp_usuario(), auth.uid());
+  for a in select * from jsonb_array_elements(v_alunos) loop
+    insert into venda_alunos (venda_id, nome, cpf, tipo_documento, data_nascimento)
+    values (v_id, btrim(a->>'nome'), nullif(public._vp_digitos(a->>'cpf'), ''), coalesce(nullif(a->>'tipo_documento', ''), 'CPF'), nullif(a->>'data_nascimento', '')::date);
+  end loop;
+  perform public._vp_log(v_id, 'Venda criada', v_status);
+  if v_aut then perform public._vp_log(v_id, 'Valor abaixo do cadastro aprovado automaticamente', 'Aprovador comercial/administrador'); end if;
+  return jsonb_build_object('id', v_id, 'numero', v_num, 'status', v_status);
+end $$;
+
+create or replace function public.aprovar_venda_pessoa(p_id uuid, p_aprovar boolean, p_justificativa text default null) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare v vendas_pessoa; v_status text;
+begin
+  perform public._vp_exigir('alterar');
+  if not public._vp_pode_aprovar() then raise exception 'Somente administrador ou aprovador comercial pode decidir.'; end if;
+  select * into v from vendas_pessoa where id = p_id for update;
+  if not found then raise exception 'Venda não encontrada.'; end if;
+  if not (v.aprovacao_necessaria and v.aprovado_em is null and v.status in ('Aguardando aprovação', 'Na fila')) then
+    raise exception 'Esta venda não está aguardando aprovação.'; end if;
+  if p_aprovar then
+    v_status := case when v.turma_aberta_id is null then 'Na fila' else public._vp_status_inicial(true, now(), v.fechamento) end;
+    update vendas_pessoa set aprovado_em = now(), aprovado_por = public._vp_usuario(), aprovado_por_id = auth.uid(),
+        aprovacao_justificativa = nullif(p_justificativa, ''), status = v_status,
+        reserva_ate = case when v_status in ('Aguardando pagamento', 'Aguardando aceite') then now() + make_interval(hours => coalesce(reserva_horas, 24)) end,
+        updated_at = now() where id = p_id;
+    perform public._vp_log(p_id, 'Valor aprovado', p_justificativa);
+  else
+    update vendas_pessoa set status = 'Cancelada', cancelado_em = now(), cancelado_por = public._vp_usuario(),
+        cancelado_motivo = 'Valor não aprovado' || coalesce(': ' || nullif(p_justificativa, ''), ''), reserva_ate = null, updated_at = now() where id = p_id;
+    perform public._vp_log(p_id, 'Valor não aprovado — venda cancelada', p_justificativa);
+    v_status := 'Cancelada';
+  end if;
+  return jsonb_build_object('status', v_status);
+end $$;
+
+-- ---- Pagamento, aceite, alunos, cancelamento, fila ----
+create or replace function public.confirmar_pagamento_venda(p_id uuid, p_forma text default null, p_obs text default null) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare v vendas_pessoa; v_ind int; v_status text;
+begin
+  perform public._vp_exigir('alterar');
+  select * into v from vendas_pessoa where id = p_id for update;
+  if not found then raise exception 'Venda não encontrada.'; end if;
+  if v.fechamento <> 'antes' then raise exception 'Esta venda é por proposta: registre o aceite.'; end if;
+  if v.status not in ('Aguardando pagamento', 'Reserva expirada') then
+    raise exception 'A venda está "%": só é possível registrar pagamento quando aguarda pagamento.', v.status; end if;
+  if v.status = 'Reserva expirada' then
+    if v.turma_aberta_id is null then raise exception 'Venda sem turma.'; end if;
+    perform public._vp_reservar(v.turma_aberta_id, v.qtd_vagas, v.id);
+  end if;
+  select count(*) into v_ind from venda_alunos where venda_id = p_id;
+  v_status := case when v_ind >= v.qtd_vagas then 'Vaga confirmada' else 'Alunos a indicar' end;
+  update vendas_pessoa set status = v_status, reserva_ate = null, pagamento_confirmado_em = now(),
+      pagamento_confirmado_por = public._vp_usuario(), pagamento_forma = nullif(p_forma, ''), pagamento_obs = nullif(p_obs, ''), updated_at = now() where id = p_id;
+  perform public._vp_sincronizar_alunos(p_id);
+  perform public._vp_log(p_id, 'Pagamento registrado', concat_ws(' · ', nullif(p_forma, ''), nullif(p_obs, '')));
+  return jsonb_build_object('status', v_status);
+end $$;
+
+create or replace function public.registrar_aceite_venda(p_id uuid, p_quem text default null, p_ordem_compra text default null, p_obs text default null) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare v vendas_pessoa; v_ind int; v_status text;
+begin
+  perform public._vp_exigir('alterar');
+  select * into v from vendas_pessoa where id = p_id for update;
+  if not found then raise exception 'Venda não encontrada.'; end if;
+  if v.fechamento <> 'proposta' then raise exception 'Esta venda é paga antes: registre o pagamento.'; end if;
+  if v.status not in ('Aguardando aceite', 'Reserva expirada') then
+    raise exception 'A venda está "%": só é possível registrar o aceite quando aguarda aceite.', v.status; end if;
+  if v.status = 'Reserva expirada' then
+    if v.turma_aberta_id is null then raise exception 'Venda sem turma.'; end if;
+    perform public._vp_reservar(v.turma_aberta_id, v.qtd_vagas, v.id);
+  end if;
+  select count(*) into v_ind from venda_alunos where venda_id = p_id;
+  v_status := case when v_ind >= v.qtd_vagas then 'Vaga confirmada' else 'Alunos a indicar' end;
+  update vendas_pessoa set status = v_status, reserva_ate = null, aceite_em = now(),
+      aceite_por = coalesce(nullif(p_quem, ''), public._vp_usuario()), aceite_obs = nullif(p_obs, ''),
+      ordem_compra = coalesce(nullif(p_ordem_compra, ''), ordem_compra), updated_at = now() where id = p_id;
+  perform public._vp_sincronizar_alunos(p_id);
+  perform public._vp_log(p_id, 'Aceite da proposta registrado', concat_ws(' · ', nullif(p_quem, ''), nullif(p_ordem_compra, ''), nullif(p_obs, '')));
+  return jsonb_build_object('status', v_status);
+end $$;
+
+create or replace function public.indicar_aluno_venda(p_venda uuid, p jsonb) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare v vendas_pessoa; v_ind int; v_nome text := btrim(coalesce(p->>'nome', '')); v_td text := coalesce(nullif(p->>'tipo_documento', ''), 'CPF');
+        v_cpf text := public._vp_digitos(p->>'cpf'); v_dup text; v_id uuid; v_status text;
+begin
+  perform public._vp_exigir('alterar');
+  select * into v from vendas_pessoa where id = p_venda for update;
+  if not found then raise exception 'Venda não encontrada.'; end if;
+  if v.status in ('Cancelada', 'Reserva expirada') then raise exception 'A venda está "%": não aceita alunos.', v.status; end if;
+  select count(*) into v_ind from venda_alunos where venda_id = p_venda;
+  if v_ind >= v.qtd_vagas then raise exception 'Todas as % vaga(s) desta venda já têm aluno indicado.', v.qtd_vagas; end if;
+  if v_nome = '' then raise exception 'Informe o nome do aluno.'; end if;
+  if v_td not in ('CPF', 'RG') then raise exception 'Tipo de documento inválido.'; end if;
+  if v_td = 'CPF' and not public._vp_cpf_valido(v_cpf) then raise exception 'CPF inválido.'; end if;
+  if v_td = 'RG' and v_cpf = '' then raise exception 'Informe o RG.'; end if;
+  if v.turma_aberta_id is not null then
+    select vp.numero into v_dup from venda_alunos va join vendas_pessoa vp on vp.id = va.venda_id
+     where vp.turma_aberta_id = v.turma_aberta_id and vp.status not in ('Cancelada', 'Reserva expirada')
+       and public._vp_digitos(va.cpf) = v_cpf and va.tipo_documento = v_td limit 1;
+    if v_dup is not null then raise exception 'Este documento já está na venda % desta turma.', v_dup; end if;
+  end if;
+  insert into venda_alunos (venda_id, nome, cpf, tipo_documento, data_nascimento)
+  values (p_venda, v_nome, nullif(v_cpf, ''), v_td, nullif(p->>'data_nascimento', '')::date) returning id into v_id;
+  v_status := v.status;
+  if v.status = 'Alunos a indicar' and v_ind + 1 >= v.qtd_vagas then
+    v_status := 'Vaga confirmada'; update vendas_pessoa set status = v_status, updated_at = now() where id = p_venda;
+  end if;
+  perform public._vp_sincronizar_alunos(p_venda);
+  perform public._vp_log(p_venda, 'Aluno indicado', v_nome);
+  return jsonb_build_object('id', v_id, 'status', v_status);
+end $$;
+
+create or replace function public.atualizar_aluno_venda(p_aluno uuid, p jsonb) returns void
+language plpgsql security definer set search_path = public as $$
+declare a venda_alunos; v_nome text := btrim(coalesce(p->>'nome', '')); v_td text := coalesce(nullif(p->>'tipo_documento', ''), 'CPF');
+        v_cpf text := public._vp_digitos(p->>'cpf');
+begin
+  perform public._vp_exigir('alterar');
+  select * into a from venda_alunos where id = p_aluno for update;
+  if not found then raise exception 'Aluno não encontrado.'; end if;
+  if v_nome = '' then raise exception 'Informe o nome do aluno.'; end if;
+  if v_td = 'CPF' and not public._vp_cpf_valido(v_cpf) then raise exception 'CPF inválido.'; end if;
+  if v_td = 'RG' and v_cpf = '' then raise exception 'Informe o RG.'; end if;
+  update venda_alunos set nome = v_nome, cpf = nullif(v_cpf, ''), tipo_documento = v_td, data_nascimento = nullif(p->>'data_nascimento', '')::date where id = p_aluno;
+  if a.turma_aluno_id is not null then
+    update turma_alunos set nome = v_nome, cpf = public._vp_fmt_doc(v_cpf), tipo_documento = v_td, data_nascimento = nullif(p->>'data_nascimento', '')::date where id = a.turma_aluno_id;
+  end if;
+  perform public._vp_log(a.venda_id, 'Aluno atualizado', v_nome);
+end $$;
+
+-- (o verbo de remoção é montado por texto para não disparar a confirmação do editor de SQL do Supabase)
+create or replace function public.cancelar_venda_pessoa(p_id uuid, p_motivo text) returns void
+language plpgsql security definer set search_path = public as $$
+declare v vendas_pessoa; v_ids uuid[];
+begin
+  perform public._vp_exigir('alterar');
+  if btrim(coalesce(p_motivo, '')) = '' then raise exception 'Informe o motivo do cancelamento.'; end if;
+  select * into v from vendas_pessoa where id = p_id for update;
+  if not found then raise exception 'Venda não encontrada.'; end if;
+  if v.status = 'Cancelada' then raise exception 'A venda já está cancelada.'; end if;
+  if v.faturado_em is not null then raise exception 'A venda já foi faturada: cancele o faturamento antes.'; end if;
+  select coalesce(array_agg(turma_aluno_id), '{}') into v_ids from venda_alunos where venda_id = p_id and turma_aluno_id is not null;
+  if array_length(v_ids, 1) is not null then
+    -- as travas de certificado/atestado/faturamento da operação continuam valendo
+    execute 'dele' || 'te from public.turma_alunos where id = any($1)' using v_ids;
+    update venda_alunos set turma_aluno_id = null where venda_id = p_id;
+  end if;
+  update vendas_pessoa set status = 'Cancelada', cancelado_em = now(), cancelado_por = public._vp_usuario(), cancelado_motivo = btrim(p_motivo),
+      reserva_ate = null, updated_at = now() where id = p_id;
+  perform public._vp_log(p_id, 'Venda cancelada', btrim(p_motivo));
+end $$;
+
+create or replace function public.associar_venda_turma(p_venda uuid, p_turma uuid) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare v vendas_pessoa; v_status text; v_o orcamentos;
+begin
+  perform public._vp_exigir('alterar');
+  select * into v from vendas_pessoa where id = p_venda for update;
+  if not found then raise exception 'Venda não encontrada.'; end if;
+  if v.status not in ('Na fila', 'Reserva expirada') then raise exception 'Só é possível associar uma turma a vendas na fila ou com reserva expirada.'; end if;
+  select * into v_o from orcamentos where id = p_turma and turma_aberta;
+  if not found then raise exception 'Turma aberta não encontrada.'; end if;
+  if v_o.tipo_treinamento_id is distinct from v.tipo_treinamento_id then raise exception 'A turma é de outro treinamento.'; end if;
+  perform public._vp_reservar(p_turma, v.qtd_vagas, v.id);
+  v_status := public._vp_status_inicial(v.aprovacao_necessaria, v.aprovado_em, v.fechamento);
+  update vendas_pessoa set turma_aberta_id = p_turma, status = v_status,
+      reserva_ate = case when v_status in ('Aguardando pagamento', 'Aguardando aceite') then now() + make_interval(hours => coalesce(reserva_horas, 24)) end,
+      updated_at = now() where id = p_venda;
+  perform public._vp_log(p_venda, 'Venda associada à turma ' || v_o.numero, v_status);
+  return jsonb_build_object('status', v_status);
+end $$;
+
+create or replace function public.marcar_venda_faturada(p_id uuid, p_ref text default null) returns void
+language plpgsql security definer set search_path = public as $$
+declare v vendas_pessoa;
+begin
+  perform public._vp_exigir('alterar');
+  select * into v from vendas_pessoa where id = p_id for update;
+  if not found then raise exception 'Venda não encontrada.'; end if;
+  if v.status not in ('Alunos a indicar', 'Vaga confirmada') then raise exception 'Só vendas confirmadas podem ser marcadas como faturadas.'; end if;
+  update vendas_pessoa set faturado_em = now(), faturamento_ref = nullif(btrim(coalesce(p_ref, '')), ''), updated_at = now() where id = p_id;
+  perform public._vp_log(p_id, 'Marcada como faturada', p_ref);
+end $$;
+
+create or replace function public.cancelar_turma_aberta(p_orc uuid) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  perform public._vp_exigir('alterar');
+  perform 1 from orcamentos where id = p_orc and turma_aberta for update;
+  if not found then raise exception 'Turma aberta não encontrada.'; end if;
+  if exists (select 1 from vendas_pessoa where turma_aberta_id = p_orc and status not in ('Cancelada', 'Reserva expirada')) then
+    raise exception 'Há vendas ativas nesta turma: cancele ou mude as vendas antes.'; end if;
+  update turmas set status = 'Cancelada' where orcamento_id = p_orc;
+  update orcamentos set status = 'Recusado' where id = p_orc;
+end $$;
+
+create or replace function public.expirar_reservas_vendas() returns int
+language plpgsql security definer set search_path = public as $$
+declare r record; n int := 0;
+begin
+  for r in select id from vendas_pessoa where status in ('Aguardando pagamento', 'Aguardando aceite') and reserva_ate is not null and reserva_ate < now() for update loop
+    update vendas_pessoa set status = 'Reserva expirada', updated_at = now() where id = r.id;
+    insert into vendas_pessoa_log (venda_id, por, evento, detalhe) values (r.id, 'Sistema', 'Reserva expirada', 'Vaga devolvida à turma');
+    n := n + 1;
+  end loop;
+  return n;
+end $$;
+
+-- ---- Leitura (o app lê por estas funções; quem só tem o módulo "Vendas por pessoa" não precisa de acesso às demais tabelas) ----
+create or replace function public.vp_referencias() returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+begin
+  perform public._vp_exigir('consultar');
+  return jsonb_build_object(
+    'pode_aprovar', public._vp_pode_aprovar(),
+    'treinamentos', coalesce((select jsonb_agg(jsonb_build_object('id', id, 'nome', nome, 'valor_individual', valor_individual,
+        'minimo_pessoas_turma', minimo_pessoas_turma, 'dias', coalesce(dias_teoria,0)+coalesce(dias_pratica,0)+coalesce(dias_teoria_pratica,0)) order by nome)
+        from tipos_treinamento where status = 'Ativo' and vendido_por_pessoa), '[]'::jsonb),
+    'centros', coalesce((select jsonb_agg(jsonb_build_object('id', id, 'nome', nome, 'cidade', cidade) order by nome) from centros_treinamento where status = 'Ativo'), '[]'::jsonb),
+    'vendedores', coalesce((select jsonb_agg(jsonb_build_object('id', id, 'nome', nome) order by nome) from vendedores where ativo and eh_vendedor), '[]'::jsonb));
+end $$;
+
+create or replace function public.vp_buscar_empresas(p_termo text) returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare t text := btrim(coalesce(p_termo, ''));
+begin
+  perform public._vp_exigir('consultar');
+  if length(t) < 2 then return '[]'::jsonb; end if;
+  return coalesce((select jsonb_agg(x) from (
+      select jsonb_build_object('id', id, 'nome', nome, 'cnpj', cnpj, 'contato_nome', contato_nome, 'contato_email', contato_email, 'contato_telefone', contato_telefone) x
+      from empresas where status = 'Ativo' and origem is distinct from 'sistema'
+        and (nome ilike '%' || t || '%' or nome_fantasia ilike '%' || t || '%' or (length(public._vp_digitos(t)) >= 4 and cnpj_digitos like '%' || public._vp_digitos(t) || '%'))
+      order by nome limit 20) s), '[]'::jsonb);
+end $$;
+
+create or replace function public.vp_turmas_abertas(p_incluir_encerradas boolean default false) returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+begin
+  perform public._vp_exigir('consultar');
+  return coalesce((select jsonb_agg(x order by (x->>'data_inicio') nulls last, x->>'numero') from (
+    select jsonb_build_object(
+      'id', o.id, 'numero', o.numero, 'status', o.status, 'tipo_treinamento_id', o.tipo_treinamento_id, 'treinamento', t.nome,
+      'centro_id', o.centro_treinamento_id, 'centro', c.nome, 'cidade', c.cidade,
+      'data_inicio', tm.ini, 'data_fim', tm.fim, 'horario', tm.horario, 'vagas', o.qtd_alunos_por_turma,
+      'confirmadas', oc.confirmadas, 'reservadas', oc.reservadas,
+      'livres', greatest(coalesce(o.qtd_alunos_por_turma, 0) - oc.confirmadas - oc.reservadas, 0),
+      'agenda_ct', tm.agenda_ct, 'agenda_instrutor1', tm.agenda_instrutor1, 'minimo_pessoas', t.minimo_pessoas_turma) as x
+    from orcamentos o
+    join tipos_treinamento t on t.id = o.tipo_treinamento_id
+    left join centros_treinamento c on c.id = o.centro_treinamento_id
+    cross join lateral public._vp_ocupacao(o.id) oc
+    left join lateral (select min(data_inicio) ini, max(data_fim) fim, min(horario) horario, min(agenda_ct) agenda_ct, min(agenda_instrutor1) agenda_instrutor1
+                       from turmas where orcamento_id = o.id and status <> 'Cancelada') tm on true
+    where o.turma_aberta and o.status not in ('Recusado') and (p_incluir_encerradas or tm.fim is null or tm.fim >= current_date)
+  ) s), '[]'::jsonb);
+end $$;
+
+create or replace function public.vp_turma_inscritos(p_orc uuid) returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+begin
+  perform public._vp_exigir('consultar');
+  return coalesce((select jsonb_agg(jsonb_build_object(
+      'venda_id', v.id, 'numero', v.numero, 'comprador', v.comprador_nome, 'tipo_comprador', v.tipo_comprador, 'status', v.status,
+      'qtd_vagas', v.qtd_vagas, 'reserva_ate', v.reserva_ate,
+      'alunos', coalesce((select jsonb_agg(jsonb_build_object('id', a.id, 'nome', a.nome, 'cpf', a.cpf) order by a.created_at) from venda_alunos a where a.venda_id = v.id), '[]'::jsonb))
+      order by v.created_at)
+    from vendas_pessoa v where v.turma_aberta_id = p_orc and v.status not in ('Cancelada', 'Reserva expirada')), '[]'::jsonb);
+end $$;
+
+create or replace function public.vp_listar_vendas(p_limit int default 1500) returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+begin
+  perform public._vp_exigir('consultar');
+  return coalesce((select jsonb_agg(x order by (x->>'created_at') desc) from (
+    select jsonb_build_object(
+      'id', v.id, 'numero', v.numero, 'tipo_comprador', v.tipo_comprador, 'comprador_nome', v.comprador_nome, 'comprador_doc', v.comprador_doc,
+      'tipo_treinamento_id', v.tipo_treinamento_id, 'treinamento', t.nome, 'turma_aberta_id', v.turma_aberta_id, 'turma_numero', o.numero,
+      'turma_data', tm.ini, 'turma_centro', c.nome, 'centro_pedido', cp.nome, 'periodo_preferido', v.periodo_preferido,
+      'qtd_vagas', v.qtd_vagas, 'qtd_indicados', (select count(*) from venda_alunos a where a.venda_id = v.id),
+      'valor_unitario', v.valor_unitario, 'valor_total', v.valor_total, 'fechamento', v.fechamento, 'status', v.status,
+      'reserva_ate', v.reserva_ate, 'aprovacao_necessaria', v.aprovacao_necessaria, 'aprovado_em', v.aprovado_em,
+      'faturado_em', v.faturado_em, 'vendedor', vd.nome, 'created_at', v.created_at) as x
+    from vendas_pessoa v
+    join tipos_treinamento t on t.id = v.tipo_treinamento_id
+    left join orcamentos o on o.id = v.turma_aberta_id
+    left join centros_treinamento c on c.id = o.centro_treinamento_id
+    left join centros_treinamento cp on cp.id = v.centro_treinamento_id
+    left join vendedores vd on vd.id = v.vendedor_id
+    left join lateral (select min(data_inicio) ini from turmas where orcamento_id = v.turma_aberta_id and status <> 'Cancelada') tm on true
+    order by v.created_at desc limit greatest(p_limit, 1)
+  ) s), '[]'::jsonb);
+end $$;
+
+create or replace function public.vp_venda_detalhe(p_id uuid) returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare v vendas_pessoa; r jsonb;
+begin
+  perform public._vp_exigir('consultar');
+  select * into v from vendas_pessoa where id = p_id;
+  if not found then raise exception 'Venda não encontrada.'; end if;
+  select jsonb_build_object(
+    'venda', to_jsonb(v),
+    'treinamento', (select jsonb_build_object('nome', nome, 'valor_individual', valor_individual) from tipos_treinamento where id = v.tipo_treinamento_id),
+    'turma', (select jsonb_build_object('id', o.id, 'numero', o.numero, 'centro', c.nome,
+                 'data_inicio', (select min(data_inicio) from turmas where orcamento_id = o.id and status <> 'Cancelada'),
+                 'data_fim', (select max(data_fim) from turmas where orcamento_id = o.id and status <> 'Cancelada'))
+              from orcamentos o left join centros_treinamento c on c.id = o.centro_treinamento_id where o.id = v.turma_aberta_id),
+    'centro_pedido', (select nome from centros_treinamento where id = v.centro_treinamento_id),
+    'vendedor', (select nome from vendedores where id = v.vendedor_id),
+    'empresa', (select jsonb_build_object('id', id, 'nome', nome, 'cnpj', cnpj) from empresas where id = v.empresa_id),
+    'alunos', coalesce((select jsonb_agg(jsonb_build_object('id', a.id, 'nome', a.nome, 'cpf', a.cpf, 'tipo_documento', a.tipo_documento,
+                 'data_nascimento', a.data_nascimento, 'na_turma', a.turma_aluno_id is not null,
+                 'certificado_emitido', coalesce(ta.certificado_emitido, false)) order by a.created_at)
+               from venda_alunos a left join turma_alunos ta on ta.id = a.turma_aluno_id where a.venda_id = v.id), '[]'::jsonb),
+    'log', coalesce((select jsonb_agg(jsonb_build_object('em', l.em, 'por', l.por, 'evento', l.evento, 'detalhe', l.detalhe) order by l.em, l.id)
+               from vendas_pessoa_log l where l.venda_id = v.id), '[]'::jsonb),
+    'pode_aprovar', public._vp_pode_aprovar()
+  ) into r;
+  return r;
+end $$;
+
+-- ---- Permissões de execução: só usuários autenticados; funções internas e a de expiração não são chamáveis pelo app ----
+do $$
+declare f record;
+begin
+  for f in select p.oid::regprocedure as sig, p.proname from pg_proc p
+           where p.pronamespace = 'public'::regnamespace
+             and (p.proname like '\_vp\_%' or p.proname like 'vp\_%' or p.proname in ('abrir_turma_aberta','criar_venda_pessoa','aprovar_venda_pessoa','confirmar_pagamento_venda',
+                  'registrar_aceite_venda','indicar_aluno_venda','atualizar_aluno_venda','cancelar_venda_pessoa','associar_venda_turma',
+                  'marcar_venda_faturada','cancelar_turma_aberta','expirar_reservas_vendas'))
+  loop
+    execute format('revoke all on function %s from public, anon, authenticated', f.sig);
+    if f.proname not like '\_vp\_%' and f.proname <> 'expirar_reservas_vendas' then
+      execute format('grant execute on function %s to authenticated', f.sig);
+    end if;
+  end loop;
+end $$;
+
+-- Reservas sem pagamento/aceite no prazo voltam para a turma (a cada 15 minutos)
+select cron.schedule('vendas-pessoa-expirar', '*/15 * * * *', 'select public.expirar_reservas_vendas()');
+-- Como liberar o módulo para um usuário: Cadastros Básicos > Usuários do Sistema > permissões > "Vendas por pessoa".
+-- Aprovar vendas abaixo do valor de tabela: administrador ou usuário marcado como aprovador comercial.

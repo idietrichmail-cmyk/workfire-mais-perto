@@ -36,7 +36,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.88 · 27/10/2026";
+const APP_VERSAO = "Prod 1.90 · 29/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -454,6 +454,7 @@ const MODULOS = [
   // Comercial
   { id: "empresas", label: "Empresas", icone: "🏢", grupo: "Comercial" },
   { id: "orcamentos", label: "Orçamentos", icone: "💰", grupo: "Comercial" },
+  { id: "vendas_pessoa", label: "Vendas por pessoa", icone: "🎟️", grupo: "Comercial" },
   // Compras
   { id: "materiais", label: "Materiais", icone: "📦", grupo: "Compras" },
   // Logística
@@ -1355,6 +1356,15 @@ function irParaModulo(id) {
   const metaArea = MODULOS.find((m) => m.id === id);
   if (metaArea && areaAtiva !== "Geral" && metaArea.grupo !== areaAtiva) areaAtiva = metaArea.grupo;
   document.querySelectorAll("#tela-admin main > section").forEach((s) => s.classList.add("hidden"));
+  // Agendamento de Turmas usa a tela inteira (sem o limite de largura das demais telas)
+  const mainAdmin = document.querySelector("#tela-admin main");
+  if (mainAdmin) {
+    const larga = id === "agendamento_turmas";
+    mainAdmin.classList.toggle("max-w-6xl", !larga);
+    mainAdmin.classList.toggle("max-w-none", larga);
+    mainAdmin.classList.toggle("py-8", !larga);
+    mainAdmin.classList.toggle("py-4", larga);
+  }
   const meta = MODULOS.find((m) => m.id === id);
   $("admin-eyebrow").textContent = meta.grupo;
   $("admin-titulo-pagina").textContent = meta.label;
@@ -1373,6 +1383,10 @@ function irParaModulo(id) {
   } else if (id === "orcamentos") {
     $("secao-orcamentos").classList.remove("hidden");
     carregarOrcamentos();
+  } else if (id === "vendas_pessoa") {
+    $("admin-descricao-pagina").textContent = "Venda de vagas em turmas abertas: pessoa física paga antes (registre o pagamento); empresa fecha por proposta e aceite. Agenda, presença e certificado seguem a operação de hoje.";
+    $("secao-vendas-pessoa").classList.remove("hidden");
+    carregarVendasPessoaInit();
   } else if (id === "turmas") {
     $("secao-turmas").classList.remove("hidden");
     carregarTurmasInit();
@@ -2083,6 +2097,12 @@ const CRUD_CONFIG = {
         const v = ($("crud-campo-" + id)?.value || "").trim();
         if (v !== "" && !(Number(v) >= 0 && Number(v) <= 100)) return `${rot}: informe um valor entre 0 e 100.`;
       }
+      if ($("crud-campo-vendido_por_pessoa")?.checked) {
+        const vi = ($("crud-campo-valor_individual")?.value || "").trim();
+        if (vi === "" || !(Number(vi) >= 0)) return "Treinamento vendido por pessoa: informe o valor individual por pessoa.";
+      }
+      const mp = ($("crud-campo-minimo_pessoas_turma")?.value || "").trim();
+      if (mp !== "" && !(Number(mp) >= 1)) return "Mínimo de pessoas: informe 1 ou mais.";
       const vd = ($("crud-campo-validade_padrao_dias")?.value || "").trim();
       if (vd !== "" && !(Number(vd) >= 1 && Number(vd) <= 3650)) return "Validade padrão da proposta: informe de 1 a 3650 dias.";
       return validarItensCustoTreinamento();
@@ -2091,6 +2111,8 @@ const CRUD_CONFIG = {
       ["perc_apoio", "perc_margem", "perc_imposto", "perc_margem_minima", "valor_margem_minimo"].forEach((k) => { if (p[k] == null) p[k] = 0; });
       if (p.validade_padrao_dias == null || !(p.validade_padrao_dias >= 1)) p.validade_padrao_dias = 30;
       p.validade_padrao_dias = Math.round(p.validade_padrao_dias);
+      if (!p.vendido_por_pessoa) { p.vendido_por_pessoa = false; }
+      if (p.minimo_pessoas_turma != null) p.minimo_pessoas_turma = Math.round(p.minimo_pessoas_turma);
     },
     aoSalvar: async (linha) => { await salvarItensCustoTreinamento(linha.id); await salvarSecaoOmieTreinamento(linha.id); },
     campos: [
@@ -2117,6 +2139,9 @@ const CRUD_CONFIG = {
       },
       { id: "texto_certificado", label: "Texto do certificado (variáveis: #nome_aluno#, #tip_docto#, #numero_docto#, #data_inicio#, #data_termino#)", tipo: "textarea" },
       { id: "texto_atestado", label: "Texto de impressão do atestado (variáveis: #razao_social_empresa#, #cnpj_empresa#, #endereco_empresa#; opcionais: #nome_treinamento#, #carga_horaria#, #data_inicio#, #data_termino#)", tipo: "textarea" },
+      { id: "vendido_por_pessoa", label: "Vendido por pessoa (turmas abertas: pessoa física compra 1 vaga; empresa compra várias vagas)", tipo: "checkbox", padrao: false },
+      { id: "valor_individual", label: "Valor individual por pessoa (R$) — preço de tabela; vendas abaixo dele pedem aprovação", tipo: "number", min: 0, step: "0.01" },
+      { id: "minimo_pessoas_turma", label: "Mínimo de pessoas para abrir turma (opcional, usado na fila de pedidos)", tipo: "number", min: 1, step: "1" },
       { id: "perc_apoio", label: "% de apoio", tipo: "number", min: 0, max: 100, step: "0.01", padrao: 0 },
       { id: "perc_margem", label: "% de margem", tipo: "number", min: 0, max: 100, step: "0.01", padrao: 0 },
       { id: "perc_imposto", label: "% de imposto", tipo: "number", min: 0, max: 100, step: "0.01", padrao: 0 },
@@ -2133,6 +2158,7 @@ const CRUD_CONFIG = {
     cardLinhas: (i) => [
       rotuloCategoriaTreinamento(i.categoria_treinamento_id),
       i.somente_locacao_espaco && "🏢 Somente locação de espaço",
+      i.vendido_por_pessoa && `🎟️ Vendido por pessoa${i.valor_individual != null ? " · " + fmtBRL(i.valor_individual) + " por pessoa" : ""}`,
       i.emite_certificado === false ? "📄 Não emite certificado" : (treinoRefRespTecnicos.find((r) => r.id === i.responsavel_tecnico_id) ? `🎓 Resp. técnico: ${treinoRefRespTecnicos.find((r) => r.id === i.responsavel_tecnico_id).nome}` : "🎓 Emite certificado (sem responsável técnico)"),
       i.categoria,
       i.carga_horaria && `Carga horária: ${i.carga_horaria}`,
@@ -3616,6 +3642,8 @@ const MASCARAS = {
     if (d.length > 2) return d.replace(/^(\d{2})(\d{0,3})/, "$1.$2");
     return d;
   },
+  // faturamento: CPF (pessoa física) ou CNPJ (empresa), conforme o tamanho
+  docfat: (v) => { const d = String(v || "").replace(/\D/g, ""); return d.length <= 11 ? MASCARAS.cpf(d) : MASCARAS.cnpj(d); },
   cpf: (v) => {
     const d = v.replace(/\D/g, "").slice(0, 11);
     if (d.length > 9) return d.replace(/^(\d{3})(\d{3})(\d{3})(\d{0,2})/, "$1.$2.$3-$4");
@@ -6772,6 +6800,7 @@ async function consultarPaginaOrcamentos() {
   const montar = () => {
     let q = supabase.from("orcamentos")
       .select("*, empresas(nome), centros_treinamento(nome), tipos_treinamento(nome), orcamento_propostas(status, requer_aprovacao, aprovado_em)", { count: "exact" })
+      .eq("turma_aberta", false)
       .in("status", [...orcFiltroStatus]);
     if (filtroOr) q = q.or(filtroOr);
     return q.order("data", { ascending: false }).order("created_at", { ascending: false }).order("id");
@@ -10714,7 +10743,7 @@ async function exportarListaPresencaTurma(turmaId) {
       sheet.cell("O" + r).value(a.cpf ? MASCARAS.cpf(String(a.cpf)) : "");
       sheet.cell("T" + r).value(nomeLocalidade[a.localidade_id] || "");
       sheet.cell("AB" + r).value(a.cnpj_atestado ? MASCARAS.cnpj(String(a.cnpj_atestado)) : "");
-      sheet.cell("AE" + r).value(a.cnpj_faturamento ? MASCARAS.cnpj(String(a.cnpj_faturamento)) : "");
+      sheet.cell("AE" + r).value(a.cnpj_faturamento ? MASCARAS.docfat(String(a.cnpj_faturamento)) : "");
     });
 
     const blob = await wb.outputAsync();
@@ -11145,7 +11174,22 @@ $("agend-orcamento-select").addEventListener("change", async () => {
   await recarregarTurmasAgendTurma();
   $("agend-turma-conteudo").classList.remove("hidden");
   renderizarListaAgendTurmas();
+  agendAjustarAlturaLista();
 });
+
+// A lista de turmas ocupa o resto da altura da janela: rola só o corpo da tabela e o cabeçalho
+// (colunas) fica sempre visível. A altura é recalculada quando a janela ou os blocos acima mudam.
+function agendAjustarAlturaLista() {
+  const w = $("agend-turma-wrap");
+  if (!w || w.offsetParent === null) return;
+  const topo = w.getBoundingClientRect().top;
+  w.style.maxHeight = Math.max(260, Math.floor(window.innerHeight - topo - 16)) + "px";
+}
+window.addEventListener("resize", agendAjustarAlturaLista);
+if (window.ResizeObserver) {
+  const roAgend = new ResizeObserver(() => agendAjustarAlturaLista());
+  ["agend-desmarcacoes-bloco", "agend-orcamento-info", "agend-solicitacao-resultado", "agend-turma-barra"].forEach((id) => { const el = $(id); if (el) roAgend.observe(el); });
+}
 
 // Recarrega as turmas do orçamento selecionado e as solicitações já enviadas
 // aos instrutores (tabela agendamentos), para mostrar quem já respondeu.
@@ -12450,7 +12494,7 @@ function renderizarListaAlunosTurma() {
       <td class="py-1.5 pr-2">${escH(a.data_nascimento || "—")}</td>
       <td class="py-1.5 pr-2">${escH(localidade?.nome || "—")}</td>
       <td class="py-1.5 pr-2">${a.cnpj_atestado ? MASCARAS.cnpj(a.cnpj_atestado) : "—"}</td>
-      <td class="py-1.5 pr-2">${a.cnpj_faturamento ? MASCARAS.cnpj(a.cnpj_faturamento) : "—"}</td>
+      <td class="py-1.5 pr-2">${a.cnpj_faturamento ? MASCARAS.docfat(a.cnpj_faturamento) : "—"}</td>
       <td class="py-1.5 text-right whitespace-nowrap">
         ${podeAlterar ? `<button data-aluno-turma-editar="${a.id}" class="text-slate-500 hover:text-slate-800 text-xs mr-2">✏️</button>` : ""}
         ${podeExcluir ? `<button data-aluno-turma-excluir="${a.id}" class="text-rose-500 hover:text-rose-700 text-xs">🗑️</button>` : ""}
@@ -14924,7 +14968,7 @@ async function fatCarregarOrcamentos() {
   $("fat-orcs-tbody").innerHTML = `<tr><td colspan="6" class="px-3 py-4 text-slate-500">Carregando…</td></tr>`;
   try {
     const { data: turmas, error } = await buscarTodos(() => supabase.from("turmas")
-      .select("id, orcamento_id, faturada_3s, orcamentos(numero, faturar_por_aluno, empresas(nome))").not("certificados_registrados_em", "is", null).order("id"));
+      .select("id, orcamento_id, faturada_3s, orcamentos!inner(numero, faturar_por_aluno, turma_aberta, empresas(nome))").eq("orcamentos.turma_aberta", false).not("certificados_registrados_em", "is", null).order("id"));
     if (error) throw error;
     const ids = (turmas || []).map((t) => t.id);
     const faturadas = new Set((turmas || []).filter((t) => t.faturada_3s).map((t) => t.id));
@@ -16528,3 +16572,603 @@ $("at-emitidos-tbody").addEventListener("click", (e) => {
 });
 
 })();
+
+// ===========================================================
+// VENDAS POR PESSOA (turmas abertas) — Fase 1
+// Pessoa física compra 1 vaga e paga antes (PIX/cartão fora do sistema; o pagamento é registrado aqui);
+// empresa compra várias vagas por proposta e aceite. A operação (agenda, presença, certificado) é a mesma de hoje:
+// a turma aberta cria um orçamento interno "TA-nnnn" e as linhas de turma na operação.
+// Toda gravação passa por funções do banco (RPC) que conferem permissão, vagas e valores.
+// ===========================================================
+const VP_STATUS_COR = {
+  "Aguardando aprovação": "bg-violet-100 text-violet-800",
+  "Aguardando pagamento": "bg-amber-100 text-amber-800",
+  "Aguardando aceite": "bg-sky-100 text-sky-800",
+  "Na fila": "bg-slate-200 text-slate-800",
+  "Alunos a indicar": "bg-orange-100 text-orange-800",
+  "Vaga confirmada": "bg-emerald-100 text-emerald-800",
+  "Reserva expirada": "bg-rose-100 text-rose-700",
+  "Cancelada": "bg-slate-100 text-slate-500",
+};
+const VP_STATUS_ORDEM = ["Aguardando aprovação", "Aguardando pagamento", "Aguardando aceite", "Na fila", "Alunos a indicar", "Vaga confirmada", "Reserva expirada", "Cancelada"];
+const VP_FORMAS = ["PIX", "Cartão de crédito", "Cartão de débito", "Boleto", "Transferência", "Dinheiro", "Outra"];
+let vpRefs = null, vpVendas = [], vpTurmas = [], vpAba = "vendas", vpMontado = false;
+let vpFiltro = { busca: "", tipo: "", trein: "", status: "" };
+let vpDetalhe = null, vpEditAluno = null, vpBuscaTimer = null, vpOcupado = false;
+
+const vpData = (d) => { if (!d) return "—"; const m = String(d).match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[3]}/${m[2]}/${m[1]}` : String(d); };
+const vpDataHora = (iso) => { if (!iso) return "—"; const d = new Date(iso); return isNaN(d) ? "—" : d.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "America/Sao_Paulo" }); };
+const vpDoc = (d) => { const x = String(d || "").replace(/\D/g, ""); return x.length === 11 ? MASCARAS.cpf(x) : x.length === 14 ? MASCARAS.cnpj(x) : (d || ""); };
+const vpChip = (s) => `<span class="inline-block text-[11px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap ${VP_STATUS_COR[s] || "bg-slate-100 text-slate-700"}">${escH(s)}</span>`;
+async function vpRpc(nome, args) { const { data, error } = await supabase.rpc(nome, args || {}); if (error) throw error; return data; }
+const vpMsgErro = (e) => (e && (e.message || e.details)) || String(e);
+function vpAviso(tipo, msg) {
+  const el = $(tipo === "ok" ? "vp-ok" : "vp-erro"); if (!el) return;
+  $(tipo === "ok" ? "vp-erro" : "vp-ok").classList.add("hidden");
+  el.textContent = msg; el.classList.remove("hidden");
+  if (tipo === "ok") setTimeout(() => el.classList.add("hidden"), 7000);
+}
+const vpLimparAvisos = () => { $("vp-erro")?.classList.add("hidden"); $("vp-ok")?.classList.add("hidden"); };
+const vpInput = "mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm";
+const vpLabel = "text-xs font-medium text-slate-500 uppercase tracking-wide";
+const vpBtnPri = "bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium px-4 py-2 rounded-md disabled:opacity-50";
+const vpBtnSec = "border border-slate-300 text-sm px-4 py-2 rounded-md hover:bg-slate-50 disabled:opacity-50";
+
+function vpMontarCasca() {
+  $("vp-raiz").innerHTML = `
+    <div id="vp-erro" class="hidden bg-rose-50 text-rose-600 text-sm rounded-md px-3 py-2 mb-3"></div>
+    <div id="vp-ok" class="hidden bg-emerald-50 text-emerald-700 text-sm rounded-md px-3 py-2 mb-3"></div>
+    <div class="flex gap-1 border-b border-slate-200 mb-4">
+      <button type="button" data-vp-aba="vendas" class="px-4 py-2 text-sm"></button>
+      <button type="button" data-vp-aba="turmas" class="px-4 py-2 text-sm"></button>
+    </div>
+    <div id="vp-aba-vendas">
+      <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+        <div id="vp-tiles" class="flex flex-wrap gap-2"></div>
+        <button id="btn-vp-nova" type="button" class="${vpBtnPri}">Nova venda</button>
+      </div>
+      <div class="bg-white border border-slate-200 rounded-xl p-3 mb-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 items-end">
+        <div><label class="${vpLabel}" for="vp-f-busca">Busca</label><input id="vp-f-busca" type="search" placeholder="Nome, CPF, CNPJ ou nº da venda" class="${vpInput}" /></div>
+        <div><label class="${vpLabel}" for="vp-f-tipo">Comprador</label><select id="vp-f-tipo" class="${vpInput}"><option value="">Todos</option><option value="pf">Pessoa física</option><option value="empresa">Empresa</option></select></div>
+        <div><label class="${vpLabel}" for="vp-f-trein">Treinamento</label><select id="vp-f-trein" class="${vpInput}"></select></div>
+        <div><label class="${vpLabel}" for="vp-f-status">Situação</label><select id="vp-f-status" class="${vpInput}"></select></div>
+      </div>
+      <div class="bg-white border border-slate-200 rounded-xl overflow-x-auto">
+        <table class="min-w-[1000px] w-full text-sm">
+          <thead class="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500"><tr>
+            <th class="text-left px-3 py-2">Venda</th><th class="text-left px-3 py-2">Comprador</th><th class="text-left px-3 py-2">Treinamento</th>
+            <th class="text-left px-3 py-2">Turma</th><th class="text-center px-3 py-2">Vagas</th><th class="text-right px-3 py-2">Valor total</th>
+            <th class="text-left px-3 py-2">Fechamento</th><th class="text-left px-3 py-2">Situação</th></tr></thead>
+          <tbody id="vp-tbody"></tbody>
+        </table>
+      </div>
+      <p class="text-xs text-slate-500 mt-2">Clique em uma venda para ver o andamento e registrar pagamento, aceite e alunos. Faturamento: pessoa física no CPF; empresa no CNPJ.</p>
+    </div>
+    <div id="vp-aba-turmas" class="hidden"></div>`;
+  vpMontado = true;
+}
+
+async function carregarVendasPessoaInit() {
+  if (!vpMontado || !$("vp-aba-vendas")) vpMontarCasca();
+  vpLimparAvisos();
+  vpRenderAbas();
+  $("vp-tbody").innerHTML = `<tr><td colspan="8" class="px-3 py-4 text-slate-500">Carregando…</td></tr>`;
+  try {
+    const [refs, vendas, turmas] = await Promise.all([vpRpc("vp_referencias"), vpRpc("vp_listar_vendas"), vpRpc("vp_turmas_abertas", { p_incluir_encerradas: false })]);
+    vpRefs = refs; vpVendas = vendas || []; vpTurmas = turmas || [];
+    vpRenderFiltros(); vpRenderTudo();
+  } catch (e) {
+    $("vp-tbody").innerHTML = "";
+    vpAviso("erro", "Não foi possível carregar: " + vpMsgErro(e));
+  }
+}
+async function vpRecarregar() {
+  const [vendas, turmas] = await Promise.all([vpRpc("vp_listar_vendas"), vpRpc("vp_turmas_abertas", { p_incluir_encerradas: false })]);
+  vpVendas = vendas || []; vpTurmas = turmas || [];
+  vpRenderTudo();
+}
+function vpRenderTudo() { vpRenderAbas(); vpRenderTiles(); vpRenderTabela(); vpRenderTurmas(); }
+
+function vpRenderAbas() {
+  document.querySelectorAll("[data-vp-aba]").forEach((b) => {
+    const a = b.getAttribute("data-vp-aba");
+    const nome = a === "vendas" ? "Vendas por pessoa" : "Turmas abertas";
+    const filaN = a === "turmas" ? vpVendas.filter((v) => v.status === "Na fila").length : 0;
+    b.textContent = nome + (filaN ? ` (${filaN} na fila)` : "");
+    b.className = "px-4 py-2 text-sm " + (vpAba === a ? "font-semibold border-b-2 border-amber-600 text-slate-900" : "text-slate-500 hover:text-slate-800");
+  });
+  $("vp-aba-vendas")?.classList.toggle("hidden", vpAba !== "vendas");
+  $("vp-aba-turmas")?.classList.toggle("hidden", vpAba !== "turmas");
+}
+function vpRenderFiltros() {
+  $("vp-f-trein").innerHTML = `<option value="">Todos</option>` + (vpRefs.treinamentos || []).map((t) => `<option value="${escH(t.id)}">${escH(t.nome)}</option>`).join("");
+  $("vp-f-status").innerHTML = `<option value="">Todas</option>` + VP_STATUS_ORDEM.map((s) => `<option>${escH(s)}</option>`).join("");
+  $("vp-f-trein").value = vpFiltro.trein; $("vp-f-status").value = vpFiltro.status; $("vp-f-tipo").value = vpFiltro.tipo; $("vp-f-busca").value = vpFiltro.busca;
+  $("btn-vp-nova").classList.toggle("hidden", !podeFazer("vendas_pessoa", "incluir"));
+}
+function vpRenderTiles() {
+  const cont = {}; vpVendas.forEach((v) => { cont[v.status] = (cont[v.status] || 0) + 1; });
+  $("vp-tiles").innerHTML = ["Aguardando aprovação", "Aguardando pagamento", "Aguardando aceite", "Na fila", "Alunos a indicar", "Vaga confirmada", "Reserva expirada"].map((s) =>
+    `<button type="button" data-vp-tile="${escH(s)}" class="bg-white border ${vpFiltro.status === s ? "border-amber-600" : "border-slate-200"} rounded-lg px-3 py-1.5 text-left hover:border-slate-400">
+       <span class="block text-lg font-semibold leading-tight">${cont[s] || 0}</span><span class="block text-[11px] text-slate-500">${escH(s)}</span></button>`).join("");
+}
+function vpObsVenda(v) {
+  if (v.status === "Aguardando pagamento" || v.status === "Aguardando aceite") return v.reserva_ate ? `reserva até ${vpDataHora(v.reserva_ate)}` : "";
+  if (v.status === "Alunos a indicar") return `${v.qtd_indicados} de ${v.qtd_vagas} alunos indicados`;
+  if (v.status === "Na fila") return [v.centro_pedido, v.periodo_preferido].filter(Boolean).join(" · ") || "turma ainda não aberta";
+  if (v.status === "Aguardando aprovação") return "valor abaixo do cadastro";
+  if (v.status === "Vaga confirmada" && v.faturado_em) return "faturada";
+  return "";
+}
+function vpRenderTabela() {
+  const b = vpFiltro.busca.trim().toLowerCase(), bd = b.replace(/\D/g, "");
+  const lista = vpVendas.filter((v) =>
+    (!vpFiltro.tipo || v.tipo_comprador === vpFiltro.tipo) && (!vpFiltro.trein || v.tipo_treinamento_id === vpFiltro.trein) && (!vpFiltro.status || v.status === vpFiltro.status) &&
+    (!b || `${v.numero} ${v.comprador_nome}`.toLowerCase().includes(b) || (bd.length >= 3 && String(v.comprador_doc || "").includes(bd))));
+  $("vp-tbody").innerHTML = lista.length ? lista.map((v) => `
+    <tr class="border-t border-slate-100 hover:bg-slate-50 cursor-pointer" data-vp-venda="${escH(v.id)}">
+      <td class="px-3 py-2 font-mono text-xs text-sky-700">${escH(v.numero)}</td>
+      <td class="px-3 py-2"><div class="font-medium">${escH(v.comprador_nome)}</div><div class="text-xs text-slate-500">${v.tipo_comprador === "pf" ? "Pessoa física" : "Empresa"}${v.comprador_doc ? " · " + escH(vpDoc(v.comprador_doc)) : ""}</div></td>
+      <td class="px-3 py-2">${escH(v.treinamento)}</td>
+      <td class="px-3 py-2 text-xs">${v.turma_numero ? `${escH(vpData(v.turma_data))} · ${escH(v.turma_centro || "")}<div class="text-slate-400">${escH(v.turma_numero)}</div>` : `<span class="text-slate-500">Turma pedida</span>`}</td>
+      <td class="px-3 py-2 text-center font-semibold">${v.qtd_vagas}</td>
+      <td class="px-3 py-2 text-right whitespace-nowrap">${escH(fmtBRL(v.valor_total))}</td>
+      <td class="px-3 py-2 text-xs">${v.fechamento === "antes" ? "Pago antes" : "Proposta"}</td>
+      <td class="px-3 py-2">${vpChip(v.status)}<div class="text-[11px] text-slate-500 mt-0.5">${escH(vpObsVenda(v))}</div></td>
+    </tr>`).join("") : `<tr><td colspan="8" class="px-3 py-6 text-slate-500 text-center">Nenhuma venda encontrada.</td></tr>`;
+}
+
+// ---------- Modal genérico ----------
+function vpAbrirModal(titulo, corpo, largura) {
+  $("vp-modal-caixa").className = `mx-auto ${largura || "max-w-3xl"} bg-white rounded-xl shadow-xl p-5 mt-6 mb-10`;
+  $("vp-modal-titulo").textContent = titulo;
+  $("vp-modal-erro").classList.add("hidden");
+  $("vp-modal-corpo").innerHTML = corpo;
+  $("vp-modal").classList.remove("hidden");
+}
+function vpFecharModal() { $("vp-modal").classList.add("hidden"); $("vp-modal-corpo").innerHTML = ""; vpDetalhe = null; vpEditAluno = null; }
+function vpErroModal(msg) { const el = $("vp-modal-erro"); el.textContent = msg; el.classList.remove("hidden"); el.scrollIntoView({ block: "nearest" }); }
+async function vpExecutar(btn, fn) {
+  if (vpOcupado) return; vpOcupado = true;
+  const rot = btn ? btn.textContent : ""; if (btn) { btn.disabled = true; btn.textContent = "Aguarde…"; }
+  try { await fn(); } catch (e) { vpErroModal(vpMsgErro(e)); } finally { vpOcupado = false; if (btn && btn.isConnected) { btn.disabled = false; btn.textContent = rot; } }
+}
+
+// ---------- Turmas abertas ----------
+function vpRenderTurmas() {
+  const cont = $("vp-aba-turmas"); if (!cont || !vpRefs) return;
+  const podeInc = podeFazer("vendas_pessoa", "incluir"), podeAlt = podeFazer("vendas_pessoa", "alterar");
+  const cards = vpTurmas.map((t) => {
+    const total = t.vagas || 0, pc = total ? (t.confirmadas / total) * 100 : 0, pr = total ? (t.reservadas / total) * 100 : 0;
+    const sit = t.livres === 0 ? ["Lotada", "bg-rose-100 text-rose-700"] : t.livres <= 2 ? ["Quase lotada", "bg-amber-100 text-amber-800"] : ["Aberta", "bg-emerald-100 text-emerald-800"];
+    return `<div class="bg-white border border-slate-200 rounded-xl p-4 space-y-2">
+      <div class="flex flex-wrap items-center gap-2">
+        <b class="text-base">${escH(vpData(t.data_inicio))}${t.data_fim && t.data_fim !== t.data_inicio ? " a " + escH(vpData(t.data_fim)) : ""}</b>
+        <span class="text-sm text-slate-500">${escH(t.treinamento)} · ${escH(t.centro || "")}</span>
+        <span class="flex-1"></span><span class="text-[11px] font-semibold px-2 py-0.5 rounded-full ${sit[1]}">${sit[0]}</span>
+      </div>
+      <div class="h-3 rounded-full bg-slate-200 flex overflow-hidden" role="img" aria-label="${t.confirmadas} confirmadas, ${t.reservadas} reservadas, ${t.livres} livres de ${total}">
+        <div style="width:${pc}%" class="bg-emerald-600"></div><div style="width:${pr}%" class="bg-amber-500"></div></div>
+      <div class="flex flex-wrap gap-4 text-sm text-slate-700"><span><b>${t.confirmadas}</b> confirmadas</span><span><b>${t.reservadas}</b> reservadas</span><span><b>${t.livres}</b> livres de ${total}</span>
+        <span class="flex-1"></span><span class="font-mono text-xs text-sky-700">${escH(t.numero)}</span></div>
+      <div class="flex flex-wrap items-center gap-3 text-xs text-slate-500 border-t border-slate-100 pt-2">
+        <span>CT: ${escH(t.agenda_ct || "—")}</span><span>Instrutor: ${escH(t.agenda_instrutor1 || "—")}</span><span>Horário: ${escH(t.horario || "—")}</span>
+        <span class="flex-1"></span>
+        <button type="button" data-vp-inscritos="${escH(t.id)}" data-vp-rot="${escH(vpData(t.data_inicio) + " · " + t.treinamento)}" class="font-medium text-amber-700 hover:underline">Inscritos</button>
+        ${podeInc && t.livres > 0 ? `<button type="button" data-vp-vender="${escH(t.id)}" class="font-medium text-amber-700 hover:underline">Vender vaga</button>` : ""}
+        ${podeAlt ? `<button type="button" data-vp-cancelar-turma="${escH(t.id)}" class="font-medium text-rose-600 hover:underline">Cancelar turma</button>` : ""}
+      </div></div>`;
+  }).join("");
+  const fila = {};
+  vpVendas.filter((v) => v.status === "Na fila").forEach((v) => { const k = v.tipo_treinamento_id + "|" + (v.centro_pedido || ""); (fila[k] = fila[k] || { tipo: v.tipo_treinamento_id, nome: v.treinamento, centro: v.centro_pedido, vendas: [] }).vendas.push(v); });
+  const grupos = Object.entries(fila).map(([k, g]) => {
+    const soma = g.vendas.reduce((s, v) => s + v.qtd_vagas, 0);
+    const min = ((vpRefs.treinamentos || []).find((t) => t.id === g.tipo) || {}).minimo_pessoas_turma;
+    const pct = min ? Math.min(100, (soma / min) * 100) : 0;
+    return `<div class="bg-white border border-slate-200 rounded-xl p-4 space-y-2">
+      <div class="flex flex-wrap justify-between gap-2"><b>${escH(g.nome)}${g.centro ? " · " + escH(g.centro) : ""}</b>
+        <span class="text-sm text-slate-500">${soma} pessoa(s)${min ? " de " + min : " (mínimo não definido no treinamento)"}</span></div>
+      ${min ? `<div class="h-2.5 rounded-full bg-slate-200 overflow-hidden"><div class="h-full bg-sky-600" style="width:${pct}%"></div></div>` : ""}
+      <ul class="text-sm text-slate-600 list-disc pl-5">${g.vendas.map((v) => `<li><button type="button" data-vp-venda="${escH(v.id)}" class="text-sky-700 hover:underline">${escH(v.numero)}</button> ${escH(v.comprador_nome)} · ${v.qtd_vagas} vaga(s)${v.periodo_preferido ? " · " + escH(v.periodo_preferido) : ""}</li>`).join("")}</ul>
+      ${podeInc ? `<button type="button" data-vp-abrir-fila="${escH(k)}" class="${vpBtnPri}">Abrir turma e associar</button>` : ""}
+      <p class="text-xs text-slate-500">Abrir a turma cria o orçamento interno "Turma aberta" e as linhas de turma na operação, para agendar o CT e o instrutor.</p></div>`;
+  }).join("");
+  cont.innerHTML = `
+    <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+      <p class="text-sm text-slate-500">Turmas com vagas à venda. Cada turma vira um orçamento interno (TA-nnnn) e entra na operação normalmente.</p>
+      ${podeInc ? `<button id="btn-vp-abrir-turma" type="button" class="${vpBtnPri}">Abrir turma</button>` : ""}</div>
+    <div class="grid gap-3 lg:grid-cols-2 mb-6">${cards || `<div class="lg:col-span-2 bg-white border border-dashed border-slate-300 rounded-lg py-10 text-center text-slate-500 text-sm">Nenhuma turma aberta no momento.</div>`}</div>
+    <h3 class="font-serif text-lg text-slate-900 mb-2">Pedidos de nova turma (fila)</h3>
+    <div class="grid gap-3 lg:grid-cols-2">${grupos || `<div class="lg:col-span-2 text-sm text-slate-500">Nenhum comprador na fila.</div>`}</div>`;
+  $("btn-vp-abrir-turma")?.addEventListener("click", () => vpAbrirNovaTurma({}));
+}
+
+function vpAbrirNovaTurma(pre) {
+  const trs = vpRefs.treinamentos || [];
+  if (!trs.length) { vpAviso("erro", 'Nenhum treinamento está marcado como "vendido por pessoa". Marque no cadastro de Treinamentos e informe o valor individual.'); return; }
+  const tipoSel = pre.tipo || trs[0].id;
+  const centroSel = pre.centroNome ? ((vpRefs.centros || []).find((c) => c.nome === pre.centroNome) || {}).id : "";
+  const t0 = trs.find((t) => t.id === tipoSel) || trs[0];
+  const vagasPad = pre.vagas || t0.minimo_pessoas_turma || 12;
+  vpAbrirModal("Abrir turma", `
+    <p class="text-xs text-slate-500">Cria o orçamento interno "Turma aberta" e uma linha de turma por dia de treinamento na operação (CT e instrutor ficam "A agendar"). Os dias seguintes ao primeiro são em dias úteis consecutivos.</p>
+    <div class="grid sm:grid-cols-2 gap-3 mt-3">
+      <div class="sm:col-span-2"><label class="${vpLabel}" for="vp-t-trein">Treinamento</label><select id="vp-t-trein" class="${vpInput}">${trs.map((t) => `<option value="${escH(t.id)}" ${t.id === tipoSel ? "selected" : ""}>${escH(t.nome)}</option>`).join("")}</select></div>
+      <div><label class="${vpLabel}" for="vp-t-centro">Centro de treinamento</label><select id="vp-t-centro" class="${vpInput}"><option value="">— Selecione —</option>${(vpRefs.centros || []).map((c) => `<option value="${escH(c.id)}" ${c.id === centroSel ? "selected" : ""}>${escH(c.nome)}</option>`).join("")}</select></div>
+      <div><label class="${vpLabel}" for="vp-t-data">Data de início</label><input id="vp-t-data" type="date" class="${vpInput}" /></div>
+      <div><label class="${vpLabel}" for="vp-t-vagas">Vagas</label><input id="vp-t-vagas" type="number" min="1" step="1" value="${vagasPad}" class="${vpInput}" /></div>
+      <div><label class="${vpLabel}" for="vp-t-ht">Horário de início (teoria)</label><input id="vp-t-ht" type="time" value="07:30" class="${vpInput}" /></div>
+      <div><label class="${vpLabel}" for="vp-t-hp">Horário de início (prática)</label><input id="vp-t-hp" type="time" value="07:30" class="${vpInput}" /></div>
+      <div class="sm:col-span-2"><label class="${vpLabel}" for="vp-t-obs">Observações</label><textarea id="vp-t-obs" rows="2" class="${vpInput}"></textarea></div>
+    </div>
+    <div class="mt-4 flex justify-end gap-2"><button type="button" data-vp-fechar class="${vpBtnSec}">Cancelar</button><button type="button" id="btn-vp-t-salvar" class="${vpBtnPri}">Abrir turma</button></div>`, "max-w-2xl");
+  $("btn-vp-t-salvar").onclick = (ev) => vpExecutar(ev.currentTarget, async () => {
+    const r = await vpRpc("abrir_turma_aberta", { p: {
+      tipo_treinamento_id: $("vp-t-trein").value, centro_treinamento_id: $("vp-t-centro").value, data_inicio: $("vp-t-data").value,
+      vagas: Number($("vp-t-vagas").value), horario_teoria: $("vp-t-ht").value, horario_pratica: $("vp-t-hp").value, observacoes: $("vp-t-obs").value } });
+    let extra = "";
+    if (pre.filaKey) {
+      const grupo = vpVendas.filter((v) => v.status === "Na fila" && (v.tipo_treinamento_id + "|" + (v.centro_pedido || "")) === pre.filaKey && v.tipo_treinamento_id === $("vp-t-trein").value)
+        .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
+      let ok = 0;
+      for (const v of grupo) { try { await vpRpc("associar_venda_turma", { p_venda: v.id, p_turma: r.id }); ok++; } catch (e) { break; } }
+      extra = ` ${ok} venda(s) da fila associada(s) à turma.`;
+    }
+    vpFecharModal(); await vpRecarregar(); vpAviso("ok", `Turma ${r.numero} aberta.${extra} Agende o CT e o instrutor em Logística, como nas demais turmas.`);
+  });
+}
+
+async function vpAbrirInscritos(orcId, rotulo) {
+  vpAbrirModal("Inscritos · " + rotulo, `<p class="text-sm text-slate-500">Carregando…</p>`, "max-w-3xl");
+  try {
+    const lista = await vpRpc("vp_turma_inscritos", { p_orc: orcId });
+    $("vp-modal-corpo").innerHTML = lista.length ? `<p class="text-xs text-slate-500 mb-2">Quem está confirmado já aparece na lista de alunos da turma na operação.</p>
+      <div class="space-y-3">${lista.map((v) => {
+        const faltam = v.qtd_vagas - v.alunos.length;
+        return `<div class="border border-slate-200 rounded-lg p-3"><div class="flex flex-wrap items-center gap-2"><button type="button" data-vp-venda="${escH(v.venda_id)}" class="font-mono text-xs text-sky-700 hover:underline">${escH(v.numero)}</button>
+          <b class="text-sm">${escH(v.comprador)}</b><span class="text-xs text-slate-500">${v.tipo_comprador === "pf" ? "Pessoa física" : "Empresa"}</span><span class="flex-1"></span>${vpChip(v.status)}</div>
+          <ul class="mt-1 text-sm text-slate-700 list-disc pl-5">${v.alunos.map((a) => `<li>${escH(a.nome)} <span class="text-xs text-slate-400">${escH(vpDoc(a.cpf))}</span></li>`).join("")}${faltam > 0 ? `<li class="text-orange-700">Vaga sem nome${faltam > 1 ? " (" + faltam + ")" : ""}</li>` : ""}</ul></div>`;
+      }).join("")}</div>` : `<p class="text-sm text-slate-500">Nenhuma venda ativa nesta turma.</p>`;
+  } catch (e) { vpErroModal(vpMsgErro(e)); }
+}
+
+// ---------- Nova venda ----------
+let vpEmpResultados = [];
+function vpNvTipoComprador() { return (document.querySelector("[name=vp-nv-tc]:checked") || {}).value || "pf"; }
+function vpNvTreino() { return (vpRefs.treinamentos || []).find((t) => t.id === $("vp-nv-trein").value); }
+
+function vpAbrirNovaVenda(pre) {
+  pre = pre || {};
+  const trs = vpRefs.treinamentos || [];
+  if (!trs.length) { vpAviso("erro", 'Nenhum treinamento está marcado como "vendido por pessoa". Marque no cadastro de Treinamentos e informe o valor individual.'); return; }
+  const tipo = pre.tipo || trs[0].id;
+  vpEmpResultados = [];
+  vpAbrirModal("Nova venda", `
+    <div class="space-y-4">
+      <div class="flex flex-wrap gap-4 text-sm">
+        <label class="flex items-center gap-2"><input type="radio" name="vp-nv-tc" value="pf" checked /> Pessoa física (1 vaga, paga antes)</label>
+        <label class="flex items-center gap-2"><input type="radio" name="vp-nv-tc" value="empresa" /> Empresa (várias vagas)</label>
+      </div>
+      <div id="vp-nv-pf" class="grid sm:grid-cols-3 gap-3">
+        <div class="sm:col-span-2"><label class="${vpLabel}" for="vp-nv-nome">Nome completo</label><input id="vp-nv-nome" class="${vpInput}" /></div>
+        <div><label class="${vpLabel}" for="vp-nv-cpf">CPF</label><input id="vp-nv-cpf" inputmode="numeric" placeholder="000.000.000-00" class="${vpInput}" /></div>
+        <div><label class="${vpLabel}" for="vp-nv-nasc">Nascimento (opcional)</label><input id="vp-nv-nasc" type="date" class="${vpInput}" /></div>
+      </div>
+      <div id="vp-nv-emp" class="hidden space-y-2">
+        <div><label class="${vpLabel}" for="vp-nv-emp-busca">Buscar empresa cadastrada (nome ou CNPJ)</label><input id="vp-nv-emp-busca" type="search" autocomplete="off" class="${vpInput}" /></div>
+        <div id="vp-nv-emp-res" class="space-y-1"></div>
+        <input type="hidden" id="vp-nv-emp-id" />
+        <div class="grid sm:grid-cols-3 gap-3">
+          <div class="sm:col-span-2"><label class="${vpLabel}" for="vp-nv-emp-nome">Empresa</label><input id="vp-nv-emp-nome" class="${vpInput}" /></div>
+          <div><label class="${vpLabel}" for="vp-nv-emp-cnpj">CNPJ</label><input id="vp-nv-emp-cnpj" inputmode="numeric" placeholder="00.000.000/0000-00" class="${vpInput}" /></div>
+        </div>
+        <p id="vp-nv-emp-aviso" class="text-xs text-slate-500">Se a empresa não estiver cadastrada, digite o nome e o CNPJ; o cadastro completo pode ser feito depois em Empresas.</p>
+      </div>
+      <div class="grid sm:grid-cols-3 gap-3">
+        <div id="vp-nv-contato-nome-bloco" class="hidden"><label class="${vpLabel}" for="vp-nv-contato">Contato</label><input id="vp-nv-contato" class="${vpInput}" /></div>
+        <div><label class="${vpLabel}" for="vp-nv-tel">Telefone / WhatsApp</label><input id="vp-nv-tel" class="${vpInput}" /></div>
+        <div><label class="${vpLabel}" for="vp-nv-email">E-mail</label><input id="vp-nv-email" type="email" class="${vpInput}" /></div>
+      </div>
+      <hr class="border-slate-200" />
+      <div class="grid sm:grid-cols-2 gap-3">
+        <div><label class="${vpLabel}" for="vp-nv-trein">Treinamento</label><select id="vp-nv-trein" class="${vpInput}">${trs.map((t) => `<option value="${escH(t.id)}" ${t.id === tipo ? "selected" : ""}>${escH(t.nome)}</option>`).join("")}</select></div>
+        <div><label class="${vpLabel}" for="vp-nv-turma">Turma</label><select id="vp-nv-turma" class="${vpInput}"></select></div>
+        <div id="vp-nv-fila" class="sm:col-span-2 grid sm:grid-cols-2 gap-3 hidden">
+          <div><label class="${vpLabel}" for="vp-nv-centro">Centro desejado</label><select id="vp-nv-centro" class="${vpInput}"><option value="">— Qualquer —</option>${(vpRefs.centros || []).map((c) => `<option value="${escH(c.id)}">${escH(c.nome)}</option>`).join("")}</select></div>
+          <div><label class="${vpLabel}" for="vp-nv-periodo">Período desejado</label><input id="vp-nv-periodo" placeholder="Ex.: semana de 23/11" class="${vpInput}" /></div>
+          <p class="sm:col-span-2 text-xs text-slate-500">Sem turma aberta com vaga, a venda entra na fila. Quando houver gente suficiente, o comercial abre a turma e a venda segue.</p>
+        </div>
+        <div><label class="${vpLabel}" for="vp-nv-qtd">Vagas</label><input id="vp-nv-qtd" type="number" min="1" step="1" value="1" class="${vpInput}" /></div>
+        <div><label class="${vpLabel}" for="vp-nv-valor">Valor por pessoa (R$)</label><input id="vp-nv-valor" type="number" min="0" step="0.01" class="${vpInput}" />
+          <p id="vp-nv-valor-dica" class="text-xs mt-1 text-slate-500"></p></div>
+        <div><label class="${vpLabel}" for="vp-nv-fech">Fechamento</label><select id="vp-nv-fech" class="${vpInput}"><option value="antes">Pago antes (PIX/cartão — registrado aqui)</option><option value="proposta">Por proposta e aceite</option></select></div>
+        <div><label class="${vpLabel}" for="vp-nv-forma">Forma de pagamento prevista</label><select id="vp-nv-forma" class="${vpInput}"><option value="">—</option>${VP_FORMAS.map((f) => `<option>${escH(f)}</option>`).join("")}</select></div>
+        <div id="vp-nv-prazo-bloco" class="hidden"><label class="${vpLabel}" for="vp-nv-prazo">Prazo de pagamento</label><input id="vp-nv-prazo" placeholder="Ex.: 28 dias após a emissão" class="${vpInput}" /></div>
+        <div id="vp-nv-oc-bloco" class="hidden"><label class="${vpLabel}" for="vp-nv-oc">Ordem de compra</label><input id="vp-nv-oc" class="${vpInput}" /></div>
+        <div><label class="${vpLabel}" for="vp-nv-reserva">Reserva da vaga (horas)</label><input id="vp-nv-reserva" type="number" min="1" step="1" class="${vpInput}" /></div>
+        <div><label class="${vpLabel}" for="vp-nv-vend">Vendedor</label><select id="vp-nv-vend" class="${vpInput}"><option value="">—</option>${(vpRefs.vendedores || []).map((v) => `<option value="${escH(v.id)}">${escH(v.nome)}</option>`).join("")}</select></div>
+        <div class="sm:col-span-2"><label class="${vpLabel}" for="vp-nv-obs">Observações</label><textarea id="vp-nv-obs" rows="2" class="${vpInput}"></textarea></div>
+      </div>
+      <div id="vp-nv-alunos-bloco" class="hidden">
+        <div class="flex items-center justify-between"><h4 class="text-sm font-semibold">Alunos (pode indicar agora ou depois)</h4><button type="button" id="btn-vp-nv-add-aluno" class="text-xs font-medium text-amber-700 hover:underline">+ Indicar aluno</button></div>
+        <div id="vp-nv-alunos" class="mt-2 space-y-2"></div>
+      </div>
+    </div>
+    <div class="mt-4 flex justify-end gap-2"><button type="button" data-vp-fechar class="${vpBtnSec}">Cancelar</button><button type="button" id="btn-vp-nv-salvar" class="${vpBtnPri}">Criar venda</button></div>`, "max-w-3xl");
+
+  const atualizarTurmas = () => {
+    const t = vpNvTreino(), qtd = Math.max(1, Number($("vp-nv-qtd").value) || 1), sel = $("vp-nv-turma").value || pre.turma || "";
+    const opts = vpTurmas.filter((x) => x.tipo_treinamento_id === t.id && x.livres >= qtd);
+    $("vp-nv-turma").innerHTML = opts.map((x) => `<option value="${escH(x.id)}">${escH(vpData(x.data_inicio))} · ${escH(x.centro || "")} · ${x.livres} livre(s) · ${escH(x.numero)}</option>`).join("") + `<option value="">— Sem turma: entrar na fila / pedir nova turma —</option>`;
+    $("vp-nv-turma").value = opts.some((x) => x.id === sel) ? sel : (opts[0] ? opts[0].id : "");
+    $("vp-nv-fila").classList.toggle("hidden", !!$("vp-nv-turma").value);
+  };
+  const dicaValor = () => {
+    const t = vpNvTreino(), v = $("vp-nv-valor").value === "" ? null : Number($("vp-nv-valor").value), tab = t ? t.valor_individual : null, el = $("vp-nv-valor-dica");
+    if (tab == null) { el.className = "text-xs mt-1 text-amber-700"; el.textContent = "Este treinamento não tem valor individual cadastrado: informe o valor."; return; }
+    if (v != null && v < tab) {
+      el.className = "text-xs mt-1 text-violet-700";
+      el.textContent = vpRefs.pode_aprovar ? `Abaixo do valor cadastrado (${fmtBRL(tab)}): será aprovado automaticamente por você.` : `Abaixo do valor cadastrado (${fmtBRL(tab)}): exige aprovação do gestor comercial antes de reservar a vaga.`;
+    } else { el.className = "text-xs mt-1 text-slate-500"; el.textContent = `Valor cadastrado: ${fmtBRL(tab)}. Preço negociado: altere o campo.`; }
+  };
+  const aplicarTipo = (mudou) => {
+    const emp = vpNvTipoComprador() === "empresa";
+    $("vp-nv-pf").classList.toggle("hidden", emp); $("vp-nv-emp").classList.toggle("hidden", !emp);
+    $("vp-nv-contato-nome-bloco").classList.toggle("hidden", !emp); $("vp-nv-oc-bloco").classList.toggle("hidden", !emp);
+    $("vp-nv-prazo-bloco").classList.toggle("hidden", !emp); $("vp-nv-alunos-bloco").classList.toggle("hidden", !emp);
+    $("vp-nv-qtd").disabled = !emp; if (!emp) $("vp-nv-qtd").value = 1;
+    if (mudou) { $("vp-nv-fech").value = emp ? "proposta" : "antes"; $("vp-nv-reserva").value = emp ? 120 : 24; }
+    atualizarTurmas();
+  };
+  const trocouTreino = () => { const t = vpNvTreino(); $("vp-nv-valor").value = t && t.valor_individual != null ? t.valor_individual : ""; atualizarTurmas(); dicaValor(); };
+  document.querySelectorAll("[name=vp-nv-tc]").forEach((r) => r.addEventListener("change", () => aplicarTipo(true)));
+  $("vp-nv-trein").addEventListener("change", trocouTreino);
+  $("vp-nv-turma").addEventListener("change", () => $("vp-nv-fila").classList.toggle("hidden", !!$("vp-nv-turma").value));
+  $("vp-nv-qtd").addEventListener("change", atualizarTurmas);
+  $("vp-nv-valor").addEventListener("input", dicaValor);
+  $("vp-nv-fech").addEventListener("change", () => { $("vp-nv-reserva").value = $("vp-nv-fech").value === "antes" ? 24 : 120; });
+  $("vp-nv-cpf").addEventListener("input", (e) => { e.target.value = MASCARAS.cpf(e.target.value); });
+  $("vp-nv-emp-cnpj").addEventListener("input", (e) => { e.target.value = MASCARAS.cnpj(e.target.value); });
+  $("vp-nv-emp-busca").addEventListener("input", (e) => {
+    clearTimeout(vpBuscaTimer); const termo = e.target.value;
+    vpBuscaTimer = setTimeout(async () => {
+      try { vpEmpResultados = await vpRpc("vp_buscar_empresas", { p_termo: termo }); } catch (err) { vpEmpResultados = []; }
+      $("vp-nv-emp-res").innerHTML = vpEmpResultados.map((x, i) => `<button type="button" data-vp-emp-sel="${i}" class="block w-full text-left text-sm border border-slate-200 rounded-md px-3 py-1.5 hover:bg-slate-50">${escH(x.nome)} <span class="text-xs text-slate-500">${escH(x.cnpj || "sem CNPJ")}</span></button>`).join("");
+    }, 300);
+  });
+  $("vp-nv-emp-res").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-vp-emp-sel]"); if (!b) return;
+    const x = vpEmpResultados[Number(b.getAttribute("data-vp-emp-sel"))]; if (!x) return;
+    $("vp-nv-emp-id").value = x.id; $("vp-nv-emp-nome").value = x.nome; $("vp-nv-emp-cnpj").value = x.cnpj ? MASCARAS.cnpj(x.cnpj) : "";
+    $("vp-nv-emp-nome").disabled = true; $("vp-nv-emp-cnpj").disabled = true; $("vp-nv-emp-res").innerHTML = ""; $("vp-nv-emp-busca").value = "";
+    $("vp-nv-contato").value = x.contato_nome || ""; $("vp-nv-tel").value = x.contato_telefone || ""; $("vp-nv-email").value = x.contato_email || "";
+    $("vp-nv-emp-aviso").innerHTML = `Empresa cadastrada selecionada. <button type="button" id="btn-vp-emp-trocar" class="text-amber-700 hover:underline">Trocar</button>`;
+    $("btn-vp-emp-trocar").onclick = () => { $("vp-nv-emp-id").value = ""; $("vp-nv-emp-nome").disabled = false; $("vp-nv-emp-cnpj").disabled = false; $("vp-nv-emp-nome").value = ""; $("vp-nv-emp-cnpj").value = ""; $("vp-nv-emp-aviso").textContent = "Digite o nome e o CNPJ, ou busque outra empresa."; };
+  });
+  $("btn-vp-nv-add-aluno").addEventListener("click", () => {
+    const n = $("vp-nv-alunos").children.length, max = Math.max(1, Number($("vp-nv-qtd").value) || 1);
+    if (n >= max) { vpErroModal(`A venda tem ${max} vaga(s): não há mais vagas para indicar aluno.`); return; }
+    const d = document.createElement("div"); d.className = "grid grid-cols-12 gap-2 items-end vp-nv-aluno";
+    d.innerHTML = `<div class="col-span-12 sm:col-span-4"><input placeholder="Nome do aluno" class="vp-al-nome ${vpInput}" /></div>
+      <div class="col-span-4 sm:col-span-2"><select class="vp-al-td ${vpInput}"><option>CPF</option><option>RG</option></select></div>
+      <div class="col-span-8 sm:col-span-3"><input placeholder="Documento" class="vp-al-doc ${vpInput}" /></div>
+      <div class="col-span-8 sm:col-span-2"><input type="date" class="vp-al-nasc ${vpInput}" /></div>
+      <div class="col-span-4 sm:col-span-1"><button type="button" class="vp-al-rem text-xs text-rose-600 hover:underline">Remover</button></div>`;
+    d.querySelector(".vp-al-rem").onclick = () => d.remove();
+    d.querySelector(".vp-al-doc").addEventListener("input", (e) => { if (d.querySelector(".vp-al-td").value === "CPF") e.target.value = MASCARAS.cpf(e.target.value); });
+    $("vp-nv-alunos").appendChild(d);
+  });
+  $("btn-vp-nv-salvar").onclick = (ev) => vpExecutar(ev.currentTarget, async () => {
+    const tc = vpNvTipoComprador(), emp = tc === "empresa";
+    const p = {
+      tipo_comprador: tc, tipo_treinamento_id: $("vp-nv-trein").value, turma_aberta_id: $("vp-nv-turma").value || null,
+      qtd_vagas: emp ? Number($("vp-nv-qtd").value) : 1, valor_unitario: $("vp-nv-valor").value === "" ? null : Number($("vp-nv-valor").value),
+      fechamento: $("vp-nv-fech").value, forma_pagamento: $("vp-nv-forma").value, prazo_pagamento: emp ? $("vp-nv-prazo").value : "", ordem_compra: emp ? $("vp-nv-oc").value : "",
+      vendedor_id: $("vp-nv-vend").value || null, observacoes: $("vp-nv-obs").value, reserva_horas: Number($("vp-nv-reserva").value) || null,
+      contato_nome: emp ? $("vp-nv-contato").value : "", contato_telefone: $("vp-nv-tel").value, contato_email: $("vp-nv-email").value,
+    };
+    if (!p.turma_aberta_id) { p.centro_treinamento_id = $("vp-nv-centro").value || null; p.periodo_preferido = $("vp-nv-periodo").value; }
+    if (!emp) { p.comprador_nome = $("vp-nv-nome").value; p.comprador_doc = $("vp-nv-cpf").value; p.comprador_nascimento = $("vp-nv-nasc").value || null; }
+    else {
+      p.empresa_id = $("vp-nv-emp-id").value || null; p.comprador_nome = $("vp-nv-emp-nome").value; p.comprador_doc = $("vp-nv-emp-cnpj").value;
+      p.alunos = [...document.querySelectorAll(".vp-nv-aluno")].map((d) => ({ nome: d.querySelector(".vp-al-nome").value, tipo_documento: d.querySelector(".vp-al-td").value, cpf: d.querySelector(".vp-al-doc").value, data_nascimento: d.querySelector(".vp-al-nasc").value || null }))
+        .filter((a) => a.nome.trim() || a.cpf.trim());
+    }
+    const r = await vpRpc("criar_venda_pessoa", { p });
+    await vpRecarregar();
+    vpAviso("ok", `Venda ${r.numero} criada: ${r.status}.`);
+    await vpAbrirDetalhe(r.id);
+  });
+  trocouTreino(); aplicarTipo(true);
+}
+
+// ---------- Detalhe da venda ----------
+function vpOkModal(msg) { const el = $("vp-modal-ok"); if (!el) return; el.textContent = msg; el.classList.remove("hidden"); $("vp-modal-erro").classList.add("hidden"); }
+async function vpAbrirDetalhe(id) {
+  vpAbrirModal("Venda", `<p class="text-sm text-slate-500">Carregando…</p>`, "max-w-4xl");
+  $("vp-modal-ok").classList.add("hidden");
+  try { vpDetalhe = await vpRpc("vp_venda_detalhe", { p_id: id }); vpEditAluno = null; vpRenderDetalhe(); } catch (e) { vpErroModal(vpMsgErro(e)); }
+}
+async function vpAtualizarDetalhe(msg) {
+  const id = vpDetalhe.venda.id;
+  vpDetalhe = await vpRpc("vp_venda_detalhe", { p_id: id }); vpEditAluno = null;
+  vpRenderDetalhe(); if (msg) vpOkModal(msg);
+  await vpRecarregar();
+}
+function vpLinhaDados(rot, val) { return `<div class="flex justify-between gap-3 py-1 border-b border-slate-100 text-sm"><span class="text-slate-500">${escH(rot)}</span><span class="font-medium text-right">${val}</span></div>`; }
+
+function vpPassoHtml(d, alt) {
+  const v = d.venda, tab = d.treinamento ? d.treinamento.valor_individual : null;
+  const turmasOk = vpTurmas.filter((t) => t.tipo_treinamento_id === v.tipo_treinamento_id && t.livres >= v.qtd_vagas && t.id !== v.turma_aberta_id);
+  const selTurma = turmasOk.length ? `<div class="flex flex-wrap gap-2 items-end"><div class="min-w-[240px] flex-1"><label class="${vpLabel}" for="vp-d-turma">Turma</label><select id="vp-d-turma" class="${vpInput}">${turmasOk.map((t) => `<option value="${escH(t.id)}">${escH(vpData(t.data_inicio))} · ${escH(t.centro || "")} · ${t.livres} livre(s) · ${escH(t.numero)}</option>`).join("")}</select></div>
+      <button type="button" data-vp-do="associar" class="${vpBtnPri}">Associar à turma</button></div>` : `<p class="text-sm text-slate-500">Nenhuma turma aberta com ${v.qtd_vagas} vaga(s) livre(s) para este treinamento. Abra uma turma na aba "Turmas abertas".</p>`;
+  const formPag = `<div class="grid sm:grid-cols-3 gap-2 items-end"><div><label class="${vpLabel}" for="vp-d-forma">Forma</label><select id="vp-d-forma" class="${vpInput}">${VP_FORMAS.map((f) => `<option ${f === (v.forma_pagamento || "PIX") ? "selected" : ""}>${escH(f)}</option>`).join("")}</select></div>
+      <div class="sm:col-span-2"><label class="${vpLabel}" for="vp-d-pagobs">Observação (comprovante, data, final do cartão…)</label><input id="vp-d-pagobs" class="${vpInput}" /></div></div>
+      <div class="mt-2"><button type="button" data-vp-do="pagar" class="${vpBtnPri}">Registrar pagamento</button></div>`;
+  const formAceite = `<div class="grid sm:grid-cols-3 gap-2"><div><label class="${vpLabel}" for="vp-d-quem">Quem aceitou</label><input id="vp-d-quem" class="${vpInput}" value="${escH(v.contato_nome || "")}" /></div>
+      <div><label class="${vpLabel}" for="vp-d-oc">Ordem de compra</label><input id="vp-d-oc" class="${vpInput}" value="${escH(v.ordem_compra || "")}" /></div>
+      <div><label class="${vpLabel}" for="vp-d-aceobs">Observação</label><input id="vp-d-aceobs" class="${vpInput}" /></div></div>
+      <div class="mt-2"><button type="button" data-vp-do="aceite" class="${vpBtnPri}">Registrar aceite</button></div>`;
+  if (!alt) return `<p class="text-sm text-slate-500">Você pode consultar esta venda, mas não alterá-la.</p>`;
+  switch (v.status) {
+    case "Aguardando aprovação":
+      return `<p class="text-sm">O valor por pessoa (<b>${escH(fmtBRL(v.valor_unitario))}</b>) está abaixo do cadastrado (<b>${escH(fmtBRL(tab))}</b>). A vaga fica reservada até a decisão.</p>` +
+        (d.pode_aprovar ? `<div class="mt-2"><label class="${vpLabel}" for="vp-d-just">Justificativa</label><input id="vp-d-just" class="${vpInput}" />
+          <div class="mt-2 flex flex-wrap gap-2"><button type="button" data-vp-do="aprovar" class="${vpBtnPri}">Aprovar valor</button><button type="button" data-vp-do="recusar" class="${vpBtnSec} text-rose-600">Recusar e cancelar a venda</button></div></div>`
+          : `<p class="text-sm text-slate-500 mt-1">Aguarde a decisão do administrador ou de um aprovador comercial.</p>`);
+    case "Aguardando pagamento":
+      return `<p class="text-sm mb-2">Aguardando o pagamento (PIX/cartão fora do sistema)${v.reserva_ate ? `. Sem pagamento até <b>${escH(vpDataHora(v.reserva_ate))}</b>, a vaga volta para a turma` : ""}.</p>` + formPag;
+    case "Aguardando aceite":
+      return `<p class="text-sm mb-2">Proposta enviada. Aguardando o aceite da empresa${v.reserva_ate ? ` até <b>${escH(vpDataHora(v.reserva_ate))}</b>` : ""}.</p>` + formAceite;
+    case "Na fila":
+      return `<p class="text-sm mb-2">Venda na fila${v.aprovacao_necessaria && !v.aprovado_em ? " (valor ainda precisa de aprovação)" : ""}. Associe a uma turma aberta quando houver vaga.</p>` + selTurma;
+    case "Reserva expirada":
+      return `<p class="text-sm mb-2">A reserva expirou e a vaga voltou para a turma. Para reativar nesta turma é preciso ter vaga livre.</p>` +
+        (v.fechamento === "antes" ? formPag : formAceite) + `<hr class="my-3 border-slate-200" /><p class="text-sm font-medium mb-1">Ou mover para outra turma</p>` + selTurma;
+    case "Alunos a indicar":
+      return `<p class="text-sm">${v.fechamento === "antes" ? "Pagamento" : "Aceite"} registrado. Indique os alunos que faltam (${v.qtd_vagas - d.alunos.length} de ${v.qtd_vagas}).</p>`;
+    case "Vaga confirmada":
+      return `<p class="text-sm">Vaga confirmada: os alunos já estão na lista da turma na operação.</p>`;
+    default:
+      return `<p class="text-sm text-slate-500">Venda cancelada${v.cancelado_motivo ? ": " + escH(v.cancelado_motivo) : ""}.</p>`;
+  }
+}
+
+function vpRenderDetalhe() {
+  const d = vpDetalhe, v = d.venda, alt = podeFazer("vendas_pessoa", "alterar");
+  $("vp-modal-titulo").textContent = `${v.numero} · ${v.comprador_nome}`;
+  const ativa = v.status !== "Cancelada", confirmada = v.status === "Alunos a indicar" || v.status === "Vaga confirmada";
+  const certificados = d.alunos.filter((a) => a.certificado_emitido).length;
+  const podeIndicar = alt && ativa && v.status !== "Reserva expirada" && d.alunos.length < v.qtd_vagas;
+  const docRot = v.tipo_comprador === "pf" ? "CPF" : "CNPJ";
+  const alunosHtml = d.alunos.map((a) => {
+    if (vpEditAluno === a.id) return `<tr class="border-t border-slate-100"><td class="py-1.5 pr-2" colspan="4"><div class="grid grid-cols-12 gap-2 items-end">
+        <div class="col-span-12 sm:col-span-4"><input id="vp-e-nome" value="${escH(a.nome)}" class="${vpInput}" /></div>
+        <div class="col-span-4 sm:col-span-2"><select id="vp-e-td" class="${vpInput}"><option ${a.tipo_documento === "CPF" ? "selected" : ""}>CPF</option><option ${a.tipo_documento === "RG" ? "selected" : ""}>RG</option></select></div>
+        <div class="col-span-8 sm:col-span-3"><input id="vp-e-doc" value="${escH(a.tipo_documento === "CPF" ? vpDoc(a.cpf) : a.cpf || "")}" class="${vpInput}" /></div>
+        <div class="col-span-6 sm:col-span-2"><input id="vp-e-nasc" type="date" value="${escH(a.data_nascimento || "")}" class="${vpInput}" /></div>
+        <div class="col-span-6 sm:col-span-1 flex gap-2 text-xs"><button type="button" data-vp-do="salvar-aluno" data-id="${escH(a.id)}" class="text-amber-700 font-medium hover:underline">Salvar</button><button type="button" data-vp-do="cancelar-edicao" class="text-slate-500 hover:underline">Cancelar</button></div></div></td></tr>`;
+    return `<tr class="border-t border-slate-100"><td class="py-1.5 pr-2 font-medium">${escH(a.nome)}</td><td class="py-1.5 pr-2 text-slate-600">${escH(a.tipo_documento)} ${escH(a.tipo_documento === "CPF" ? vpDoc(a.cpf) : a.cpf || "")}</td>
+      <td class="py-1.5 pr-2 text-xs">${a.certificado_emitido ? '<span class="text-emerald-700">Certificado emitido</span>' : a.na_turma ? '<span class="text-slate-600">Na lista da turma</span>' : '<span class="text-slate-400">Aguardando confirmação</span>'}</td>
+      <td class="py-1.5 text-right">${alt && ativa && !a.certificado_emitido ? `<button type="button" data-vp-do="editar-aluno" data-id="${escH(a.id)}" class="text-xs text-amber-700 hover:underline">Editar</button>` : ""}</td></tr>`;
+  }).join("");
+  const faltam = v.qtd_vagas - d.alunos.length;
+  $("vp-modal-corpo").innerHTML = `
+    <div class="flex flex-wrap items-center gap-2 mt-2">${vpChip(v.status)}<span class="text-xs bg-slate-100 text-slate-700 rounded-full px-2 py-0.5">${v.tipo_comprador === "pf" ? "Pessoa física" : "Empresa"} · ${v.qtd_vagas} vaga(s)</span>
+</div>
+    <div class="mt-3 border border-amber-200 bg-amber-50/50 rounded-lg p-4"><h4 class="text-xs font-semibold uppercase tracking-wide text-amber-800 mb-2">Próximo passo</h4>${vpPassoHtml(d, alt)}</div>
+    <div class="grid md:grid-cols-2 gap-4 mt-4">
+      <div class="border border-slate-200 rounded-lg p-4"><h4 class="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1">Venda</h4>
+        ${vpLinhaDados("Treinamento", escH(d.treinamento ? d.treinamento.nome : "—"))}
+        ${vpLinhaDados("Turma", d.turma ? `${escH(vpData(d.turma.data_inicio))} · ${escH(d.turma.centro || "")} · ${escH(d.turma.numero)}` : `Turma pedida${d.centro_pedido ? " · " + escH(d.centro_pedido) : ""}${v.periodo_preferido ? " · " + escH(v.periodo_preferido) : ""}`)}
+        ${vpLinhaDados("Valor por pessoa", escH(fmtBRL(v.valor_unitario)) + (d.treinamento && d.treinamento.valor_individual != null ? ` <span class="text-xs text-slate-500">(cadastro ${escH(fmtBRL(d.treinamento.valor_individual))})</span>` : ""))}
+        ${vpLinhaDados("Valor total", escH(fmtBRL(v.valor_total)))}
+        ${vpLinhaDados("Fechamento", v.fechamento === "antes" ? "Pago antes" : "Proposta e aceite")}
+        ${v.forma_pagamento ? vpLinhaDados("Forma prevista", escH(v.forma_pagamento)) : ""}${v.prazo_pagamento ? vpLinhaDados("Prazo", escH(v.prazo_pagamento)) : ""}${v.ordem_compra ? vpLinhaDados("Ordem de compra", escH(v.ordem_compra)) : ""}
+        ${d.vendedor ? vpLinhaDados("Vendedor", escH(d.vendedor)) : ""}
+        ${v.aprovado_em ? vpLinhaDados("Valor aprovado", escH(vpDataHora(v.aprovado_em)) + " · " + escH(v.aprovado_por || "")) : ""}
+        ${v.pagamento_confirmado_em ? vpLinhaDados("Pagamento", escH(vpDataHora(v.pagamento_confirmado_em)) + " · " + escH(v.pagamento_forma || "")) : ""}
+        ${v.aceite_em ? vpLinhaDados("Aceite", escH(vpDataHora(v.aceite_em)) + (v.aceite_por ? " · " + escH(v.aceite_por) : "")) : ""}
+        ${v.observacoes ? vpLinhaDados("Observações", escH(v.observacoes)) : ""}</div>
+      <div class="border border-slate-200 rounded-lg p-4"><h4 class="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1">Comprador</h4>
+        ${vpLinhaDados("Nome", escH(v.comprador_nome))}${vpLinhaDados(docRot, escH(vpDoc(v.comprador_doc) || "—"))}
+        ${v.contato_nome ? vpLinhaDados("Contato", escH(v.contato_nome)) : ""}${v.contato_telefone ? vpLinhaDados("Telefone", escH(v.contato_telefone)) : ""}${v.contato_email ? vpLinhaDados("E-mail", escH(v.contato_email)) : ""}
+        <h4 class="text-xs font-semibold uppercase tracking-wide text-slate-500 mt-3 mb-1">Faturamento</h4>
+        ${vpLinhaDados("Faturar em", `${docRot} ${escH(vpDoc(v.comprador_doc) || "—")}`)}
+        ${confirmada ? vpLinhaDados("Certificados emitidos", `${certificados} de ${d.alunos.length}`) : ""}
+        ${v.faturado_em ? vpLinhaDados("Faturada", escH(vpDataHora(v.faturado_em)) + (v.faturamento_ref ? " · " + escH(v.faturamento_ref) : "")) : ""}
+        ${alt && confirmada && !v.faturado_em ? `<div class="mt-2 flex flex-wrap gap-2 items-end"><div class="flex-1 min-w-[160px]"><label class="${vpLabel}" for="vp-d-fatref">Nº da nota / referência</label><input id="vp-d-fatref" class="${vpInput}" /></div><button type="button" data-vp-do="faturar" class="${vpBtnSec}">Marcar como faturada</button></div>
+          <p class="text-xs text-slate-500 mt-1">Fase 1: o faturamento é feito fora do sistema (CPF para pessoa física, CNPJ para empresa); aqui você só registra que foi feito.</p>` : ""}</div>
+    </div>
+    <div class="border border-slate-200 rounded-lg p-4 mt-4"><h4 class="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">Alunos (${d.alunos.length} de ${v.qtd_vagas})</h4>
+      ${d.alunos.length ? `<table class="w-full text-sm"><tbody>${alunosHtml}</tbody></table>` : `<p class="text-sm text-slate-500">Nenhum aluno indicado.</p>`}
+      ${podeIndicar ? `<div class="mt-3 border-t border-slate-100 pt-3"><p class="text-sm font-medium mb-1">Indicar aluno (${faltam} vaga(s) sem nome)</p>
+        <div class="grid grid-cols-12 gap-2 items-end">
+          <div class="col-span-12 sm:col-span-4"><input id="vp-i-nome" placeholder="Nome do aluno" class="${vpInput}" /></div>
+          <div class="col-span-4 sm:col-span-2"><select id="vp-i-td" class="${vpInput}"><option>CPF</option><option>RG</option></select></div>
+          <div class="col-span-8 sm:col-span-3"><input id="vp-i-doc" placeholder="Documento" class="${vpInput}" /></div>
+          <div class="col-span-8 sm:col-span-2"><input id="vp-i-nasc" type="date" class="${vpInput}" /></div>
+          <div class="col-span-4 sm:col-span-1"><button type="button" data-vp-do="indicar" class="${vpBtnPri} w-full px-2">Indicar</button></div></div>
+        ${v.status === "Aguardando pagamento" || v.status === "Aguardando aceite" || v.status === "Aguardando aprovação" || v.status === "Na fila" ? `<p class="text-xs text-slate-500 mt-1">O aluno entra na lista da turma na operação quando a venda for confirmada.</p>` : ""}</div>` : ""}</div>
+    <div class="border border-slate-200 rounded-lg p-4 mt-4"><h4 class="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">Andamento</h4>
+      <ol class="space-y-1 text-sm">${d.log.map((l) => `<li><span class="text-xs text-slate-400">${escH(vpDataHora(l.em))}</span> · <b>${escH(l.evento)}</b>${l.detalhe ? " — " + escH(l.detalhe) : ""} <span class="text-xs text-slate-400">(${escH(l.por || "")})</span></li>`).join("") || '<li class="text-slate-500">Sem registros.</li>'}</ol></div>
+    ${alt && ativa ? `<div class="mt-4 text-right"><button type="button" data-vp-do="cancelar" class="text-sm text-rose-600 hover:underline">Cancelar venda</button></div>` : ""}`;
+  const ini = $("vp-i-doc");
+  if (ini) ini.addEventListener("input", (e) => { if ($("vp-i-td").value === "CPF") e.target.value = MASCARAS.cpf(e.target.value); });
+}
+
+// ---------- Eventos ----------
+$("vp-raiz").addEventListener("click", async (e) => {
+  const aba = e.target.closest("[data-vp-aba]");
+  if (aba) { vpAba = aba.getAttribute("data-vp-aba"); vpRenderAbas(); return; }
+  if (e.target.closest("#btn-vp-nova")) { vpAbrirNovaVenda({}); return; }
+  const tile = e.target.closest("[data-vp-tile]");
+  if (tile) { const s = tile.getAttribute("data-vp-tile"); vpFiltro.status = vpFiltro.status === s ? "" : s; $("vp-f-status").value = vpFiltro.status; vpRenderTiles(); vpRenderTabela(); return; }
+  const venda = e.target.closest("[data-vp-venda]");
+  if (venda) { vpAbrirDetalhe(venda.getAttribute("data-vp-venda")); return; }
+  const insc = e.target.closest("[data-vp-inscritos]");
+  if (insc) { vpAbrirInscritos(insc.getAttribute("data-vp-inscritos"), insc.getAttribute("data-vp-rot") || ""); return; }
+  const vender = e.target.closest("[data-vp-vender]");
+  if (vender) { const t = vpTurmas.find((x) => x.id === vender.getAttribute("data-vp-vender")); if (t) vpAbrirNovaVenda({ tipo: t.tipo_treinamento_id, turma: t.id }); return; }
+  const canc = e.target.closest("[data-vp-cancelar-turma]");
+  if (canc) {
+    const t = vpTurmas.find((x) => x.id === canc.getAttribute("data-vp-cancelar-turma")); if (!t) return;
+    if (!confirm(`Cancelar a turma ${t.numero} (${vpData(t.data_inicio)})?\n\nSó é possível se não houver vendas ativas nela. As linhas de turma na operação também serão canceladas.`)) return;
+    try { await vpRpc("cancelar_turma_aberta", { p_orc: t.id }); await vpRecarregar(); vpAviso("ok", `Turma ${t.numero} cancelada.`); } catch (err) { vpAviso("erro", vpMsgErro(err)); }
+    return;
+  }
+  const fila = e.target.closest("[data-vp-abrir-fila]");
+  if (fila) {
+    const k = fila.getAttribute("data-vp-abrir-fila");
+    const grupo = vpVendas.filter((v) => v.status === "Na fila" && (v.tipo_treinamento_id + "|" + (v.centro_pedido || "")) === k);
+    if (!grupo.length) return;
+    vpAbrirNovaTurma({ tipo: grupo[0].tipo_treinamento_id, centroNome: grupo[0].centro_pedido, vagas: grupo.reduce((s, v) => s + v.qtd_vagas, 0), filaKey: k });
+  }
+});
+$("vp-raiz").addEventListener("input", (e) => { if (e.target.id === "vp-f-busca") { vpFiltro.busca = e.target.value; vpRenderTabela(); } });
+$("vp-raiz").addEventListener("change", (e) => {
+  const mapa = { "vp-f-tipo": "tipo", "vp-f-trein": "trein", "vp-f-status": "status" };
+  if (mapa[e.target.id]) { vpFiltro[mapa[e.target.id]] = e.target.value; vpRenderTiles(); vpRenderTabela(); }
+});
+
+$("vp-modal").addEventListener("click", (e) => {
+  if (e.target.closest("[data-vp-fechar]")) { vpFecharModal(); return; }
+  const venda = e.target.closest("[data-vp-venda]");
+  if (venda) { vpAbrirDetalhe(venda.getAttribute("data-vp-venda")); return; }
+  const b = e.target.closest("[data-vp-do]"); if (!b || !vpDetalhe) return;
+  const acao = b.getAttribute("data-vp-do"), v = vpDetalhe.venda, val = (id) => ($(id) ? $(id).value : "");
+  $("vp-modal-ok").classList.add("hidden"); $("vp-modal-erro").classList.add("hidden");
+  if (acao === "editar-aluno") { vpEditAluno = b.getAttribute("data-id"); vpRenderDetalhe(); return; }
+  if (acao === "cancelar-edicao") { vpEditAluno = null; vpRenderDetalhe(); return; }
+  vpExecutar(b, async () => {
+    if (acao === "pagar") { await vpRpc("confirmar_pagamento_venda", { p_id: v.id, p_forma: val("vp-d-forma"), p_obs: val("vp-d-pagobs") }); await vpAtualizarDetalhe("Pagamento registrado."); }
+    else if (acao === "aceite") { await vpRpc("registrar_aceite_venda", { p_id: v.id, p_quem: val("vp-d-quem"), p_ordem_compra: val("vp-d-oc"), p_obs: val("vp-d-aceobs") }); await vpAtualizarDetalhe("Aceite registrado."); }
+    else if (acao === "aprovar") { await vpRpc("aprovar_venda_pessoa", { p_id: v.id, p_aprovar: true, p_justificativa: val("vp-d-just") }); await vpAtualizarDetalhe("Valor aprovado."); }
+    else if (acao === "recusar") {
+      if (!confirm("Recusar o valor e cancelar esta venda? A vaga reservada volta para a turma.")) return;
+      await vpRpc("aprovar_venda_pessoa", { p_id: v.id, p_aprovar: false, p_justificativa: val("vp-d-just") }); await vpAtualizarDetalhe("Venda cancelada.");
+    }
+    else if (acao === "indicar") {
+      await vpRpc("indicar_aluno_venda", { p_venda: v.id, p: { nome: val("vp-i-nome"), tipo_documento: val("vp-i-td"), cpf: val("vp-i-doc"), data_nascimento: val("vp-i-nasc") || null } });
+      await vpAtualizarDetalhe("Aluno indicado.");
+    }
+    else if (acao === "salvar-aluno") {
+      await vpRpc("atualizar_aluno_venda", { p_aluno: b.getAttribute("data-id"), p: { nome: val("vp-e-nome"), tipo_documento: val("vp-e-td"), cpf: val("vp-e-doc"), data_nascimento: val("vp-e-nasc") || null } });
+      await vpAtualizarDetalhe("Aluno atualizado.");
+    }
+    else if (acao === "associar") {
+      if (!val("vp-d-turma")) throw new Error("Escolha a turma.");
+      await vpRpc("associar_venda_turma", { p_venda: v.id, p_turma: val("vp-d-turma") }); await vpAtualizarDetalhe("Venda associada à turma.");
+    }
+    else if (acao === "faturar") {
+      if (!confirm("Marcar esta venda como faturada? (o faturamento em si é feito fora do sistema)")) return;
+      await vpRpc("marcar_venda_faturada", { p_id: v.id, p_ref: val("vp-d-fatref") }); await vpAtualizarDetalhe("Venda marcada como faturada.");
+    }
+    else if (acao === "cancelar") {
+      const motivo = prompt(`Cancelar a venda ${v.numero}.\n\nInforme o motivo:`);
+      if (motivo == null) return;
+      await vpRpc("cancelar_venda_pessoa", { p_id: v.id, p_motivo: motivo }); await vpAtualizarDetalhe("Venda cancelada.");
+    }
+  });
+});
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("vp-modal").classList.contains("hidden")) vpFecharModal(); });
