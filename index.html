@@ -1834,6 +1834,26 @@
     </div>
   </div>
 
+  <!-- Modal: Agrupar turmas do dia / instrutores do grupo -->
+  <div id="modal-grupo-turmas" class="hidden fixed inset-0 z-[60] bg-slate-900/60 flex items-center justify-center p-4">
+    <div class="bg-white rounded-lg shadow-xl w-full max-w-lg p-5">
+      <h3 id="grupo-modal-titulo" class="font-serif text-lg text-slate-900">Agrupar turmas</h3>
+      <p class="text-sm text-slate-600 mt-1">As turmas abaixo treinam em conjunto em <b id="grupo-modal-data"></b>. Os instrutores escolhidos valem para todas as turmas do grupo (até 4).</p>
+      <div id="grupo-modal-resumo" class="mt-3 max-h-36 overflow-y-auto text-xs text-slate-700 bg-slate-50 border border-slate-200 rounded-md p-2 space-y-1"></div>
+      <div class="grid grid-cols-2 gap-3 mt-3">
+        <div><label class="text-[11px] text-slate-500">Instrutor 1</label><select id="grupo-instr-1" class="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-xs"></select></div>
+        <div><label class="text-[11px] text-slate-500">Instrutor 2</label><select id="grupo-instr-2" class="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-xs"></select></div>
+        <div><label class="text-[11px] text-slate-500">Instrutor 3</label><select id="grupo-instr-3" class="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-xs"></select></div>
+        <div><label class="text-[11px] text-slate-500">Instrutor 4</label><select id="grupo-instr-4" class="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-xs"></select></div>
+      </div>
+      <p id="grupo-modal-erro" class="hidden text-sm text-rose-600 mt-2"></p>
+      <div class="flex justify-end gap-2 mt-4">
+        <button type="button" id="btn-grupo-voltar" class="px-4 py-1.5 text-sm font-medium text-slate-600 border border-slate-300 rounded-md hover:bg-slate-50">Voltar</button>
+        <button type="button" id="btn-grupo-confirmar" class="px-4 py-1.5 text-sm font-medium text-white bg-slate-900 hover:bg-slate-800 rounded-md disabled:opacity-50">Agrupar</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Modal: Nova negociação (invalida a proposta vigente) -->
   <div id="modal-nova-negociacao" class="hidden fixed inset-0 z-[60] bg-slate-900/60 flex items-center justify-center p-4">
     <div class="bg-white rounded-lg shadow-xl w-full max-w-md p-5">
@@ -2793,6 +2813,6 @@
     <div id="vp-modal-corpo" class="mt-3"></div>
   </div>
 </div>
-<script src="app.js?v=20261031e"></script>
+<script src="app.js?v=20261031f"></script>
 </body>
 </html>
