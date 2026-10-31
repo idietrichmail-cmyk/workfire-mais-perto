@@ -36,7 +36,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.94 · 31/10/2026";
+const APP_VERSAO = "Prod 1.95 · 31/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -16187,7 +16187,7 @@ function atSvgPaginas(opts) {
   const M = AT_M, larg = AT_W - 2 * M;
   const treins = d.treinamentos || [];
   const ins = (d.instrutores || []).slice(0, 4);
-  const footH = 30 + Math.ceil(ins.length / 2) * 28;
+  const footH = 23 + Math.ceil(ins.length / 2) * 35;  // assinatura 50% maior (v1.95)
   // Cabeçalho (ALTERNATIVA / BRIGADAS DE EMERGÊNCIAS) e rodapé (dados do Centro de Treinamento) — opcionais
   const cabRod = !!opts.cabRod;
   const rodLinhas = cabRod ? String(opts.rodape || "").split(/\r?\n/).map((x) => x.trim()).filter(Boolean).slice(0, 6) : [];
@@ -16289,14 +16289,14 @@ function atSvgPaginas(opts) {
       const row = Math.floor(k / 2), col = k % 2;
       const sozinho = ins.length % 2 === 1 && k === ins.length - 1;
       const W = 76, L = sozinho ? (AT_W - W) / 2 : (col === 0 ? 20 : AT_W - 20 - W);
-      const y0 = footTop + 30 + row * 28;
+      const y0 = footTop + 23 + row * 35;
       const img = p.assinatura_id && sigs && sigs[p.assinatura_id];
-      if (img) o.push(`<image x="${f2(L)}" y="${f2(y0)}" width="${W}" height="14" preserveAspectRatio="xMidYMax meet" xlink:href="${img}"/>`);
-      o.push(`<line x1="${f2(L)}" y1="${f2(y0 + 14)}" x2="${f2(L + W)}" y2="${f2(y0 + 14)}" stroke="#000" stroke-width="0.35"/>`);
+      if (img) o.push(`<image x="${f2(L - W / 4)}" y="${f2(y0)}" width="${f2(W * 1.5)}" height="21" preserveAspectRatio="xMidYMax meet" xlink:href="${img}"/>`);
+      o.push(`<line x1="${f2(L)}" y1="${f2(y0 + 21)}" x2="${f2(L + W)}" y2="${f2(y0 + 21)}" stroke="#000" stroke-width="0.35"/>`);
       const nm = String(p.nome || "").toUpperCase();
-      txt(L + W / 2, y0 + 18, nm, atFit(nm, W, 3.1, true), ' text-anchor="middle" font-weight="bold"');
-      txt(L + W / 2, y0 + 21.8, "Instrutor", 2.9, ' text-anchor="middle" font-style="italic"');
-      if (p.doc) txt(L + W / 2, y0 + 25.4, "CPF n° " + p.doc, 2.9, ' text-anchor="middle" font-style="italic"');
+      txt(L + W / 2, y0 + 25, nm, atFit(nm, W, 3.1, true), ' text-anchor="middle" font-weight="bold"');
+      txt(L + W / 2, y0 + 28.8, "Instrutor", 2.9, ' text-anchor="middle" font-style="italic"');
+      if (p.doc) txt(L + W / 2, y0 + 32.4, "CPF n° " + p.doc, 2.9, ' text-anchor="middle" font-style="italic"');
     });
     if (rodLinhas.length) {
       o.push(`<line x1="${M}" y1="${f2(rodTop)}" x2="${AT_W - M}" y2="${f2(rodTop)}" stroke="#000" stroke-width="0.9"/>`);
