@@ -36,7 +36,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.96 · 31/10/2026";
+const APP_VERSAO = "Prod 1.97 · 31/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -410,7 +410,12 @@ let agendTurmaListaOrcamentos = [];
 let agendTurmasLista = [];
 let agendTurmaSelecionadas = new Set();
 let agendTurmaCentroStatus = new Map(); // turmaId -> { disponivel: bool, salaOk, pistaOk }
-let agendTurmaInstrutores = new Map(); // turmaId -> { instrutor1: id|"", instrutor2: id|"" }
+let agendTurmaInstrutores = new Map(); // turmaId -> { instrutor1..instrutor4: id|"" }
+// Até 4 instrutores por turma (v1.97)
+const INSTR_CAMPOS = ["instrutor1", "instrutor2", "instrutor3", "instrutor4"];
+const instrDaTurma = (t) => [t && t.instrutor1_id, t && t.instrutor2_id, t && t.instrutor3_id, t && t.instrutor4_id].filter(Boolean);
+const instrEscolhaVazia = () => ({ instrutor1: "", instrutor2: "", instrutor3: "", instrutor4: "" });
+const instrEscolhaDaTurma = (t) => ({ instrutor1: t.instrutor1_id || "", instrutor2: t.instrutor2_id || "", instrutor3: t.instrutor3_id || "", instrutor4: t.instrutor4_id || "" });
 let agendTurmaRankingInstrutores = [];
 const agendTurmaAgendamentos = new Map(); // `${turmaId}|${instrutorId}` → linha de agendamentos // [{ instrutor, diasDisponiveis, totalDias, fullyAvailable }]
 let turmaAlunosAbertaId = null;
@@ -7840,6 +7845,8 @@ function renderizarDockTurmas(msgVazio) {
       <td class="px-2 py-1"><input type="date" data-turma-campo="data_inicio" value="${escH(t.data_inicio || "")}" class="${campoCls}" /></td>
       <td class="px-2 py-1"><select data-turma-campo="instrutor1_id" class="${campoCls}">${opcoesInstrutor(t.instrutor1_id)}</select></td>
       <td class="px-2 py-1"><select data-turma-campo="instrutor2_id" class="${campoCls}">${opcoesInstrutor(t.instrutor2_id)}</select></td>
+      <td class="px-2 py-1"><select data-turma-campo="instrutor3_id" class="${campoCls}">${opcoesInstrutor(t.instrutor3_id)}</select></td>
+      <td class="px-2 py-1"><select data-turma-campo="instrutor4_id" class="${campoCls}">${opcoesInstrutor(t.instrutor4_id)}</select></td>
       <td class="px-2 py-1">${transporteAplicavel(t)
         ? `<select data-turma-campo="empresa_transporte_id" class="${campoCls}">${opcoesTransporte(t.empresa_transporte_id)}</select>`
         : `<span class="text-slate-400">N/A</span>`}</td>
@@ -10673,7 +10680,7 @@ async function carregarTurmasDoOrcamento() {
   for (let tentativa = 1; tentativa <= 3; tentativa++) {
     ({ data, error } = await supabase
       .from("turmas")
-      .select("*, tipos_treinamento(nome), centros_treinamento(nome), instrutor1:instrutores!instrutor1_id(nome), instrutor2:instrutores!instrutor2_id(nome), empresas_transporte(nome)")
+      .select("*, tipos_treinamento(nome), centros_treinamento(nome), instrutor1:instrutores!instrutor1_id(nome), instrutor2:instrutores!instrutor2_id(nome), instrutor3:instrutores!instrutor3_id(nome), instrutor4:instrutores!instrutor4_id(nome), empresas_transporte(nome)")
       .eq("orcamento_id", orcId)
       .order("identificacao", { ascending: true }));
     if (!error) break;
@@ -10888,6 +10895,8 @@ function abrirNovaTurma() {
   preencherSelectAgenda("turma-agenda-ct", "A agendar");
   preencherSelectAgenda("turma-agenda-instrutor1", "A agendar");
   preencherSelectAgenda("turma-agenda-instrutor2", "Não aplicável");
+  preencherSelectAgenda("turma-agenda-instrutor3", "Não aplicável");
+  preencherSelectAgenda("turma-agenda-instrutor4", "Não aplicável");
   preencherSelectAgenda("turma-agenda-transporte", "A agendar");
   preencherSelectAgenda("turma-agenda-movel", "Não aplicável");
   $("painel-turma-titulo").textContent = "Nova turma";
@@ -10917,6 +10926,8 @@ function abrirEdicaoTurma(id) {
   preencherSelectAgenda("turma-agenda-ct", t.agenda_ct);
   preencherSelectAgenda("turma-agenda-instrutor1", t.agenda_instrutor1);
   preencherSelectAgenda("turma-agenda-instrutor2", t.agenda_instrutor2);
+  preencherSelectAgenda("turma-agenda-instrutor3", t.agenda_instrutor3 || "Não aplicável");
+  preencherSelectAgenda("turma-agenda-instrutor4", t.agenda_instrutor4 || "Não aplicável");
   preencherSelectAgenda("turma-agenda-transporte", t.agenda_transporte);
   preencherSelectAgenda("turma-agenda-movel", t.agenda_movel);
   $("painel-turma-titulo").textContent = "Editar turma";
@@ -10954,6 +10965,8 @@ async function salvarTurma() {
     agenda_ct: $("turma-agenda-ct").value,
     agenda_instrutor1: $("turma-agenda-instrutor1").value,
     agenda_instrutor2: $("turma-agenda-instrutor2").value,
+    agenda_instrutor3: $("turma-agenda-instrutor3").value,
+    agenda_instrutor4: $("turma-agenda-instrutor4").value,
     agenda_transporte: $("turma-agenda-transporte").value,
     agenda_movel: $("turma-agenda-movel").value,
   };
@@ -11318,8 +11331,8 @@ async function recarregarTurmasAgendTurma() {
   }
   // pré-carrega no estado da tela os instrutores já gravados na turma
   agendTurmasLista.forEach((t) => {
-    if ((t.instrutor1_id || t.instrutor2_id) && !agendTurmaInstrutores.has(t.id)) {
-      agendTurmaInstrutores.set(t.id, { instrutor1: t.instrutor1_id || "", instrutor2: t.instrutor2_id || "" });
+    if (instrDaTurma(t).length && !agendTurmaInstrutores.has(t.id)) {
+      agendTurmaInstrutores.set(t.id, instrEscolhaDaTurma(t));
     }
   });
 }
@@ -11415,14 +11428,14 @@ function iconeRespostaInstrutor(resp) {
 
 // A turma tem algum instrutor com desmarcação pendente?
 function turmaComDesmarcacaoPendente(t) {
-  return [t.instrutor1_id, t.instrutor2_id].some((id) => respostaInstrutorAgendTurma(t, id)?.desmarcacaoPendente);
+  return instrDaTurma(t).some((id) => respostaInstrutorAgendTurma(t, id)?.desmarcacaoPendente);
 }
 
 // A turma já tem algum instrutor que confirmou a data? É a partir daqui que o
 // horário de deslocamento passa a fazer sentido (e que mudar o horário da aula
 // dispara o aviso ao instrutor — ver trigger notificar_alteracao_horario_turma).
 function algumInstrutorConfirmouAgendTurma(t) {
-  return [t.instrutor1_id, t.instrutor2_id].some((id) => respostaInstrutorAgendTurma(t, id)?.status === "confirmado");
+  return instrDaTurma(t).some((id) => respostaInstrutorAgendTurma(t, id)?.status === "confirmado");
 }
 
 function celulaCentroAgendTurma(t) {
@@ -11436,13 +11449,13 @@ function celulaCentroAgendTurma(t) {
 }
 
 // Treinamento "somente locação de espaço": a turma não tem instrutor e só o
-// Centro de Treinamento confirma (o banco já força agenda_instrutor1/2 =
+// Centro de Treinamento confirma (o banco já força agenda_instrutor1..4 =
 // "Não aplicável" e ignora o pedido de confirmação a instrutores).
 function turmaSomenteLocacao(t) {
   return !!t?.tipos_treinamento?.somente_locacao_espaco;
 }
 function celulaLocacaoEspaco(campo) {
-  if (campo === "instrutor2") return `<span class="text-slate-300 text-xs">—</span>`;
+  if (campo !== "instrutor1") return `<span class="text-slate-300 text-xs">—</span>`;
   return `<span class="text-[11px] text-slate-500" title="Treinamento somente de locação de espaço: não há instrutor nem confirmação de instrutor, só do Centro de Treinamento.">🏢 Locação de espaço — sem instrutor</span>`;
 }
 
@@ -11472,9 +11485,8 @@ function contarDisponibilidadeJanela(instrutor, dias) {
 function celulaInstrutorAgendTurma(t, campo) {
   if (turmaSomenteLocacao(t)) return celulaLocacaoEspaco(campo);
   if (!agendTurmaSelecionadas.has(t.id)) return celulaInstrutorSomenteLeitura(t, campo);
-  const escolha = agendTurmaInstrutores.get(t.id) || { instrutor1: "", instrutor2: "" };
-  const outroCampo = campo === "instrutor1" ? "instrutor2" : "instrutor1";
-  const idOutro = escolha[outroCampo];
+  const escolha = agendTurmaInstrutores.get(t.id) || instrEscolhaVazia();
+  const idsOutros = INSTR_CAMPOS.filter((c) => c !== campo).map((c) => escolha[c]).filter(Boolean);
 
   if (agendTurmaCentroStatus.size === 0) {
     return `<span class="text-slate-400 text-xs">A verificar</span>`;
@@ -11483,7 +11495,7 @@ function celulaInstrutorAgendTurma(t, campo) {
   const valorAtual = escolha[campo] || "";
   const filtros = filtrosInstrutorAtivos();
   const candidatos = agendTurmaRankingInstrutores.filter((r) => {
-    if (r.instrutor.id === idOutro) return false;
+    if (idsOutros.includes(r.instrutor.id)) return false;
     if (r.instrutor.id === valorAtual) return true; // já atribuído à turma (pode estar "aguardando" nesse dia)
     if (filtros.aptos && !instrutorApto(r.instrutor, t)) return false;
     if (filtros.centro && !instrutorDoCentro(r.instrutor, t)) return false;
@@ -11511,7 +11523,7 @@ function celulaInstrutorAgendTurma(t, campo) {
     <option value="">— Selecione —</option>
     ${opcoes}
   </select>${vazio}${alerta}
-  <div class="mt-0.5">${iconeRespostaInstrutor(resp) || textoAgendaItem(t[campo === "instrutor1" ? "agenda_instrutor1" : "agenda_instrutor2"])}</div>`;
+  <div class="mt-0.5">${iconeRespostaInstrutor(resp) || textoAgendaItem(t["agenda_" + campo])}</div>`;
 }
 
 // Quando a turma ainda não foi verificada nesta sessão, mostra o instrutor
@@ -11523,7 +11535,7 @@ function celulaInstrutorSomenteLeitura(t, campo) {
   const inst = listaInstrutoresAtivos.find((i) => i.id === id);
   const resp = respostaInstrutorAgendTurma(t, id);
   return `<div class="text-xs text-slate-700">${escH(inst?.nome || "—")}</div>
-    <div class="mt-0.5">${iconeRespostaInstrutor(resp) || textoAgendaItem(t[campo === "instrutor1" ? "agenda_instrutor1" : "agenda_instrutor2"])}</div>`;
+    <div class="mt-0.5">${iconeRespostaInstrutor(resp) || textoAgendaItem(t["agenda_" + campo])}</div>`;
 }
 
 // Aviso por turma quando o CT onde ela será realizada difere do CT do cadastro.
@@ -11541,7 +11553,7 @@ function rotuloCentroAgendTurma(t) {
 function renderizarListaAgendTurmas() {
   const cont = $("agend-turma-lista");
   if (agendTurmasLista.length === 0) {
-    cont.innerHTML = `<tr><td colspan="10" class="text-center text-slate-500 text-sm py-16">Nenhuma turma cadastrada para este orçamento.</td></tr>`;
+    cont.innerHTML = `<tr><td colspan="12" class="text-center text-slate-500 text-sm py-16">Nenhuma turma cadastrada para este orçamento.</td></tr>`;
     return;
   }
   const corStatus = {
@@ -11570,9 +11582,11 @@ function renderizarListaAgendTurmas() {
       <td class="px-3 pt-2 pb-1 text-xs">${celulaCentroAgendTurma(t)}</td>
       <td class="px-3 pt-2 pb-1">${celulaInstrutorAgendTurma(t, "instrutor1")}</td>
       <td class="px-3 pt-2 pb-1">${celulaInstrutorAgendTurma(t, "instrutor2")}</td>
+      <td class="px-3 pt-2 pb-1">${celulaInstrutorAgendTurma(t, "instrutor3")}</td>
+      <td class="px-3 pt-2 pb-1">${celulaInstrutorAgendTurma(t, "instrutor4")}</td>
     </tr>
     <tr class="border-b border-slate-100 hover:bg-slate-50">
-      <td colspan="10" class="px-3 pt-0 pb-2">
+      <td colspan="12" class="px-3 pt-0 pb-2">
         <div class="flex flex-wrap items-center gap-x-5 gap-y-1 pl-0.5">
           <label class="flex items-center gap-1.5 text-[11px] text-slate-500">
             Horário aula
@@ -11600,7 +11614,7 @@ function renderizarListaAgendTurmas() {
     el.addEventListener("change", (e) => {
       const turmaId = e.target.getAttribute("data-agend-turma-instrutor");
       const campo = e.target.getAttribute("data-campo");
-      const atual = agendTurmaInstrutores.get(turmaId) || { instrutor1: "", instrutor2: "" };
+      const atual = agendTurmaInstrutores.get(turmaId) || instrEscolhaVazia();
       atual[campo] = e.target.value;
       agendTurmaInstrutores.set(turmaId, atual);
       renderizarListaAgendTurmas();
@@ -11788,10 +11802,10 @@ $("btn-agend-verificar-disponibilidade").addEventListener("click", verificarDisp
 
 // -----------------------------------------------------------
 // Solicitar confirmação do agendamento das turmas selecionadas:
-//  1) grava instrutor1/instrutor2 escolhidos na turma;
+//  1) grava instrutor1..instrutor4 escolhidos na turma;
 //  2) RPC solicitar_confirmacao_turma_completa → cria/atualiza o agendamento de
 //     cada instrutor (o app agenda-instrutores recebe a notificação e o dia
-//     fica "aguardando" no calendário dele), marca agenda_instrutor1/2 e
+//     fica "aguardando" no calendário dele), marca agenda_instrutor1..4 e
 //     agenda_ct como "Aguardando confirmação";
 //  3) o status consolidado da turma (Não agendado / Aguardando confirmação /
 //     Agendado) é recalculado automaticamente no banco.
@@ -11817,16 +11831,16 @@ async function solicitarConfirmacaoAgendTurma() {
     // Somente locação de espaço: não precisa de instrutor; só o CT confirma.
     if (turmaSomenteLocacao(t)) {
       if (!t.data_inicio) problemas.push(`Turma ${t.identificacao}: sem data definida.`);
-      else prontas.push({ t, inst1: null, inst2: null, locacao: true });
+      else prontas.push({ t, insts: [null, null, null, null], locacao: true });
       return;
     }
-    const escolha = agendTurmaInstrutores.get(t.id) || { instrutor1: t.instrutor1_id || "", instrutor2: t.instrutor2_id || "" };
-    const inst1 = escolha.instrutor1 || t.instrutor1_id || null;
-    const inst2 = escolha.instrutor2 || t.instrutor2_id || null;
+    const escolha = agendTurmaInstrutores.get(t.id) || instrEscolhaDaTurma(t);
+    const insts = INSTR_CAMPOS.map((c) => escolha[c] || t[c + "_id"] || null);
+    const escolhidos = insts.filter(Boolean);
     if (!t.data_inicio) problemas.push(`Turma ${t.identificacao}: sem data definida.`);
-    else if (!inst1 && !inst2) problemas.push(`Turma ${t.identificacao}: selecione ao menos o Instrutor 1.`);
-    else if (inst1 && inst2 && inst1 === inst2) problemas.push(`Turma ${t.identificacao}: Instrutor 1 e 2 não podem ser a mesma pessoa.`);
-    else prontas.push({ t, inst1, inst2 });
+    else if (!escolhidos.length) problemas.push(`Turma ${t.identificacao}: selecione ao menos o Instrutor 1.`);
+    else if (new Set(escolhidos).size !== escolhidos.length) problemas.push(`Turma ${t.identificacao}: o mesmo instrutor não pode ocupar duas vagas.`);
+    else prontas.push({ t, insts });
   });
   if (prontas.length === 0) return mostrarResultadoSolicitacao(problemas.join("<br>"), false);
 
@@ -11836,8 +11850,8 @@ async function solicitarConfirmacaoAgendTurma() {
     const r = respostaInstrutorAgendTurma(t, id);
     return `${nomes(id)}${r?.status === "confirmado" ? " (já confirmado — não será notificado)" : ""}`;
   };
-  const resumo = prontas.map(({ t, inst1, inst2, locacao }) =>
-    `• Turma ${t.identificacao} (${formatarDataBr(t.data_inicio)}): ${locacao ? "locação de espaço — só confirmação do Centro de Treinamento" : [rotulo(t, inst1), rotulo(t, inst2)].filter(Boolean).join(" e ")}`).join("\n");
+  const resumo = prontas.map(({ t, insts, locacao }) =>
+    `• Turma ${t.identificacao} (${formatarDataBr(t.data_inicio)}): ${locacao ? "locação de espaço — só confirmação do Centro de Treinamento" : insts.map((id) => rotulo(t, id)).filter(Boolean).join(", ")}`).join("\n");
   const mudancasCt = prontas.filter((p) => p.t._centroMudara).map((p) => p.t.identificacao);
   const nomeCtTela = listaCentrosAtivos.find((c) => c.id === agendTurmaCentroId)?.nome || "";
   const avisoCt = mudancasCt.length
@@ -11853,7 +11867,7 @@ async function solicitarConfirmacaoAgendTurma() {
   let enviadosSoCt = 0; // turmas de locação de espaço: só o Centro de Treinamento confirma
   const erros = [...problemas];
   const avisos = [];
-  for (const { t, inst1, inst2, locacao } of prontas) {
+  for (const { t, insts, locacao } of prontas) {
     if (t._centroMudara) {
       const { error: eCt } = await supabase.from("turmas").update({ centro_treinamento_id: t.centro_treinamento_id }).eq("id", t.id);
       if (eCt) { erros.push(`Turma ${t.identificacao}: não foi possível gravar o Centro de Treinamento (${eCt.message}).`); continue; }
@@ -11861,9 +11875,13 @@ async function solicitarConfirmacaoAgendTurma() {
     }
     if (!locacao) {
       const payload = {
-        instrutor1_id: inst1,
-        instrutor2_id: inst2,
-        agenda_instrutor2: inst2 ? (t.agenda_instrutor2 === "Não aplicável" ? "A agendar" : t.agenda_instrutor2) : "Não aplicável",
+        instrutor1_id: insts[0],
+        instrutor2_id: insts[1],
+        instrutor3_id: insts[2],
+        instrutor4_id: insts[3],
+        agenda_instrutor2: insts[1] ? (t.agenda_instrutor2 === "Não aplicável" ? "A agendar" : t.agenda_instrutor2) : "Não aplicável",
+        agenda_instrutor3: insts[2] ? (!t.agenda_instrutor3 || t.agenda_instrutor3 === "Não aplicável" ? "A agendar" : t.agenda_instrutor3) : "Não aplicável",
+        agenda_instrutor4: insts[3] ? (!t.agenda_instrutor4 || t.agenda_instrutor4 === "Não aplicável" ? "A agendar" : t.agenda_instrutor4) : "Não aplicável",
       };
       const { error: e1 } = await supabase.from("turmas").update(payload).eq("id", t.id);
       if (e1) { erros.push(`Turma ${t.identificacao}: não foi possível gravar os instrutores (${e1.message}).`); continue; }
@@ -11878,12 +11896,12 @@ async function solicitarConfirmacaoAgendTurma() {
     // Instrutores que já tinham confirmado não são notificados de novo:
     // a RPC só devolve os que realmente receberam a solicitação.
     const notificados = (solicitados || []).map((r) => r.id_instrutor);
-    const atribuidos = [inst1, inst2].filter(Boolean);
+    const atribuidos = insts.filter(Boolean);
     const preservados = atribuidos.filter((id) => !notificados.includes(id));
     if (notificados.length > 0) enviados++;
     if (locacao && solicitarCt) enviadosSoCt++;
     if (preservados.length > 0) {
-      avisos.push(`Turma ${t.identificacao}: ${preservados.map(nomes).join(" e ")} já havia(m) confirmado — confirmação mantida, sem nova mensagem.`);
+      avisos.push(`Turma ${t.identificacao}: ${preservados.map(nomes).join(", ")} já havia(m) confirmado — confirmação mantida, sem nova mensagem.`);
     }
     if (notificados.length === 0 && !solicitarCt) {
       avisos.push(`Turma ${t.identificacao}: nada a solicitar, já está tudo confirmado.`);
@@ -11913,7 +11931,7 @@ $("btn-agend-solicitar-confirmacao").addEventListener("click", solicitarConfirma
 // push), libera os dias e deixa um aviso para o Centro de Treinamento.
 // -----------------------------------------------------------
 function turmaTemAgendamentoParaCancelar(t) {
-  return ["Aguardando confirmação", "Agendado"].includes(t.agenda_ct) || !!t.instrutor1_id || !!t.instrutor2_id ||
+  return ["Aguardando confirmação", "Agendado"].includes(t.agenda_ct) || instrDaTurma(t).length > 0 ||
     (t.status_agendamento && t.status_agendamento !== "Não agendado");
 }
 
@@ -11924,7 +11942,7 @@ function abrirModalCancelarAgend() {
   if (comAgend.length === 0) return mostrarResultadoSolicitacao("As turmas selecionadas não têm agendamento a cancelar.", false);
   const nomeInst = (id) => listaInstrutoresAtivos.find((i) => i.id === id)?.nome || "";
   $("cancagend-resumo").innerHTML = comAgend.map((t) => {
-    const insts = [t.instrutor1_id, t.instrutor2_id].filter(Boolean).map(nomeInst).filter(Boolean);
+    const insts = instrDaTurma(t).map(nomeInst).filter(Boolean);
     return `<div><span class="font-mono">${escH(t.identificacao || "—")}</span>${t.data_inicio ? ` · ${formatarDataBr(t.data_inicio)}` : ""} · CT: ${escH(t.agenda_ct || "—")}${insts.length ? ` · Instrutor(es): ${insts.join(", ")}` : ""}</div>`;
   }).join("");
   $("cancagend-motivo").value = "";
@@ -12151,7 +12169,7 @@ async function carregarListaConfirmacaoCt(forcar = true) {
   const [ini, fim] = limitesDoMes(cctMes);
   const { data, error } = await supabase
     .from("turmas")
-    .select("*, turma_alunos(count), tipos_treinamento(nome), orcamentos(numero, observacoes, observacao_ct, empresas(nome)), inst1:instrutores!turmas_instrutor1_id_fkey(nome), inst2:instrutores!turmas_instrutor2_id_fkey(nome)")
+    .select("*, turma_alunos(count), tipos_treinamento(nome), orcamentos(numero, observacoes, observacao_ct, empresas(nome)), inst1:instrutores!turmas_instrutor1_id_fkey(nome), inst2:instrutores!turmas_instrutor2_id_fkey(nome), inst3:instrutores!turmas_instrutor3_id_fkey(nome), inst4:instrutores!turmas_instrutor4_id_fkey(nome)")
     .eq("centro_treinamento_id", centroId)
     .neq("status", "Cancelada")
     .neq("agenda_ct", "Não aplicável")
@@ -12305,7 +12323,7 @@ function renderizarDetalheDiaCt(porDia) {
     : "";
   lista.innerHTML = turmas.map((t) => {
     const obs = blocoObservacoesOrcamento(t.orcamentos, true);
-    const locacao = t.agenda_instrutor1 === "Não aplicável" && !t.inst1 && !t.inst2;
+    const locacao = t.agenda_instrutor1 === "Não aplicável" && !t.inst1 && !t.inst2 && !t.inst3 && !t.inst4;
     return `
     <div class="border border-slate-200 rounded-lg p-2.5">
       <div class="flex items-start justify-between gap-2">
@@ -12315,7 +12333,7 @@ function renderizarDetalheDiaCt(porDia) {
       <div class="text-sm text-slate-800 mt-1">${escH(t.tipos_treinamento?.nome || "—")}</div>
       <div class="text-xs text-slate-500">${escH(t.orcamentos?.empresas?.nome || "—")} · orç. ${escH(t.orcamentos?.numero || "—")}</div>
       <div class="text-[11px] text-slate-500 mt-1">${t.horario ? `🕒 ${t.horario}` : ""}${t.tipo_dia ? `${t.horario ? " · " : ""}${t.tipo_dia}` : ""}</div>
-      <div class="mt-1">${linhaInst(t.inst1?.nome, respostaInstrutorCct(t, t.instrutor1_id), t.agenda_instrutor1)}${linhaInst(t.inst2?.nome, respostaInstrutorCct(t, t.instrutor2_id), t.agenda_instrutor2)}${!t.inst1 && !t.inst2 ? `<span class="text-[11px] text-slate-400">${locacao ? "🏢 locação de espaço — sem instrutor" : "sem instrutor"}</span>` : ""}</div>
+      <div class="mt-1">${linhaInst(t.inst1?.nome, respostaInstrutorCct(t, t.instrutor1_id), t.agenda_instrutor1)}${linhaInst(t.inst2?.nome, respostaInstrutorCct(t, t.instrutor2_id), t.agenda_instrutor2)}${linhaInst(t.inst3?.nome, respostaInstrutorCct(t, t.instrutor3_id), t.agenda_instrutor3)}${linhaInst(t.inst4?.nome, respostaInstrutorCct(t, t.instrutor4_id), t.agenda_instrutor4)}${!t.inst1 && !t.inst2 && !t.inst3 && !t.inst4 ? `<span class="text-[11px] text-slate-400">${locacao ? "🏢 locação de espaço — sem instrutor" : "sem instrutor"}</span>` : ""}</div>
       ${obs ? `<div class="mt-2">${obs}</div>` : ""}
       ${podeConfirmar ? `<div class="flex items-center gap-1.5 mt-2 pt-2 border-t border-slate-100">
         ${t.agenda_ct !== "Agendado" ? `<button data-cct-confirmar="${t.id}" class="text-xs font-medium text-white bg-teal-600 hover:bg-teal-700 px-3 py-1.5 rounded-md">Confirmar</button>` : ""}
@@ -12965,7 +12983,7 @@ async function refreshTurmas() {
   if (!turmaOrcamentoSelecionadoId) return;
   const { data, error } = await supabase
     .from("turmas")
-    .select("*, tipos_treinamento(nome), centros_treinamento(nome), instrutor1:instrutores!instrutor1_id(nome), instrutor2:instrutores!instrutor2_id(nome), empresas_transporte(nome)")
+    .select("*, tipos_treinamento(nome), centros_treinamento(nome), instrutor1:instrutores!instrutor1_id(nome), instrutor2:instrutores!instrutor2_id(nome), instrutor3:instrutores!instrutor3_id(nome), instrutor4:instrutores!instrutor4_id(nome), empresas_transporte(nome)")
     .eq("orcamento_id", turmaOrcamentoSelecionadoId)
     .order("identificacao", { ascending: true });
   if (error || !dadosMudaram("turmas:" + turmaOrcamentoSelecionadoId, data)) return;
@@ -12991,8 +13009,8 @@ async function refreshAgendamentoTurmas() {
   agendTurmaAgendamentos.clear();
   (ags || []).forEach((a) => agendTurmaAgendamentos.set(`${a.turma_id}|${a.instrutor_id}`, a));
   agendTurmasLista.forEach((t) => {
-    if ((t.instrutor1_id || t.instrutor2_id) && !agendTurmaInstrutores.has(t.id)) {
-      agendTurmaInstrutores.set(t.id, { instrutor1: t.instrutor1_id || "", instrutor2: t.instrutor2_id || "" });
+    if (instrDaTurma(t).length && !agendTurmaInstrutores.has(t.id)) {
+      agendTurmaInstrutores.set(t.id, instrEscolhaDaTurma(t));
     }
   });
   renderizarListaAgendTurmas();
@@ -13098,7 +13116,7 @@ async function carregarAgendaCentros(forcar = true) {
 
   let q = supabase
     .from("turmas")
-    .select("id, identificacao, data_inicio, horario, vagas, turma_alunos(count), tipo_dia, status, status_agendamento, eh_pre_agendamento, agenda_ct, agenda_instrutor1, agenda_instrutor2, centro_treinamento_id, centros_treinamento(nome), tipos_treinamento(nome), orcamentos(numero, observacao_ct, empresas(nome)), inst1:instrutores!turmas_instrutor1_id_fkey(nome), inst2:instrutores!turmas_instrutor2_id_fkey(nome)")
+    .select("id, identificacao, data_inicio, horario, vagas, turma_alunos(count), tipo_dia, status, status_agendamento, eh_pre_agendamento, agenda_ct, agenda_instrutor1, agenda_instrutor2, agenda_instrutor3, agenda_instrutor4, instrutor3_id, instrutor4_id, centro_treinamento_id, centros_treinamento(nome), tipos_treinamento(nome), orcamentos(numero, observacao_ct, empresas(nome)), inst1:instrutores!turmas_instrutor1_id_fkey(nome), inst2:instrutores!turmas_instrutor2_id_fkey(nome), inst3:instrutores!turmas_instrutor3_id_fkey(nome), inst4:instrutores!turmas_instrutor4_id_fkey(nome)")
     .gte("data_inicio", ini)
     .lte("data_inicio", fim)
     .neq("status", "Cancelada")
@@ -13214,7 +13232,7 @@ function renderizarDetalheDiaAgendaCentros(porDia) {
       <div class="text-sm text-slate-800 mt-1">${escH(t.tipos_treinamento?.nome || "—")}</div>
       <div class="text-xs text-slate-500">${escH(t.orcamentos?.empresas?.nome || "—")} · orç. ${escH(t.orcamentos?.numero || "—")}</div>
       <div class="text-[11px] text-slate-500 mt-1">🏫 ${escH(t.centros_treinamento?.nome || "—")}${t.horario ? ` · ${t.horario}` : ""}${t.tipo_dia ? ` · ${t.tipo_dia}` : ""}</div>
-      <div class="text-[11px] text-slate-500">👤 ${[t.inst1?.nome, t.inst2?.nome].filter(Boolean).join(" e ") || "sem instrutor"}</div>
+      <div class="text-[11px] text-slate-500">👤 ${[t.inst1?.nome, t.inst2?.nome, t.inst3?.nome, t.inst4?.nome].filter(Boolean).join(", ") || "sem instrutor"}</div>
       ${t.orcamentos?.observacao_ct ? `<div class="mt-2 text-[11px] text-amber-900 bg-amber-50 border border-amber-200 rounded-md px-2 py-1.5 whitespace-pre-line">📌 ${escH(t.orcamentos.observacao_ct)}</div>` : ""}
     </div>
   `).join("");
@@ -13493,7 +13511,7 @@ async function carregarDocumentosTurmas() {
   const consulta = () => {
     let q = supabase
       .from("turmas")
-      .select("*, tipos_treinamento(nome), instrutor1:instrutores!instrutor1_id(nome), instrutor2:instrutores!instrutor2_id(nome), orcamentos!inner(numero, empresa_id, empresas(nome))")
+      .select("*, tipos_treinamento(nome), instrutor1:instrutores!instrutor1_id(nome), instrutor2:instrutores!instrutor2_id(nome), instrutor3:instrutores!instrutor3_id(nome), instrutor4:instrutores!instrutor4_id(nome), orcamentos!inner(numero, empresa_id, empresas(nome))")
       .neq("status", "Cancelada");
     if (dataDe) q = q.gte("data_inicio", dataDe);
     if (dataAte) q = q.lte("data_inicio", dataAte);
@@ -13564,6 +13582,8 @@ function renderizarDocumentosTurmas() {
       <td class="px-3 py-2 text-slate-500">${formatarDataBr(t.data_inicio)}${t.data_fim && t.data_fim !== t.data_inicio ? ` a ${formatarDataBr(t.data_fim)}` : ""}</td>
       <td class="px-3 py-2 text-slate-700">${escH(t.instrutor1?.nome || "—")}</td>
       <td class="px-3 py-2 text-slate-700">${escH(t.instrutor2?.nome || "—")}</td>
+      <td class="px-3 py-2 text-slate-700">${escH(t.instrutor3?.nome || "—")}</td>
+      <td class="px-3 py-2 text-slate-700">${escH(t.instrutor4?.nome || "—")}</td>
       <td class="px-3 py-2">
         <button data-dt-alunos="${t.id}" class="font-medium underline ${t.qtdAlunos ? "text-sm text-teal-700 hover:text-teal-900 font-semibold" : "text-xs text-slate-400 hover:text-slate-600"}">${t.qtdAlunos} 👥</button>
       </td>
@@ -13588,7 +13608,7 @@ async function urlArquivoTurmaMidia(path) {
 async function abrirPainelDocumentosTurma(turmaId) {
   const t = dtTurmasLista.find((x) => x.id === turmaId);
   $("painel-documentos-turma-titulo").textContent = `Documentos — Turma ${t?.identificacao || ""}`;
-  $("painel-documentos-turma-info").textContent = [t?.data_inicio && formatarDataBr(t.data_inicio), [t?.instrutor1?.nome, t?.instrutor2?.nome].filter(Boolean).join(" e ")].filter(Boolean).join(" · ");
+  $("painel-documentos-turma-info").textContent = [t?.data_inicio && formatarDataBr(t.data_inicio), [t?.instrutor1?.nome, t?.instrutor2?.nome, t?.instrutor3?.nome, t?.instrutor4?.nome].filter(Boolean).join(", ")].filter(Boolean).join(" · ");
   $("dt-painel-fotos-turma-grade").innerHTML = `<p class="col-span-full text-xs text-slate-400">Carregando…</p>`;
   $("dt-painel-fotos-presenca-grade").innerHTML = "";
   $("dt-painel-fotos-turma-contagem").textContent = "";
@@ -15843,7 +15863,7 @@ async function ecBuscar() {
     const idsOrc = await emissaoIdsOrcPorTexto(texto);
     if (idsOrc && !idsOrc.length) { ecTurmas = []; ecRenderTurmas(); $("ec-turmas-nota").textContent = "Nenhum orçamento ou empresa encontrado para esse texto."; return; }
     const filtroPer = emissaoFiltroPeriodo(de, ate);
-    const SEL = "id, identificacao, data_inicio, data_fim, status, orcamento_id, centro_treinamento_id, instrutor_id, instrutor1_id, instrutor2_id, orcamentos(numero, empresas(nome)), tipos_treinamento(id, nome, carga_horaria, emite_certificado, texto_certificado, responsavel_tecnico_id)";
+    const SEL = "id, identificacao, data_inicio, data_fim, status, orcamento_id, centro_treinamento_id, instrutor_id, instrutor1_id, instrutor2_id, instrutor3_id, instrutor4_id, orcamentos(numero, empresas(nome)), tipos_treinamento(id, nome, carga_horaria, emite_certificado, texto_certificado, responsavel_tecnico_id)";
     const consulta = (ids) => () => {
       let q = supabase.from("turmas").select(SEL).neq("status", "Cancelada");
       if (ct) q = q.eq("centro_treinamento_id", ct);
@@ -15933,7 +15953,7 @@ async function ecCarregarContexto(t) {
     const { data } = await supabase.from("responsaveis_tecnicos").select("nome, titulo, registro_profissional, cpf, rg, assinatura_id").eq("id", tt.responsavel_tecnico_id).maybeSingle();
     if (data) rt = { nome: data.nome, titulo: data.titulo, registro: data.registro_profissional, cpf: data.cpf, rg: data.rg, assinatura_id: data.assinatura_id };
   }
-  let ids = [t.instrutor1_id, t.instrutor2_id].filter(Boolean);
+  let ids = instrDaTurma(t);
   if (!ids.length && t.instrutor_id) ids = [t.instrutor_id];
   let instrutores = [];
   if (ids.length) {
