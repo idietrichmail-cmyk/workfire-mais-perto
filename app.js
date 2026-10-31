@@ -36,7 +36,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.92 · 30/10/2026";
+const APP_VERSAO = "Prod 1.93 · 31/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -15664,18 +15664,21 @@ function certSvg(opts) {
 
   const fim = d.periodo.fim;
   const ext = certDataExt(fim);
-  let topAss, topQr = 81.5;
+  let topAss;
   if (modelo === "campo" && modo !== "verif") {
+    // v1.93: linhas "descidas" (~6 a 12 mm) para cair nos espaços do papel pré-impresso,
+    // medido sobre a foto de uma impressão real (A4 paisagem). Cada linha tem seu ajuste porque
+    // o espaçamento do papel pré-impresso não é uniforme.
     const fs = 1.75 * u;
-    centro(36.5, 27.8, nomeAluno, fs);
-    centro(78.2, 27.8, docAluno, fs);
-    centro(43.6, 35.2, "Treinamento " + (d.treinamento.nome || ""), fs);
-    centro(37.4, 42.7, d.treinamento.carga_horaria || "", fs);
-    centro(76.2, 42.7, certDataBr(fim), fs);
-    centro(77.3, 51, "a Instrução Técnica n°", fs);
-    esq(7.1, 53.6, "17/2025 do decreto estadual n° 69.118/2024", fs);
-    centro(59.8, 60, ext, fs);
-    topAss = 60.5;
+    centro(36.5, 31.4, nomeAluno, fs);
+    centro(78.2, 31.7, docAluno, fs);
+    centro(43.6, 38.8, "Treinamento " + (d.treinamento.nome || ""), fs);
+    centro(37.4, 46.4, d.treinamento.carga_horaria || "", fs);
+    centro(76.2, 46.7, certDataBr(fim), fs);
+    centro(77.3, 54.1, "a Instrução Técnica n°", fs);
+    esq(7.1, 58.5, "17/2025 do decreto estadual n° 69.118/2024", fs);
+    centro(59.8, 63.8, ext, fs);
+    topAss = 63.6;
   } else {
     const fs = 2.02 * u, lh = fs * 1.22, larg = 79.5 * CERT_W / 100, x0 = 11.4 * CERT_W / 100;
     const linhas = certQuebra(certTexto(d, masc), larg, fs);
@@ -15720,18 +15723,18 @@ function certSvg(opts) {
   if (ins[0]) bloco(52.1, 19.5, { t: ins[0].nome }, [{ t: "Instrutor" }, { t: ins[0].doc ? "CPF: " + ins[0].doc : "" }], ins[0].assinatura_id);
   if (ins[1]) bloco(74.5, 19, { t: ins[1].nome }, [{ t: "Instrutor" }, { t: ins[1].doc ? "CPF: " + ins[1].doc : "" }], ins[1].assinatura_id);
 
-  // QR de verificação + número
-  const qs = 7.4 * u, qx = CERT_W / 2 - qs / 2, qy = cy(topQr);
+  // QR de verificação + número: canto superior direito, ao lado do título "CERTIFICADO" (v1.93)
+  const qs = 7.4 * u, qcx = 258.8, qx = qcx - qs / 2, qy = 22;
   const url = modo === "previa" ? CERT_URL_BASE + "#previa" : CERT_URL_BASE + "#" + codigo;
   o.push(`<rect x="${(qx - 1.5).toFixed(2)}" y="${(qy - 1.5).toFixed(2)}" width="${(qs + 3).toFixed(2)}" height="${(qs + 3).toFixed(2)}" fill="#fff"/>`);
   o.push(`<path d="${certQrPath(url, qx, qy, qs)}" fill="#000" shape-rendering="crispEdges"/>`);
-  let yq = qy + qs + 0.5 * u + 1.2;
-  const fm = 0.86 * u;
-  certQuebra("Aponte sua câmera e veja se o certificado é válido", 20 * u, fm).forEach((ws) => {
-    txt(CERT_W / 2, yq + fm * 0.8, ws.join(" "), fm, ' text-anchor="middle"');
+  let yq = qy + qs + 1.2;
+  const fm = 0.75 * u;
+  certQuebra("Aponte sua câmera e veja se o certificado é válido", 30, fm).forEach((ws) => {
+    txt(qcx, yq + fm * 0.8, ws.join(" "), fm, ' text-anchor="middle"');
     yq += fm * 1.15;
   });
-  txt(CERT_W / 2, yq + 0.3 * u + 0.95 * u * 0.8, modo === "previa" ? "PRÉVIA · sem número" : "Certificado nº " + numero, 0.95 * u, ' text-anchor="middle" font-weight="bold"');
+  txt(qcx, yq + 0.2 * u + 0.8 * u * 0.8, modo === "previa" ? "PRÉVIA · sem número" : "Certificado nº " + numero, 0.8 * u, ' text-anchor="middle" font-weight="bold"');
 
   if (modo === "previa") {
     const fs = 9.5 * u, t = "EM ELABORAÇÃO", w = certLargura(t, fs, true);
