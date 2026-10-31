@@ -36,7 +36,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.95 · 31/10/2026";
+const APP_VERSAO = "Prod 1.96 · 31/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -16290,7 +16290,7 @@ function atSvgPaginas(opts) {
       const sozinho = ins.length % 2 === 1 && k === ins.length - 1;
       const W = 76, L = sozinho ? (AT_W - W) / 2 : (col === 0 ? 20 : AT_W - 20 - W);
       const y0 = footTop + 23 + row * 35;
-      const img = p.assinatura_id && sigs && sigs[p.assinatura_id];
+      const img = opts.assinar !== false && p.assinatura_id && sigs && sigs[p.assinatura_id];
       if (img) o.push(`<image x="${f2(L - W / 4)}" y="${f2(y0)}" width="${f2(W * 1.5)}" height="21" preserveAspectRatio="xMidYMax meet" xlink:href="${img}"/>`);
       o.push(`<line x1="${f2(L)}" y1="${f2(y0 + 21)}" x2="${f2(L + W)}" y2="${f2(y0 + 21)}" stroke="#000" stroke-width="0.35"/>`);
       const nm = String(p.nome || "").toUpperCase();
@@ -16352,6 +16352,8 @@ let atEmitidos = [];
 let atSeq = 0;
 const atHoje = () => formatarData(new Date());
 // caixa "Imprimir com cabeçalho e rodapé" (marcada por padrão)
+// caixa "Imprimir com assinatura do instrutor" (desmarcada por padrão)
+const atComAssin = () => { const e = $("at-com-assin"); return !!(e && e.checked); };
 const atCabRod = () => { const e = $("at-com-cabrod"); return !e || e.checked; };
 // Rodapé = "Rodapé das páginas" cadastrado no Centro de Treinamento da turma do atestado (se vazio: nome + endereço)
 function atRodapeTexto(dados) {
@@ -16574,7 +16576,7 @@ async function atPreviaGrupos(lista) {
   try {
     const sigs = await ecCarregarAssinaturas(lista.map((g) => g.dados));
     const paginas = [];
-    lista.forEach((g) => atSvgPaginas({ dados: g.dados, numero: "", codigo: "", modo: "previa", sigs, cabRod: atCabRod(), rodape: atRodapeTexto(g.dados) }).forEach((s) => paginas.push(s)));
+    lista.forEach((g) => atSvgPaginas({ dados: g.dados, numero: "", codigo: "", modo: "previa", sigs, cabRod: atCabRod(), rodape: atRodapeTexto(g.dados), assinar: atComAssin() }).forEach((s) => paginas.push(s)));
     atMostrarJanela(w, "Prévia dos atestados", "Prévia: não tem validade e o QR não funciona.", paginas);
   } catch (e) {
     w.close();
@@ -16602,7 +16604,7 @@ async function atEmitir() {
     const paginas = [];
     let falhas = 0;
     for (const a of lista) {
-      atSvgPaginas({ dados: a.dados, numero: a.numero, codigo: a.codigo, modo: "final", sigs, cabRod: atCabRod(), rodape: atRodapeTexto(a.dados) }).forEach((s) => paginas.push(s));
+      atSvgPaginas({ dados: a.dados, numero: a.numero, codigo: a.codigo, modo: "final", sigs, cabRod: atCabRod(), rodape: atRodapeTexto(a.dados), assinar: atComAssin() }).forEach((s) => paginas.push(s));
       try {
         const verif = atSvgPaginas({ dados: a.dados, numero: a.numero, codigo: a.codigo, modo: "verif", sigs, mascarar: true, cabRod: true, rodape: atRodapeTexto(a.dados) });
         for (let i = 0; i < verif.length; i++) {
@@ -16656,7 +16658,7 @@ async function atReimprimir(id) {
     const { data, error } = await supabase.from("atestados").select("numero, codigo, dados").eq("id", id).single();
     if (error) throw error;
     const sigs = await ecCarregarAssinaturas([data.dados]);
-    atMostrarJanela(w, `Atestado ${data.numero} (2ª via)`, "2ª via: mesmo número e mesmo QR do atestado original.", atSvgPaginas({ dados: data.dados, numero: data.numero, codigo: data.codigo, modo: "final", sigs, cabRod: atCabRod(), rodape: atRodapeTexto(data.dados) }));
+    atMostrarJanela(w, `Atestado ${data.numero} (2ª via)`, "2ª via: mesmo número e mesmo QR do atestado original.", atSvgPaginas({ dados: data.dados, numero: data.numero, codigo: data.codigo, modo: "final", sigs, cabRod: atCabRod(), rodape: atRodapeTexto(data.dados), assinar: atComAssin() }));
   } catch (e) {
     w.close();
     mostrarErro("at-erro", "Não foi possível abrir o atestado: " + fatErroMsg(e));
