@@ -36,7 +36,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.93 · 31/10/2026";
+const APP_VERSAO = "Prod 1.94 · 31/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -16188,11 +16188,17 @@ function atSvgPaginas(opts) {
   const treins = d.treinamentos || [];
   const ins = (d.instrutores || []).slice(0, 4);
   const footH = 30 + Math.ceil(ins.length / 2) * 28;
-  const footTop = AT_H - 14 - footH;
+  // Cabeçalho (ALTERNATIVA / BRIGADAS DE EMERGÊNCIAS) e rodapé (dados do Centro de Treinamento) — opcionais
+  const cabRod = !!opts.cabRod;
+  const rodLinhas = cabRod ? String(opts.rodape || "").split(/\r?\n/).map((x) => x.trim()).filter(Boolean).slice(0, 6) : [];
+  const lhRod = 5.4;
+  const rodH = rodLinhas.length ? rodLinhas.length * lhRod + 6.7 : 0;
+  const rodTop = AT_H - 8 - rodH;
+  const footTop = cabRod ? (rodLinhas.length ? rodTop : AT_H - 8) - 4 - footH : AT_H - 14 - footH;
   const fsP = 3.45, lhP = fsP * 1.34, rowH = 5, fsR = 3.05;
   const titulo = "ATESTADO DE " + (treins.length === 1 ? String(treins[0].nome || "").toUpperCase() : "TREINAMENTOS");
   const paragrafos = treins.map((t) => certQuebra(atTexto(t.texto, d, t), larg, fsP));
-  const yTit = 23 + (modo === "verif" ? 3 : 0);
+  const yTit = cabRod ? 31 : 23 + (modo === "verif" ? 3 : 0);
   const alt1 = paragrafos.reduce((s, ls) => s + ls.length * lhP + 2.2, 0);
   const yPart = yTit + 10 + alt1 + 3;
   const yHead1 = yPart + 7, yRows1 = yHead1 + 3;
@@ -16214,6 +16220,16 @@ function atSvgPaginas(opts) {
     const txt = (x, y, s, fs, extra) => o.push(`<text x="${f2(x)}" y="${f2(y)}" font-size="${f2(fs)}"${extra || ""}>${certX(s)}</text>`);
     o.push(`<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${AT_W}mm" height="${AT_H}mm" viewBox="0 0 ${AT_W} ${AT_H}" font-family="Arial, Helvetica, sans-serif" fill="#000">`);
     o.push(`<rect x="0" y="0" width="${AT_W}" height="${AT_H}" fill="#fff"/>`);
+    if (cabRod) {
+      const wLogo = 35;
+      const fsA = wLogo / certLargura("ALTERNATIVA", 1, true);
+      const fsB = wLogo / certLargura("BRIGADAS DE EMERGÊNCIAS", 1, false);
+      txt(M, 15.5, "ALTERNATIVA", fsA, ' font-weight="bold" stroke="#000" stroke-width="0.14"');
+      txt(M, 19.3, "BRIGADAS DE EMERGÊNCIAS", fsB);
+      const xr = M + wLogo + 4.5;
+      o.push(`<line x1="${f2(xr)}" y1="12.9" x2="${f2(AT_W - M)}" y2="12.9" stroke="#000" stroke-width="0.9"/>`);
+      o.push(`<line x1="${f2(xr)}" y1="15" x2="${f2(AT_W - M)}" y2="15" stroke="#000" stroke-width="0.35"/>`);
+    }
     // título (sublinhado)
     const fsT = atFit(titulo, larg, 4.7, true);
     const wT = certLargura(titulo, fsT, true);
@@ -16282,7 +16298,15 @@ function atSvgPaginas(opts) {
       txt(L + W / 2, y0 + 21.8, "Instrutor", 2.9, ' text-anchor="middle" font-style="italic"');
       if (p.doc) txt(L + W / 2, y0 + 25.4, "CPF n° " + p.doc, 2.9, ' text-anchor="middle" font-style="italic"');
     });
-    txt(AT_W - M, AT_H - 7, `Página ${pi + 1} de ${total}`, 2.4, ' text-anchor="end" fill="#666"');
+    if (rodLinhas.length) {
+      o.push(`<line x1="${M}" y1="${f2(rodTop)}" x2="${AT_W - M}" y2="${f2(rodTop)}" stroke="#000" stroke-width="0.9"/>`);
+      o.push(`<line x1="${M}" y1="${f2(rodTop + 1.6)}" x2="${AT_W - M}" y2="${f2(rodTop + 1.6)}" stroke="#000" stroke-width="0.35"/>`);
+      rodLinhas.forEach((l, i) => txt(M + 0.5, rodTop + 6.4 + i * lhRod, l, atFit(l, larg - 1, 3.4, true), ' font-weight="bold"'));
+      const yb = rodTop + 6.4 + (rodLinhas.length - 1) * lhRod + 3.6;
+      o.push(`<line x1="${M}" y1="${f2(yb)}" x2="${AT_W - M}" y2="${f2(yb)}" stroke="#000" stroke-width="0.9"/>`);
+      o.push(`<line x1="${M}" y1="${f2(yb + 1.6)}" x2="${AT_W - M}" y2="${f2(yb + 1.6)}" stroke="#000" stroke-width="0.35"/>`);
+    }
+    txt(AT_W - M, cabRod ? AT_H - 4.2 : AT_H - 7, `Página ${pi + 1} de ${total}`, 2.4, ' text-anchor="end" fill="#666"');
     if (modo === "previa") {
       const fs = 17, t = "EM ELABORAÇÃO", w = certLargura(t, fs, true);
       o.push(`<g transform="rotate(-38 ${AT_W / 2} ${AT_H / 2})" fill="rgba(179,38,30,.17)" stroke="rgba(179,38,30,.17)">` +
@@ -16322,9 +16346,24 @@ let atEsc = "todas";       // 'todas' | 'sel'
 let atSelTurmas = new Set();
 let atPrevia = null;       // retorno de previa_atestados
 let atMarcados = new Set();
+let atCentros = {};        // id → centro de treinamento (nome, endereço, texto do rodapé)
+let atCtOrc = null;        // centro de treinamento do orçamento (reserva)
 let atEmitidos = [];
 let atSeq = 0;
 const atHoje = () => formatarData(new Date());
+// caixa "Imprimir com cabeçalho e rodapé" (marcada por padrão)
+const atCabRod = () => { const e = $("at-com-cabrod"); return !e || e.checked; };
+// Rodapé = "Rodapé das páginas" cadastrado no Centro de Treinamento da turma do atestado (se vazio: nome + endereço)
+function atRodapeTexto(dados) {
+  const d = dados || {};
+  const ids = new Set((Array.isArray(d.turmas) ? d.turmas : []).map((x) => String(x && typeof x === "object" ? (x.identificacao || x.id || "") : x)));
+  const doGrupo = atTurmas.filter((t) => ids.has(String(t.identificacao)));
+  const pref = doGrupo.find((t) => t.fim === d.data && t.centro_treinamento_id) || doGrupo.find((t) => t.centro_treinamento_id) || atTurmas.find((t) => t.centro_treinamento_id);
+  const ct = atCentros[(pref && pref.centro_treinamento_id) || atCtOrc] || null;
+  if (!ct) return "";
+  const r = String(ct.texto_rodape_pagina || "").trim();
+  return r || [ct.nome, ct.endereco].map((x) => String(x || "").trim()).filter(Boolean).join("\n");
+}
 const atLimpa = (s) => String(s || "").replace(/[,()%*\\"']/g, " ").trim();
 
 async function carregarEmissaoAtestadosInit() {
@@ -16401,7 +16440,7 @@ async function atAbrirOrcamento(id, numero, empresa) {
   $("at-grupos").innerHTML = `<p class="text-sm text-slate-500">Carregando…</p>`;
   try {
     const { data: ts, error } = await supabase.from("turmas")
-      .select("id, identificacao, data_inicio, data_fim, tipos_treinamento(nome, carga_horaria)").eq("orcamento_id", id).order("data_inicio").order("identificacao");
+      .select("id, identificacao, data_inicio, data_fim, centro_treinamento_id, tipos_treinamento(nome, carga_horaria)").eq("orcamento_id", id).order("data_inicio").order("identificacao");
     if (error) throw error;
     const ids = (ts || []).map((t) => t.id);
     const qtd = {};
@@ -16411,6 +16450,14 @@ async function atAbrirOrcamento(id, numero, empresa) {
       (data || []).forEach((x) => { qtd[x.turma_id] = (qtd[x.turma_id] || 0) + 1; });
     }
     atTurmas = (ts || []).filter((t) => qtd[t.id]).map((t) => ({ ...t, qtd: qtd[t.id], fim: t.data_fim || t.data_inicio }));
+    try {
+      const [rc, ro] = await Promise.all([
+        supabase.from("centros_treinamento").select("id, nome, endereco, texto_rodape_pagina"),
+        supabase.from("orcamentos").select("centro_treinamento_id").eq("id", id).single(),
+      ]);
+      atCentros = {}; (rc.data || []).forEach((c) => { atCentros[c.id] = c; });
+      atCtOrc = (ro.data && ro.data.centro_treinamento_id) || null;
+    } catch (e0) { atCentros = {}; atCtOrc = null; }
     atRenderTurmas();
     await atAtualizar();
   } catch (e) {
@@ -16527,7 +16574,7 @@ async function atPreviaGrupos(lista) {
   try {
     const sigs = await ecCarregarAssinaturas(lista.map((g) => g.dados));
     const paginas = [];
-    lista.forEach((g) => atSvgPaginas({ dados: g.dados, numero: "", codigo: "", modo: "previa", sigs }).forEach((s) => paginas.push(s)));
+    lista.forEach((g) => atSvgPaginas({ dados: g.dados, numero: "", codigo: "", modo: "previa", sigs, cabRod: atCabRod(), rodape: atRodapeTexto(g.dados) }).forEach((s) => paginas.push(s)));
     atMostrarJanela(w, "Prévia dos atestados", "Prévia: não tem validade e o QR não funciona.", paginas);
   } catch (e) {
     w.close();
@@ -16555,9 +16602,9 @@ async function atEmitir() {
     const paginas = [];
     let falhas = 0;
     for (const a of lista) {
-      atSvgPaginas({ dados: a.dados, numero: a.numero, codigo: a.codigo, modo: "final", sigs }).forEach((s) => paginas.push(s));
+      atSvgPaginas({ dados: a.dados, numero: a.numero, codigo: a.codigo, modo: "final", sigs, cabRod: atCabRod(), rodape: atRodapeTexto(a.dados) }).forEach((s) => paginas.push(s));
       try {
-        const verif = atSvgPaginas({ dados: a.dados, numero: a.numero, codigo: a.codigo, modo: "verif", sigs, mascarar: true });
+        const verif = atSvgPaginas({ dados: a.dados, numero: a.numero, codigo: a.codigo, modo: "verif", sigs, mascarar: true, cabRod: true, rodape: atRodapeTexto(a.dados) });
         for (let i = 0; i < verif.length; i++) {
           const png = await atRasterizar(verif[i]);
           const { error: e2 } = await supabase.rpc("gravar_imagem_atestado", { p_id: a.id, p_pagina: i + 1, p_b64: png });
@@ -16609,7 +16656,7 @@ async function atReimprimir(id) {
     const { data, error } = await supabase.from("atestados").select("numero, codigo, dados").eq("id", id).single();
     if (error) throw error;
     const sigs = await ecCarregarAssinaturas([data.dados]);
-    atMostrarJanela(w, `Atestado ${data.numero} (2ª via)`, "2ª via: mesmo número e mesmo QR do atestado original.", atSvgPaginas({ dados: data.dados, numero: data.numero, codigo: data.codigo, modo: "final", sigs }));
+    atMostrarJanela(w, `Atestado ${data.numero} (2ª via)`, "2ª via: mesmo número e mesmo QR do atestado original.", atSvgPaginas({ dados: data.dados, numero: data.numero, codigo: data.codigo, modo: "final", sigs, cabRod: atCabRod(), rodape: atRodapeTexto(data.dados) }));
   } catch (e) {
     w.close();
     mostrarErro("at-erro", "Não foi possível abrir o atestado: " + fatErroMsg(e));
