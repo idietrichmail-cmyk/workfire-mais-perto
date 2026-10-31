@@ -2426,3 +2426,193 @@ end $$;
 select cron.schedule('vendas-pessoa-expirar', '*/15 * * * *', 'select public.expirar_reservas_vendas()');
 -- Como liberar o módulo para um usuário: Cadastros Básicos > Usuários do Sistema > permissões > "Vendas por pessoa".
 -- Aprovar vendas abaixo do valor de tabela: administrador ou usuário marcado como aprovador comercial.
+
+
+-- =====================================================================
+-- v1.91 — Consulta de Agenda (somente leitura)
+-- Módulo 'consulta_agenda' (área Logística). Quem consulta precisa da permissão
+-- "consultar" nesse módulo (ou ser admin). O botão Exportar Excel depende do
+-- controle extra permissoes.pode_exportar_agenda (checkbox "Exportar Agenda").
+-- =====================================================================
+alter table permissoes add column if not exists pode_exportar_agenda boolean not null default false;
+
+create or replace function consulta_agenda(p_de date, p_ate date, p_ct uuid default null)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_res jsonb;
+begin
+  if auth.uid() is null then
+    raise exception 'Sessão expirada. Entre novamente.' using errcode = '42501';
+  end if;
+  if not (is_admin_sistema(auth.uid()) or tem_permissao(auth.uid(), 'consulta_agenda', 'consultar')) then
+    raise exception 'Você não tem permissão para consultar a agenda.' using errcode = '42501';
+  end if;
+  if p_de is null or p_ate is null or p_ate < p_de then
+    raise exception 'Informe um período válido.' using errcode = '22023';
+  end if;
+  if p_ate - p_de > 400 then
+    raise exception 'Escolha um período de até 400 dias.' using errcode = '22023';
+  end if;
+
+  select coalesce(jsonb_agg(x.linha order by x.data_inicio, x.ct_nome, x.ident), '[]'::jsonb)
+    into v_res
+  from (
+    select
+      t.data_inicio,
+      ct.nome as ct_nome,
+      coalesce(t.identificacao, '') as ident,
+      jsonb_build_object(
+        'id', t.id,
+        'ct_id', ct.id,
+        'ct', case
+                when ct.nome ilike '%guarulhos%' then 'GRU'
+                when ct.nome ilike '%santos%' then 'SANTOS'
+                when ct.nome ilike '%campos%' then 'SJC'
+                else upper(btrim(regexp_replace(ct.nome, '^work\s*fire\s*', '', 'i')))
+              end,
+        'data', t.data_inicio,
+        'empresa', coalesce(nullif(btrim(e.nome_fantasia), ''), e.nome, ''),
+        'pessoas', t.vagas,
+        'tipo', case coalesce(
+                  case t.tipo_dia
+                    when 'Prática' then t.formato_pratica
+                    when 'Teoria' then t.formato_teoria
+                    else case when 'InCompany' in (coalesce(t.formato_teoria,''), coalesce(t.formato_pratica,''))
+                              then 'InCompany' else coalesce(t.formato_teoria, t.formato_pratica) end
+                  end, '')
+                when 'CT' then 'CT'
+                when 'InCompany' then 'IN.C'
+                when 'Móvel' then 'MÓVEL'
+                when 'EAD' then 'EAD'
+                when 'EAD Síncrono' then 'EAD SÍNC.'
+                else ''
+              end,
+        'modulo', coalesce(tt.nome, '') || case t.tipo_dia when 'Teoria' then ' - TEORIA' when 'Prática' then ' - PRÁTICA' else '' end,
+        'transp', case when t.empresa_transporte_id is not null
+                         or t.agenda_transporte in ('Agendado', 'Aguardando confirmação') then 'X' else 'N' end,
+        'instrutor', coalesce(i1.nome, 'A definir'),
+        'aux', coalesce(i2.nome, 'N/A'),
+        'orc', coalesce(o.numero, ''),
+        'vend', coalesce(v.nome, ''),
+        'obs', coalesce(concat_ws(' · ', nullif(btrim(t.observacoes), ''), nullif(btrim(o.observacao_ct), '')), ''),
+        'alunos', o.qtd_alunos_por_turma
+      ) as linha
+    from turmas t
+    join orcamentos o on o.id = t.orcamento_id
+    left join empresas e on e.id = o.empresa_id
+    left join centros_treinamento ct on ct.id = t.centro_treinamento_id
+    left join tipos_treinamento tt on tt.id = t.tipo_treinamento_id
+    left join instrutores i1 on i1.id = t.instrutor1_id
+    left join instrutores i2 on i2.id = t.instrutor2_id
+    left join vendedores v on v.id = o.vendedor_id
+    where t.data_inicio between p_de and p_ate
+      and coalesce(t.status, '') <> 'Cancelada'
+      and (p_ct is null or t.centro_treinamento_id = p_ct)
+  ) x;
+
+  return v_res;
+end $$;
+
+revoke all on function consulta_agenda(date, date, uuid) from public, anon;
+grant execute on function consulta_agenda(date, date, uuid) to authenticated;
+
+
+-- =====================================================================
+-- v1.92 — gerar_turmas_orcamento: gera as turmas de um orçamento que ficou sem turmas
+-- (mesma regra do app: uma linha por dia de treinamento de cada turma).
+-- Não faz nada se o orçamento já tem turmas. Usada pelo botão "Gerar turmas agora"
+-- e como 2ª tentativa automática ao salvar um orçamento novo.
+-- =====================================================================
+create or replace function gerar_turmas_orcamento(p_orc uuid)
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  o orcamentos%rowtype;
+  tt tipos_treinamento%rowtype;
+  v_nd int;
+  v_total int;
+  v_ins int := 0;
+begin
+  if auth.uid() is null then
+    raise exception 'Sessão expirada. Entre novamente.' using errcode = '42501';
+  end if;
+  if not (is_admin_sistema(auth.uid()) or tem_permissao(auth.uid(), 'orcamentos', 'incluir') or tem_permissao(auth.uid(), 'orcamentos', 'alterar')) then
+    raise exception 'Você não tem permissão para gerar turmas do orçamento.' using errcode = '42501';
+  end if;
+
+  select * into o from orcamentos where id = p_orc for update;
+  if not found then
+    raise exception 'Orçamento não encontrado.' using errcode = '22023';
+  end if;
+  if exists (select 1 from turmas t where t.orcamento_id = o.id) then
+    return 0; -- já tem turmas: nada a fazer
+  end if;
+  if o.tipo_treinamento_id is null or o.centro_treinamento_id is null or coalesce(o.qtd_turmas, 0) < 1 then
+    raise exception 'Preencha o treinamento, o Centro de Treinamento e a quantidade de turmas antes de gerar as turmas.' using errcode = '22023';
+  end if;
+  select * into tt from tipos_treinamento where id = o.tipo_treinamento_id;
+
+  v_nd := coalesce(tt.dias_teoria, 0) + coalesce(tt.dias_pratica, 0) + coalesce(tt.dias_teoria_pratica, 0);
+  v_total := o.qtd_turmas * greatest(v_nd, 1);
+  if v_total > 1500 then
+    raise exception 'A quantidade de turmas (%) gera % linhas, acima do limite de 1500. Confira a quantidade no orçamento.', o.qtd_turmas, v_total using errcode = '22023';
+  end if;
+
+  with linhas as (
+    select i.i as turma_i, d.d as dia_i
+    from generate_series(0, o.qtd_turmas - 1) as i(i)
+    cross join generate_series(1, greatest(v_nd, 1)) as d(d)
+  ), calc as (
+    select l.*,
+      case when v_nd = 0 then null
+           when l.dia_i <= coalesce(tt.dias_teoria, 0) then 'Teoria'
+           when l.dia_i <= coalesce(tt.dias_teoria, 0) + coalesce(tt.dias_pratica, 0) then 'Prática'
+           else 'Teoria com Prática' end as tipo_dia,
+      case when l.turma_i < 26 then chr(65 + l.turma_i)
+           else chr(65 + (l.turma_i / 26 - 1)) || chr(65 + l.turma_i % 26) end as letra
+    from linhas l
+  ), ins as (
+    insert into turmas (orcamento_id, identificacao, tipo_dia, tipo_treinamento_id, centro_treinamento_id,
+                        formato_teoria, formato_pratica, horario, vagas, dias_totais, status,
+                        agenda_ct, agenda_movel, agenda_instrutor1, agenda_instrutor2, agenda_transporte)
+    select o.id, c.letra || c.dia_i, c.tipo_dia, o.tipo_treinamento_id, o.centro_treinamento_id,
+           o.formato_teoria, o.formato_pratica,
+           case when c.tipo_dia = 'Prática' then left(o.horario_inicio_pratica::text, 5) else left(o.horario_inicio_teoria::text, 5) end,
+           o.qtd_alunos_por_turma,
+           nullif(v_nd, 0),
+           'Planejada',
+           case when o.formato_teoria = 'CT' or o.formato_pratica = 'CT' or coalesce(tt.somente_locacao_espaco, false) then 'A agendar' else 'Não aplicável' end,
+           case when o.formato_teoria = 'Móvel' or o.formato_pratica = 'Móvel' then 'A agendar' else 'Não aplicável' end,
+           case when coalesce(tt.somente_locacao_espaco, false) then 'Não aplicável' else 'A agendar' end,
+           case when not coalesce(tt.somente_locacao_espaco, false) and o.necessita_dois_instrutores then 'A agendar' else 'Não aplicável' end,
+           case
+             when c.tipo_dia = 'Teoria' then case when coalesce(o.formato_teoria in ('InCompany','EAD','EAD Síncrono'), false) then 'Não aplicável' else 'A agendar' end
+             when c.tipo_dia = 'Prática' then case when coalesce(o.formato_pratica in ('InCompany','Móvel'), false) then 'Não aplicável' else 'A agendar' end
+             when c.tipo_dia = 'Teoria com Prática' then case when (not coalesce(o.formato_teoria in ('InCompany','EAD','EAD Síncrono'), false)) or (not coalesce(o.formato_pratica in ('InCompany','Móvel'), false)) then 'A agendar' else 'Não aplicável' end
+             else 'A agendar'
+           end
+    from calc c
+    returning id
+  ), locs as (
+    insert into turma_localidades (turma_id, nome, cnpj_atestado, cnpj_faturamento)
+    select i.id, 'Principal', e.cnpj, e.cnpj
+    from ins i
+    join empresas e on e.id = o.empresa_id
+    where nullif(btrim(e.cnpj), '') is not null
+    returning id
+  )
+  select count(*) into v_ins from ins;
+
+  return v_ins;
+end $$;
+
+revoke all on function gerar_turmas_orcamento(uuid) from public, anon;
+grant execute on function gerar_turmas_orcamento(uuid) to authenticated;

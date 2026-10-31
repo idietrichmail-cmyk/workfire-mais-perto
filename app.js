@@ -36,7 +36,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.90 · 29/10/2026";
+const APP_VERSAO = "Prod 1.92 · 30/10/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -462,6 +462,7 @@ const MODULOS = [
   { id: "agendamentos", label: "Agendar Treinamento", icone: "🗓️", grupo: "Logística" },
   { id: "agendamento_turmas", label: "Agendamento de Turmas", icone: "📆", grupo: "Logística" },
   { id: "agenda_centros", label: "Agenda por Centro de Treinamento", icone: "📅", grupo: "Logística" },
+  { id: "consulta_agenda", label: "Consulta de Agenda", icone: "🔎", grupo: "Logística" },
   { id: "disponibilidade_instrutores", label: "Disponibilidade dos Instrutores", icone: "📊", grupo: "Logística" },
   { id: "turmas", label: "Turmas por Orçamento", icone: "🎓", grupo: "Logística" },
   // Operações
@@ -618,6 +619,12 @@ function podeFazer(modulo, acao) {
   }
   const p = permissoesAtual[modulo];
   return !!(p && p["pode_" + acao]);
+}
+
+// Exportar Excel da Consulta de Agenda: só quem tem o controle "Exportar Agenda"
+function podeExportarAgenda() {
+  if (usuarioSistemaAtual && usuarioSistemaAtual.role === "admin") return true;
+  return !!(permissoesAtual.consulta_agenda && permissoesAtual.consulta_agenda.pode_exportar_agenda);
 }
 
 // Controles extras do módulo Atividades (colunas próprias de permissoes)
@@ -1359,7 +1366,7 @@ function irParaModulo(id) {
   // Agendamento de Turmas usa a tela inteira (sem o limite de largura das demais telas)
   const mainAdmin = document.querySelector("#tela-admin main");
   if (mainAdmin) {
-    const larga = id === "agendamento_turmas";
+    const larga = id === "agendamento_turmas" || id === "consulta_agenda";
     mainAdmin.classList.toggle("max-w-6xl", !larga);
     mainAdmin.classList.toggle("max-w-none", larga);
     mainAdmin.classList.toggle("py-8", !larga);
@@ -1399,6 +1406,10 @@ function irParaModulo(id) {
   } else if (id === "agenda_centros") {
     $("secao-agenda-centros").classList.remove("hidden");
     carregarAgendaCentrosInit();
+  } else if (id === "consulta_agenda") {
+    $("admin-descricao-pagina").textContent = "Lista da agenda de turmas por período e Centro de Treinamento. Cada coluna pode ser filtrada.";
+    $("secao-consulta-agenda").classList.remove("hidden");
+    carregarConsultaAgendaInit();
   } else if (id === "disponibilidade_instrutores") {
     $("admin-descricao-pagina").textContent = "Consulte a disponibilidade dos instrutores mês a mês, por centro de treinamento.";
     $("secao-disponibilidade-instrutores").classList.remove("hidden");
@@ -3515,6 +3526,13 @@ async function carregarPermissoesParaForm(usuarioId) {
         </label>`).join("")}
     </div>
     <div class="px-3 py-3 bg-slate-50 space-y-1.5">
+      <p class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Consulta de Agenda — controle adicional</p>
+      <label class="flex items-center gap-2 text-slate-700">
+        <input type="checkbox" data-permx="pode_exportar_agenda" ${(existentes["consulta_agenda"] || {}).pode_exportar_agenda ? "checked" : ""} />
+        <span>Exportar Agenda (botão Exportar Excel)</span>
+      </label>
+    </div>
+    <div class="px-3 py-3 bg-slate-50 space-y-1.5">
       <p class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Requisições de Compra — controle adicional</p>
       <label class="flex items-center gap-2 text-slate-700">
         <input type="checkbox" data-permx="pode_aprovar_requisicao" ${(existentes["requisicoes_compra"] || {}).pode_aprovar_requisicao ? "checked" : ""} />
@@ -4812,6 +4830,7 @@ async function salvarPermissoesForm(usuarioId) {
     pode_mudar_responsavel: m.id === "atividades" && permx("pode_mudar_responsavel"),
     pode_concluir_cancelar: m.id === "atividades" && permx("pode_concluir_cancelar"),
     pode_aprovar_requisicao: m.id === "requisicoes_compra" && permx("pode_aprovar_requisicao"),
+    pode_exportar_agenda: m.id === "consulta_agenda" && permx("pode_exportar_agenda"),
   }));
   const { error } = await supabase.from("permissoes").upsert(linhas, { onConflict: "usuario_id,modulo" });
   if (error) {
@@ -7760,6 +7779,11 @@ async function carregarTabelaTurmasOrcamento(orcamentoId) {
   orcTurmasRef = { instrutores: insts || [], transportadoras: transportadoras || [] };
   orcTurmasGrupos = agruparTurmasOrcamento(data || []);
   renderizarDockTurmas("Este orçamento ainda não tem turmas geradas.");
+  if ((data || []).length === 0) {
+    const vz = $("orc-turmas-vazio");
+    vz.innerHTML = `⚠️ Este orçamento ainda não tem turmas geradas. <button type="button" id="btn-orc-gerar-turmas" class="ml-2 text-xs font-medium bg-amber-600 hover:bg-amber-700 text-white rounded-md px-3 py-1.5">Gerar turmas agora</button> <span id="orc-gerar-turmas-msg" class="ml-2 text-rose-600"></span>`;
+    $("btn-orc-gerar-turmas").addEventListener("click", () => orcGerarTurmasAgora(orcamentoId));
+  }
 }
 
 const ORC_TURMAS_TAMANHO_PAGINA = 10;
@@ -8042,7 +8066,8 @@ async function salvarOrcamento(opts = {}) {
   if (!tinhaPendente || associou) atualizarResponsavelNoBitrix(linha, { assumir_campos: tinhaPendente }); // sem await: não atrasa o salvamento; mostra o resultado ao lado do botão
 
   if (eraNovo) {
-    await gerarTurmasParaOrcamento(linha, qtdTurmas);
+    const geracaoTurmas = await gerarTurmasParaOrcamento(linha, qtdTurmas);
+    const erroTurmas = geracaoTurmas.ok ? null : (geracaoTurmas.erro || "erro desconhecido");
     // Mantém o painel aberto, já em modo edição, para preencher a tabela de turmas geradas.
     editandoOrcamentoId = linha.id;
     $("orc-numero").disabled = true;
@@ -8054,7 +8079,9 @@ async function salvarOrcamento(opts = {}) {
     await carregarTabelaTurmasOrcamento(linha.id);
     await carregarPaginaOrcamentos();
     orcAtualizarModoProposta();
+    if (erroTurmas) mostrarErro("orc-form-erro", `Orçamento salvo, mas as turmas NÃO foram geradas: ${erroTurmas}. Use o botão "Gerar turmas agora", na área de turmas do orçamento.`);
     if (erroCalculo) { mostrarErro("orc-form-erro", `Orçamento salvo, mas o cálculo não foi gravado: ${erroCalculo}. Clique em "Salvar alterações" para tentar de novo.`); return null; }
+    if (erroTurmas) return null;
     return { linha, calc };
   }
 
@@ -9801,18 +9828,70 @@ function montarTurmasOrcamento(orcamento, qtdTurmas) {
 }
 
 async function gerarTurmasParaOrcamento(orcamento, qtdTurmas) {
-  const turmasPayload = montarTurmasOrcamento(orcamento, qtdTurmas);
-  const { data: turmasCriadas } = await supabase.from("turmas").insert(turmasPayload).select("id");
-  const empresaOrc = listaEmpresasAtivas.find((e) => e.id === orcamento.empresa_id);
-  if (turmasCriadas && empresaOrc?.cnpj) {
-    const localidadesPayload = turmasCriadas.map((t) => ({
-      turma_id: t.id,
-      nome: "Principal",
-      cnpj_atestado: empresaOrc.cnpj,
-      cnpj_faturamento: empresaOrc.cnpj,
-    }));
-    await supabase.from("turma_localidades").insert(localidadesPayload);
+  // Devolve { ok, qtd, erro }. Nunca engole falha: o chamador avisa o usuário.
+  // Se a gravação direta falhar, tenta a rotina do banco (gerar_turmas_orcamento) e confere o resultado.
+  const contar = async () => {
+    const { count } = await supabase.from("turmas").select("id", { count: "exact", head: true }).eq("orcamento_id", orcamento.id);
+    return count || 0;
+  };
+  let erroMsg = null;
+  try {
+    const turmasPayload = montarTurmasOrcamento(orcamento, qtdTurmas);
+    if (turmasPayload.length === 0) throw new Error("a quantidade de turmas do orçamento está vazia");
+    const { data: turmasCriadas, error } = await supabase.from("turmas").insert(turmasPayload).select("id");
+    if (error) throw error;
+    const empresaOrc = listaEmpresasAtivas.find((e) => e.id === orcamento.empresa_id);
+    if (turmasCriadas && empresaOrc?.cnpj) {
+      const localidadesPayload = turmasCriadas.map((t) => ({
+        turma_id: t.id,
+        nome: "Principal",
+        cnpj_atestado: empresaOrc.cnpj,
+        cnpj_faturamento: empresaOrc.cnpj,
+      }));
+      const { error: erroLoc } = await supabase.from("turma_localidades").insert(localidadesPayload);
+      if (erroLoc) console.error("Turmas criadas, mas as localidades não foram gravadas:", erroLoc);
+    }
+    return { ok: true, qtd: turmasCriadas ? turmasCriadas.length : 0, erro: null };
+  } catch (e) {
+    erroMsg = e?.message || "erro desconhecido";
+    console.error("Falha ao gerar as turmas do orçamento:", e);
   }
+  // 2ª tentativa pelo banco (só age se o orçamento continuar sem turmas)
+  try {
+    if ((await contar()) === 0) {
+      const { error } = await supabase.rpc("gerar_turmas_orcamento", { p_orc: orcamento.id });
+      if (error) throw error;
+    }
+    const total = await contar();
+    if (total > 0) return { ok: true, qtd: total, erro: null };
+  } catch (e) {
+    console.error("Falha na 2ª tentativa de gerar as turmas:", e);
+    erroMsg = e?.message || erroMsg;
+  }
+  return { ok: false, qtd: 0, erro: erroMsg };
+}
+
+// Botão "Gerar turmas agora" (orçamento salvo que ficou sem turmas)
+async function orcGerarTurmasAgora(orcamentoId) {
+  const btn = $("btn-orc-gerar-turmas");
+  const msg = $("orc-gerar-turmas-msg");
+  const { data: o, error: erroO } = await supabase.from("orcamentos").select("numero, qtd_turmas, tipo_treinamento_id, centro_treinamento_id").eq("id", orcamentoId).single();
+  if (erroO || !o) { if (msg) msg.textContent = "Não foi possível ler o orçamento."; return; }
+  if (!o.tipo_treinamento_id || !o.centro_treinamento_id || !(o.qtd_turmas >= 1)) {
+    if (msg) msg.textContent = "Preencha o treinamento, o Centro de Treinamento e a quantidade de turmas e salve o orçamento antes.";
+    return;
+  }
+  if (o.qtd_turmas > 50 && !window.confirm(`O orçamento ${o.numero} está com ${o.qtd_turmas} turmas. Confirma gerar todas?`)) return;
+  if (btn) { btn.disabled = true; btn.textContent = "Gerando…"; }
+  if (msg) msg.textContent = "";
+  const { data: qtd, error } = await supabase.rpc("gerar_turmas_orcamento", { p_orc: orcamentoId });
+  if (error) {
+    if (btn) { btn.disabled = false; btn.textContent = "Gerar turmas agora"; }
+    if (msg) msg.textContent = `Não foi possível gerar: ${error.message || "erro desconhecido"}`;
+    return;
+  }
+  await carregarTabelaTurmasOrcamento(orcamentoId);
+  await carregarPaginaOrcamentos();
 }
 
 // ===========================================================
@@ -17172,3 +17251,253 @@ $("vp-modal").addEventListener("click", (e) => {
   });
 });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("vp-modal").classList.contains("hidden")) vpFecharModal(); });
+
+
+// ===========================================================
+// CONSULTA DE AGENDA (v1.91) — lista somente leitura, filtro em todas as colunas
+// Dados: RPC consulta_agenda(p_de, p_ate, p_ct). Exportar Excel exige o controle "Exportar Agenda".
+// ===========================================================
+const CA_DIAS = ["DOM", "SEG", "TER", "QUA", "QUI", "SEX", "SÁB"];
+const CA_COLS = [
+  { k: "ct", label: "GRU / Santos", w: "96px", sel: true },
+  { k: "data", label: "Data", w: "104px" },
+  { k: "dia", label: "Dia semana", w: "88px", sel: true },
+  { k: "empresa", label: "Nome da empresa", w: "230px" },
+  { k: "pessoas", label: "Pessoas previstas", w: "92px", num: true },
+  { k: "tipo", label: "CT / In Company", w: "104px", sel: true },
+  { k: "modulo", label: "Módulo de treinamento", w: "270px" },
+  { k: "transp", label: "Transporte", w: "96px", sel: true },
+  { k: "instrutor", label: "Instrutor", w: "160px" },
+  { k: "aux", label: "Instrutor auxiliar", w: "160px" },
+  { k: "orc", label: "Nº orçamento", w: "108px" },
+  { k: "vend", label: "Vendedora", w: "160px" },
+  { k: "obs", label: "Observação", w: "220px" },
+  { k: "alunos", label: "Alunos por turma", w: "100px", num: true },
+];
+const CA_GRID = CA_COLS.map((c) => c.w).join(" ");
+const CA_LARGURA_MIN = CA_COLS.reduce((t, c) => t + parseInt(c.w, 10) + 8, 32);
+
+let caDados = [];      // linhas já normalizadas (texto de cada coluna)
+let caFiltros = {};    // { coluna: texto/valor }
+let caCarregando = false;
+let caCarregarSeq = 0;
+let caIniciado = false;
+
+const caNorm = (x) => String(x == null ? "" : x).normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+
+function caNormalizar(l) {
+  const dt = String(l.data || "");
+  const [a, m, d] = dt.split("-");
+  const dow = dt ? new Date(Number(a), Number(m) - 1, Number(d)).getDay() : null;
+  return {
+    id: l.id,
+    ct: l.ct || "",
+    data: dt ? `${d}/${m}/${a}` : "",
+    dataIso: dt,
+    dia: dow == null ? "" : CA_DIAS[dow],
+    empresa: l.empresa || "",
+    pessoas: l.pessoas == null ? "" : String(l.pessoas),
+    tipo: l.tipo || "",
+    modulo: l.modulo || "",
+    transp: l.transp || "",
+    instrutor: l.instrutor || "",
+    aux: l.aux || "",
+    orc: l.orc || "",
+    vend: l.vend || "",
+    obs: l.obs || "",
+    alunos: l.alunos == null ? "" : String(l.alunos),
+  };
+}
+
+function caLinhasFiltradas() {
+  const busca = caNorm($("ca-busca").value.trim());
+  const ativos = CA_COLS.filter((c) => caFiltros[c.k]);
+  return caDados.filter((l) => {
+    for (const c of ativos) {
+      const fv = caFiltros[c.k];
+      if (c.sel ? l[c.k] !== fv : !caNorm(l[c.k]).includes(caNorm(fv))) return false;
+    }
+    if (busca && !caNorm(CA_COLS.map((c) => l[c.k]).join(" | ")).includes(busca)) return false;
+    return true;
+  });
+}
+
+function caMontarCabecalho() {
+  const th = CA_COLS.map((c) => `<span class="${c.num ? "text-right pr-3" : ""}">${escH(c.label)}</span>`).join("");
+  const fl = CA_COLS.map((c) => {
+    const val = caFiltros[c.k] || "";
+    if (c.sel) {
+      const valores = [...new Set(caDados.map((l) => l[c.k]).filter(Boolean))].sort((a, b) => (c.k === "dia" ? CA_DIAS.indexOf(a) - CA_DIAS.indexOf(b) : a.localeCompare(b, "pt-BR")));
+      return `<select data-ca-filtro="${c.k}" class="w-full rounded border border-slate-300 bg-white px-1.5 py-1 text-xs min-h-[30px]"><option value="">Todos</option>${valores.map((v) => `<option value="${escH(v)}" ${v === val ? "selected" : ""}>${escH(v)}</option>`).join("")}</select>`;
+    }
+    return `<input data-ca-filtro="${c.k}" type="text" placeholder="filtrar" value="${escH(val)}" class="w-full rounded border border-slate-300 bg-white px-1.5 py-1 text-xs min-h-[30px]" />`;
+  }).join("");
+  $("ca-cab").innerHTML = `<div style="min-width:${CA_LARGURA_MIN + 16}px">
+    <div class="grid gap-2 px-4 pt-2.5 pb-1 text-[11px] uppercase tracking-wide font-semibold text-slate-500" style="grid-template-columns:${CA_GRID}">${th}</div>
+    <div class="grid gap-2 px-4 pt-1 pb-2.5" style="grid-template-columns:${CA_GRID}">${fl}</div>
+  </div>`;
+}
+
+function caBadgeCt(v) {
+  const cor = v === "GRU" ? "bg-sky-100 text-sky-800" : v === "SANTOS" ? "bg-violet-100 text-violet-800" : "bg-slate-100 text-slate-700";
+  return `<span class="text-xs font-bold rounded-full px-2 py-0.5 ${cor}">${escH(v)}</span>`;
+}
+function caBadgeTipo(v) {
+  if (!v) return "";
+  const cor = v === "CT" ? "bg-emerald-100 text-emerald-800" : v === "IN.C" ? "bg-amber-100 text-amber-800" : "bg-slate-100 text-slate-700";
+  return `<span class="text-xs font-semibold rounded-md px-2 py-0.5 ${cor}">${escH(v)}</span>`;
+}
+
+function caRenderizarLinhas() {
+  const linhas = caLinhasFiltradas();
+  const corpo = $("ca-corpo");
+  if (linhas.length === 0) {
+    corpo.innerHTML = `<p class="px-4 py-10 text-center text-sm text-slate-500">${caCarregando ? "Carregando…" : "Nenhuma turma encontrada com esses filtros. Ajuste o período ou limpe os filtros."}</p>`;
+  } else {
+    corpo.innerHTML = `<div style="min-width:${CA_LARGURA_MIN}px">${linhas.map((l, i) => `
+      <div class="grid gap-2 px-4 py-2 text-[13px] items-center border-b border-slate-100 hover:bg-amber-50 ${i % 2 ? "bg-slate-50/50" : "bg-white"}" style="grid-template-columns:${CA_GRID}">
+        <span>${caBadgeCt(l.ct)}</span>
+        <span class="tabular-nums">${escH(l.data)}</span>
+        <span class="text-slate-500">${escH(l.dia)}</span>
+        <span class="font-semibold text-slate-800 break-words">${escH(l.empresa)}</span>
+        <span class="text-right pr-3 tabular-nums">${escH(l.pessoas)}</span>
+        <span>${caBadgeTipo(l.tipo)}</span>
+        <span class="break-words">${escH(l.modulo)}</span>
+        <span class="text-center">${escH(l.transp)}</span>
+        <span>${escH(l.instrutor)}</span>
+        <span class="text-slate-500">${escH(l.aux)}</span>
+        <span class="font-mono text-sky-700">${escH(l.orc)}</span>
+        <span>${escH(l.vend)}</span>
+        <span class="text-slate-500 break-words">${escH(l.obs || "—")}</span>
+        <span class="text-right pr-3 tabular-nums">${escH(l.alunos || "—")}</span>
+      </div>`).join("")}</div>`;
+  }
+  const pessoas = linhas.reduce((t, l) => t + (Number(l.pessoas) || 0), 0);
+  $("ca-resumo").innerHTML = `<b class="text-slate-800">${linhas.length}</b> turma(s)${linhas.length !== caDados.length ? ` de ${caDados.length}` : ""} · <b class="text-slate-800">${pessoas}</b> pessoas previstas`;
+  caAjustarAltura();
+}
+
+function caAjustarAltura() {
+  const c = $("ca-corpo");
+  if (!c || c.offsetParent === null) return;
+  const topo = c.getBoundingClientRect().top;
+  c.style.maxHeight = Math.max(260, Math.floor(window.innerHeight - topo - 16)) + "px";
+}
+
+async function caCarregar() {
+  const de = $("ca-de").value;
+  const ate = $("ca-ate").value;
+  if (!de || !ate) { $("ca-resumo").textContent = "Informe o período (de / até)."; return; }
+  if (ate < de) { $("ca-resumo").textContent = "A data final não pode ser anterior à inicial."; return; }
+  const seq = ++caCarregarSeq;
+  caCarregando = true;
+  $("ca-resumo").textContent = "Carregando…";
+  const { data, error } = await supabase.rpc("consulta_agenda", { p_de: de, p_ate: ate, p_ct: $("ca-ct").value || null });
+  if (seq !== caCarregarSeq) return; // chegou resposta de uma consulta mais antiga
+  caCarregando = false;
+  if (error) {
+    caDados = [];
+    caMontarCabecalho();
+    $("ca-corpo").innerHTML = `<p class="px-4 py-10 text-center text-sm text-rose-700">Não foi possível carregar a agenda: ${escH(error.message || "erro desconhecido")}</p>`;
+    $("ca-resumo").textContent = "";
+    return;
+  }
+  caDados = (Array.isArray(data) ? data : []).map(caNormalizar);
+  // descarta filtros de lista que não existem mais nos dados carregados
+  CA_COLS.filter((c) => c.sel).forEach((c) => {
+    if (caFiltros[c.k] && !caDados.some((l) => l[c.k] === caFiltros[c.k])) delete caFiltros[c.k];
+  });
+  caMontarCabecalho();
+  caRenderizarLinhas();
+}
+
+function caDefinirPeriodo(de, ate) {
+  $("ca-de").value = de;
+  $("ca-ate").value = ate;
+  caCarregar();
+}
+
+function caAtalho(tipo) {
+  const hoje = new Date();
+  const d = (x) => formatarData(x);
+  if (tipo === "hoje") return caDefinirPeriodo(d(hoje), d(hoje));
+  if (tipo === "semana") {
+    const seg = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate() - ((hoje.getDay() + 6) % 7));
+    const dom = new Date(seg.getFullYear(), seg.getMonth(), seg.getDate() + 6);
+    return caDefinirPeriodo(d(seg), d(dom));
+  }
+  if (tipo === "mes") { const [i, f] = limitesDoMes(hoje); return caDefinirPeriodo(i, f); }
+  if (tipo === "prox30") return caDefinirPeriodo(d(hoje), d(new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate() + 30)));
+}
+
+async function carregarConsultaAgendaInit() {
+  const { data: centros } = await supabase.from("centros_treinamento").select("id, nome").eq("status", "Ativo").order("nome");
+  const sel = $("ca-ct");
+  const anterior = sel.value;
+  sel.innerHTML = `<option value="">Todos os centros</option>` + (centros || []).map((c) => `<option value="${c.id}">${escH(c.nome)}</option>`).join("");
+  sel.value = (centros || []).some((c) => c.id === anterior) ? anterior : "";
+  $("ca-exportar").classList.toggle("hidden", !podeExportarAgenda());
+  if (!caIniciado || !$("ca-de").value) {
+    const [i, f] = limitesDoMes(new Date());
+    $("ca-de").value = i;
+    $("ca-ate").value = f;
+    caIniciado = true;
+  }
+  await caCarregar();
+}
+
+async function caExportar() {
+  if (!podeExportarAgenda()) return;
+  if (typeof XlsxPopulate === "undefined") { alert("Não foi possível carregar o gerador de planilhas. Verifique a conexão e tente novamente."); return; }
+  const linhas = caLinhasFiltradas();
+  if (linhas.length === 0) { alert("Não há linhas para exportar com os filtros atuais."); return; }
+  const wb = await XlsxPopulate.fromBlankAsync();
+  const sh = wb.sheet(0).name("Agenda");
+  sh.cell("A1").value([CA_COLS.map((c) => c.label)]);
+  sh.row(1).style("bold", true);
+  sh.cell("A2").value(linhas.map((l) => CA_COLS.map((c) => (c.num ? (l[c.k] === "" ? "" : Number(l[c.k])) : l[c.k]))));
+  CA_COLS.forEach((c, i) => sh.column(i + 1).width(Math.max(10, Math.round(parseInt(c.w, 10) / 7))));
+  try { sh.freezePanes(0, 1); } catch (e) { /* congelar o cabeçalho é só conforto */ }
+  const blob = await wb.outputAsync("blob");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `agenda_${$("ca-de").value}_a_${$("ca-ate").value}.xlsx`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+
+$("ca-ct").addEventListener("change", () => caCarregar());
+$("ca-de").addEventListener("change", () => caCarregar());
+$("ca-ate").addEventListener("change", () => caCarregar());
+$("ca-atualizar").addEventListener("click", () => caCarregar());
+$("ca-exportar").addEventListener("click", () => caExportar());
+$("ca-busca").addEventListener("input", () => caRenderizarLinhas());
+$("ca-atalhos").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-ca-atalho]");
+  if (b) caAtalho(b.getAttribute("data-ca-atalho"));
+});
+$("ca-limpar").addEventListener("click", () => {
+  caFiltros = {};
+  $("ca-busca").value = "";
+  const [i, f] = limitesDoMes(new Date());
+  $("ca-ct").value = "";
+  $("ca-de").value = i;
+  $("ca-ate").value = f;
+  caCarregar();
+});
+// filtros por coluna (delegação: o cabeçalho é remontado a cada consulta)
+$("ca-cab").addEventListener("input", (e) => {
+  const k = e.target.getAttribute && e.target.getAttribute("data-ca-filtro");
+  if (!k) return;
+  caFiltros[k] = e.target.value;
+  caRenderizarLinhas();
+});
+$("ca-cab").addEventListener("change", (e) => {
+  const k = e.target.getAttribute && e.target.getAttribute("data-ca-filtro");
+  if (!k || e.target.tagName !== "SELECT") return;
+  caFiltros[k] = e.target.value;
+  caRenderizarLinhas();
+});
+// o cabeçalho com os filtros fica fixo; acompanha só a rolagem horizontal da lista
+$("ca-corpo").addEventListener("scroll", (e) => { $("ca-cab").scrollLeft = e.target.scrollLeft; });
+window.addEventListener("resize", caAjustarAltura);
