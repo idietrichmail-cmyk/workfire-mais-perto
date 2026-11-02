@@ -36,7 +36,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.99 · 02/11/2026";
+const APP_VERSAO = "Prod 1.100 · 02/11/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -467,6 +467,7 @@ const MODULOS = [
   { id: "agendamentos", label: "Agendar Treinamento", icone: "🗓️", grupo: "Logística" },
   { id: "agendamento_turmas", label: "Agendamento de Turmas", icone: "📆", grupo: "Logística" },
   { id: "agenda_centros", label: "Agenda por Centro de Treinamento", icone: "📅", grupo: "Logística" },
+  { id: "grupos_turmas", label: "Grupos de Turmas", icone: "👥", grupo: "Logística" },
   { id: "consulta_agenda", label: "Consulta de Agenda", icone: "🔎", grupo: "Logística" },
   { id: "disponibilidade_instrutores", label: "Disponibilidade dos Instrutores", icone: "📊", grupo: "Logística" },
   { id: "turmas", label: "Turmas por Orçamento", icone: "🎓", grupo: "Logística" },
@@ -1411,6 +1412,9 @@ function irParaModulo(id) {
   } else if (id === "agenda_centros") {
     $("secao-agenda-centros").classList.remove("hidden");
     carregarAgendaCentrosInit();
+  } else if (id === "grupos_turmas") {
+    $("secao-grupos-turmas").classList.remove("hidden");
+    carregarGruposTurmasInit();
   } else if (id === "consulta_agenda") {
     $("admin-descricao-pagina").textContent = "Lista da agenda de turmas por período e Centro de Treinamento. Cada coluna pode ser filtrada.";
     $("secao-consulta-agenda").classList.remove("hidden");
@@ -13238,7 +13242,7 @@ function renderizarAgendaCentros() {
     `;
     btn.addEventListener("click", () => {
       accDiaSelecionado = accDiaSelecionado === dataStr ? null : dataStr;
-      accMsgGrupo = null; accSelGrupo.clear();
+      accMsgGrupo = null;
       renderizarAgendaCentros();
     });
     elGrade.appendChild(btn);
@@ -13278,17 +13282,17 @@ $("acc-centro-select").addEventListener("change", () => carregarAgendaCentros())
 $("acc-filtro-status").addEventListener("change", () => carregarAgendaCentros());
 $("acc-mes-anterior").addEventListener("click", () => {
   accMes = new Date(accMes.getFullYear(), accMes.getMonth() - 1, 1);
-  accDiaSelecionado = null; accMsgGrupo = null; accSelGrupo.clear();
+  accDiaSelecionado = null; accMsgGrupo = null;
   carregarAgendaCentros();
 });
 $("acc-mes-proximo").addEventListener("click", () => {
   accMes = new Date(accMes.getFullYear(), accMes.getMonth() + 1, 1);
-  accDiaSelecionado = null; accMsgGrupo = null; accSelGrupo.clear();
+  accDiaSelecionado = null; accMsgGrupo = null;
   carregarAgendaCentros();
 });
 
 // ===========================================================
-// GRUPOS DE TURMAS DO DIA (v1.98)
+// GRUPOS DE TURMAS DO DIA (v1.98; edição na tela Logística › Grupos de Turmas desde a v1.100)
 // Turmas do mesmo Centro de Treinamento e do mesmo dia (de orçamentos iguais ou
 // diferentes) podem treinar em conjunto: o operador marca as turmas na Agenda por
 // Centro de Treinamento, escolhe até 4 instrutores e o grupo passa a usar os mesmos
@@ -13296,11 +13300,8 @@ $("acc-mes-proximo").addEventListener("click", () => {
 // Banco: turma_grupos + turmas.grupo_id; RPCs agrupar_turmas, definir_instrutores_grupo,
 // desagrupar_turmas. A turma sai do grupo sozinha se mudar de data/CT ou for cancelada.
 // ===========================================================
-let accSelGrupo = new Set();
 let accMsgGrupo = null; // { html, ok }
-let accModalGrupo = null; // { modo: "novo"|"instrutores", turmas, grupoId }
 const ACC_CORES_GRUPO = ["#0d9488", "#7c3aed", "#d97706", "#2563eb", "#db2777", "#4d7c0f"];
-const accPodeAgrupar = () => podeFazer("agendamento_turmas", "alterar") || podeFazer("agendamentos", "alterar");
 const accEhLocacao = (t) => !!(t.tipos_treinamento && t.tipos_treinamento.somente_locacao_espaco);
 const accNomesInstrutores = (t) => [t.inst1 && t.inst1.nome, t.inst2 && t.inst2.nome, t.inst3 && t.inst3.nome, t.inst4 && t.inst4.nome].filter(Boolean);
 
@@ -13440,95 +13441,42 @@ $("troca-novo").addEventListener("change", trocaAtualizarNota);
 $("btn-troca-voltar").addEventListener("click", () => { $("modal-trocar-instrutor").classList.add("hidden"); trocaCtx = null; });
 $("btn-troca-confirmar").addEventListener("click", confirmarTrocaInstrutor);
 
-function accCartaoTurma(t, dentroDeGrupo) {
-  const pode = accPodeAgrupar();
-  const marcavel = pode && !dentroDeGrupo && !accEhLocacao(t) && !!t.centro_treinamento_id;
+// Número do grupo de cada turma do dia (por Centro de Treinamento, na ordem em que aparecem)
+function accNumerosGrupos(turmas) {
+  const porCt = new Map(); const num = new Map();
+  turmas.forEach((t) => {
+    if (!t.grupo_id || num.has(t.grupo_id)) return;
+    const ct = t.centro_treinamento_id || "";
+    const n = (porCt.get(ct) || 0) + 1;
+    porCt.set(ct, n);
+    num.set(t.grupo_id, n);
+  });
+  return num;
+}
+
+function accCartaoTurma(t, numGrupo) {
   const nomes = accNomesInstrutores(t);
+  const cor = numGrupo ? ACC_CORES_GRUPO[(numGrupo - 1) % ACC_CORES_GRUPO.length] : null;
   return `
     <div class="border border-slate-200 rounded-lg p-2.5 bg-white">
       <div class="flex items-start justify-between gap-2">
-        <span class="flex items-center gap-2">
-          ${marcavel ? `<input type="checkbox" data-acc-marca="${t.id}" ${accSelGrupo.has(t.id) ? "checked" : ""} class="rounded border-slate-300" title="Marcar para agrupar com outras turmas do dia" />` : ""}
-          <span class="font-mono text-xs text-slate-700">${escH(t.identificacao || "—")}</span>
-        </span>
+        <span class="font-mono text-xs text-slate-700">${escH(t.identificacao || "—")}</span>
         ${badgeStatusAgendamento(t.status_agendamento, t.eh_pre_agendamento)}
       </div>
       <div class="text-sm text-slate-800 mt-1">${escH(t.tipos_treinamento?.nome || "—")}</div>
       <div class="text-xs text-slate-500">${escH(t.orcamentos?.empresas?.nome || "—")} · orç. ${escH(t.orcamentos?.numero || "—")}</div>
       <div class="text-[11px] text-slate-500 mt-1">🏫 ${escH(t.centros_treinamento?.nome || "—")}${t.horario ? ` · ${t.horario}` : ""}${t.tipo_dia ? ` · ${t.tipo_dia}` : ""}</div>
       <div class="text-[11px] text-slate-500">👤 ${escH(nomes.join(", ") || "sem instrutor")}</div>
+      ${numGrupo ? `<div class="text-[11px] font-semibold mt-1" style="color:${cor}" title="Para alterar o grupo, use Logística › Grupos de Turmas">👥 Grupo ${numGrupo}</div>` : ""}
       ${podeTrocarInstrutor() && !accEhLocacao(t) && !["Cancelada", "Concluída"].includes(t.status) ? `<button type="button" data-acc-trocar="${t.id}" class="mt-1.5 text-[11px] font-medium text-slate-700 border border-slate-300 bg-white hover:bg-slate-50 rounded-md px-2 py-1">🔁 Trocar instrutor</button>` : ""}
       ${t.orcamentos?.observacao_ct ? `<div class="mt-2 text-[11px] text-amber-900 bg-amber-50 border border-amber-200 rounded-md px-2 py-1.5 whitespace-pre-line">📌 ${escH(t.orcamentos.observacao_ct)}</div>` : ""}
-      ${dentroDeGrupo && pode ? `<button type="button" data-acc-tirar="${t.id}" class="mt-1.5 text-[11px] text-slate-500 hover:text-rose-600 underline">Tirar do grupo</button>` : ""}
     </div>`;
 }
 
 function accRenderDia(turmas, lista) {
-  const idsDia = new Set(turmas.map((t) => t.id));
-  accSelGrupo.forEach((id) => { if (!idsDia.has(id)) accSelGrupo.delete(id); });
-  const pode = accPodeAgrupar();
-  const grupos = new Map();
-  turmas.forEach((t) => { if (t.grupo_id) { if (!grupos.has(t.grupo_id)) grupos.set(t.grupo_id, []); grupos.get(t.grupo_id).push(t); } });
-  const idsGrupos = [...grupos.keys()];
-  const desenhado = new Set();
-  const partes = [];
-  turmas.forEach((t) => {
-    if (!t.grupo_id) { partes.push(accCartaoTurma(t, false)); return; }
-    if (desenhado.has(t.grupo_id)) return;
-    desenhado.add(t.grupo_id);
-    const membros = grupos.get(t.grupo_id);
-    const n = idsGrupos.indexOf(t.grupo_id) + 1;
-    const cor = ACC_CORES_GRUPO[(n - 1) % ACC_CORES_GRUPO.length];
-    const nomes = accNomesInstrutores(membros[0]);
-    partes.push(`
-      <div class="rounded-lg border-2 p-2 space-y-2" style="border-color:${cor}">
-        <div class="flex flex-wrap items-start justify-between gap-2">
-          <div>
-            <div class="text-xs font-semibold" style="color:${cor}">👥 Grupo ${n} · ${membros.length} turmas · ${somaAlunos(membros)} aluno(s)</div>
-            <div class="text-[11px] text-slate-600">👤 ${escH(nomes.join(", ") || "instrutores ainda não definidos")}</div>
-          </div>
-          ${pode ? `<div class="flex flex-wrap gap-1.5">
-            <button type="button" data-acc-grupo-instr="${t.grupo_id}" class="text-[11px] font-medium text-slate-700 border border-slate-300 bg-white hover:bg-slate-50 rounded-md px-2 py-1">Instrutores</button>
-            <button type="button" data-acc-grupo-solic="${t.grupo_id}" class="text-[11px] font-medium text-white bg-amber-600 hover:bg-amber-700 rounded-md px-2 py-1">✉️ Solicitar confirmação</button>
-            <button type="button" data-acc-grupo-desfazer="${t.grupo_id}" class="text-[11px] font-medium text-rose-700 border border-rose-300 bg-white hover:bg-rose-50 rounded-md px-2 py-1">Desfazer grupo</button>
-          </div>` : ""}
-        </div>
-        ${membros.map((m) => accCartaoTurma(m, true)).join("")}
-      </div>`);
-  });
-  const soltas = turmas.filter((t) => !t.grupo_id && !accEhLocacao(t) && t.centro_treinamento_id);
-  const barra = pode && soltas.length >= 2 ? `
-    <div class="flex items-center justify-between gap-2 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2">
-      <span class="text-[11px] text-slate-500">Marque as turmas do mesmo CT que vão treinar juntas.</span>
-      <button type="button" id="btn-acc-agrupar" class="text-[11px] font-medium text-white bg-slate-900 hover:bg-slate-800 rounded-md px-2.5 py-1 disabled:opacity-40">👥 Agrupar marcadas</button>
-    </div>` : "";
+  const nums = accNumerosGrupos(turmas);
   const msg = accMsgGrupo ? `<div class="text-xs rounded-md px-2.5 py-2 ${accMsgGrupo.ok ? "bg-teal-50 text-teal-800" : "bg-rose-50 text-rose-700"}">${accMsgGrupo.html}</div>` : "";
-  lista.innerHTML = msg + barra + partes.join("");
-  accAtualizarBotaoAgrupar();
-
-  lista.querySelectorAll("[data-acc-marca]").forEach((el) => el.addEventListener("change", (e) => {
-    const id = e.target.getAttribute("data-acc-marca");
-    if (e.target.checked) accSelGrupo.add(id); else accSelGrupo.delete(id);
-    accAtualizarBotaoAgrupar();
-  }));
-  const bt = $("btn-acc-agrupar");
-  if (bt) bt.addEventListener("click", () => accAbrirModalGrupo("novo", [...accSelGrupo].map((id) => accTurmasDoMes.find((x) => x.id === id)).filter(Boolean), null));
-  const doGrupo = (gid) => accTurmasDoMes.filter((x) => x.grupo_id === gid);
-  lista.querySelectorAll("[data-acc-grupo-instr]").forEach((el) => el.addEventListener("click", () => {
-    const gid = el.getAttribute("data-acc-grupo-instr");
-    accAbrirModalGrupo("instrutores", doGrupo(gid), gid);
-  }));
-  lista.querySelectorAll("[data-acc-grupo-solic]").forEach((el) => el.addEventListener("click", () => accGrupoSolicitar(el.getAttribute("data-acc-grupo-solic"))));
-  lista.querySelectorAll("[data-acc-grupo-desfazer]").forEach((el) => el.addEventListener("click", () => {
-    const ms = doGrupo(el.getAttribute("data-acc-grupo-desfazer"));
-    if (!confirm(`Desfazer o grupo de ${ms.length} turmas (${ms.map((m) => m.identificacao).join(", ")})?\n\nAs turmas ficam como estão (com os mesmos instrutores), só deixam de ser tratadas em conjunto.`)) return;
-    accDesagrupar(ms.map((m) => m.id), "Grupo desfeito.");
-  }));
-  lista.querySelectorAll("[data-acc-tirar]").forEach((el) => el.addEventListener("click", () => {
-    const t = accTurmasDoMes.find((x) => x.id === el.getAttribute("data-acc-tirar"));
-    if (!t || !confirm(`Tirar a turma ${t.identificacao} do grupo? Ela mantém os instrutores atuais.`)) return;
-    accDesagrupar([t.id], `Turma ${t.identificacao} fora do grupo.`);
-  }));
+  lista.innerHTML = msg + turmas.map((t) => accCartaoTurma(t, t.grupo_id ? nums.get(t.grupo_id) : null)).join("");
   lista.querySelectorAll("[data-acc-trocar]").forEach((el) => el.addEventListener("click", () => {
     const t = accTurmasDoMes.find((x) => x.id === el.getAttribute("data-acc-trocar"));
     if (!t) return;
@@ -13539,90 +13487,298 @@ function accRenderDia(turmas, lista) {
   }));
 }
 
-function accAtualizarBotaoAgrupar() {
-  const bt = $("btn-acc-agrupar");
-  if (!bt) return;
-  const n = accSelGrupo.size;
-  bt.textContent = n ? `👥 Agrupar marcadas (${n})` : "👥 Agrupar marcadas";
-  bt.disabled = n < 2;
+// ===========================================================
+// v1.100 — Tela "Grupos de Turmas" (Logística)
+// O usuário escolhe o Centro de Treinamento e o dia: a lista de cima mostra os grupos já
+// montados; ao clicar em um grupo, a lista de baixo (todas as turmas do dia) mostra as turmas
+// dele marcadas. Desmarcar tira a turma do grupo; marcar uma turma sem grupo a inclui.
+// "+ Novo grupo" cria um grupo com as turmas marcadas. As alterações só valem ao "Salvar".
+// Instrutores (até 4, com validação de disponibilidade), Solicitar confirmação e Desfazer
+// grupo ficam em cada linha de grupo.
+// Banco: RPCs agrupar_turmas, grupo_incluir_turmas, desagrupar_turmas, trocar_instrutor_turma,
+// solicitar_confirmacao_turma_completa.
+// ===========================================================
+const GT_SELECT = "id, identificacao, data_inicio, horario, vagas, turma_alunos(count), tipo_dia, status, status_agendamento, eh_pre_agendamento, agenda_ct, agenda_instrutor1, agenda_instrutor2, agenda_instrutor3, agenda_instrutor4, instrutor1_id, instrutor2_id, instrutor3_id, instrutor4_id, grupo_id, centro_treinamento_id, centros_treinamento(nome), tipos_treinamento(nome, somente_locacao_espaco), orcamentos(numero, empresas(nome)), inst1:instrutores!turmas_instrutor1_id_fkey(nome), inst2:instrutores!turmas_instrutor2_id_fkey(nome), inst3:instrutores!turmas_instrutor3_id_fkey(nome), inst4:instrutores!turmas_instrutor4_id_fkey(nome)";
+const gtPode = () => podeFazer("grupos_turmas", "alterar") || podeFazer("agendamento_turmas", "alterar") || podeFazer("agendamentos", "alterar");
+let gtTurmas = [];
+let gtSel = null; // id do grupo | "novo" | null
+let gtAlt = new Map(); // turmaId -> true (incluir) | false (retirar), só no modo "grupo existente"
+let gtMarcNovo = new Set(); // turmas marcadas no modo "novo grupo"
+let gtMsg = null; // { html, ok }
+let gtUltimo = { centro: "", dia: "" };
+let gtInstr = null;
+
+const gtPendencias = () => (gtSel === "novo" ? gtMarcNovo.size : gtAlt.size);
+const gtIdsInstr = (t) => [1, 2, 3, 4].map((p) => t["instrutor" + p + "_id"] || null);
+const gtTemInstr = (t) => gtIdsInstr(t).some(Boolean);
+
+function gtGrupos() {
+  const ordem = []; const mapa = new Map();
+  gtTurmas.forEach((t) => {
+    if (!t.grupo_id) return;
+    if (!mapa.has(t.grupo_id)) { mapa.set(t.grupo_id, []); ordem.push(t.grupo_id); }
+    mapa.get(t.grupo_id).push(t);
+  });
+  return ordem.map((id, i) => ({ id, n: i + 1, cor: ACC_CORES_GRUPO[i % ACC_CORES_GRUPO.length], membros: mapa.get(id) }));
+}
+const gtNumGrupo = (gid) => { const g = gtGrupos().find((x) => x.id === gid); return g ? g.n : null; };
+const gtBaseGrupo = (membros) => membros.find(gtTemInstr) || membros[0];
+
+// Motivo pelo qual a turma nunca entra em grupo ("" se pode entrar)
+function gtMotivoFixo(t) {
+  if (accEhLocacao(t)) return "locação de espaço — não agrupa";
+  if (t.status === "Concluída") return "concluída";
+  if (!t.centro_treinamento_id) return "sem centro de treinamento";
+  return "";
 }
 
-async function accDesagrupar(ids, textoOk) {
-  const { error } = await supabase.rpc("desagrupar_turmas", { p_turmas: ids });
-  accMsgGrupo = error ? { ok: false, html: escH("Não foi possível desfazer: " + error.message) } : { ok: true, html: escH(textoOk) };
-  await carregarAgendaCentros();
-}
-
-async function accAbrirModalGrupo(modo, turmas, grupoId) {
-  if (!turmas.length) return;
-  const erroEl = $("grupo-modal-erro");
-  erroEl.classList.add("hidden");
-  if (modo === "novo") {
-    if (turmas.length < 2) { accMsgGrupo = { ok: false, html: "Marque ao menos 2 turmas para agrupar." }; renderizarAgendaCentros(); return; }
-    if (new Set(turmas.map((t) => t.centro_treinamento_id)).size > 1) { accMsgGrupo = { ok: false, html: "Só é possível agrupar turmas do mesmo Centro de Treinamento." }; renderizarAgendaCentros(); return; }
+// A turma está marcada (checkbox) considerando as alterações pendentes?
+function gtMarcada(t) {
+  if (gtSel === "novo") return !t.grupo_id && gtMarcNovo.has(t.id);
+  if (gtSel) {
+    if (t.grupo_id === gtSel) return gtAlt.get(t.id) !== false;
+    if (!t.grupo_id) return gtAlt.get(t.id) === true;
+    return false;
   }
-  accModalGrupo = { modo, turmas, grupoId };
-  const data = turmas[0].data_inicio;
-  $("grupo-modal-titulo").textContent = modo === "novo" ? "Agrupar turmas" : "Instrutores do grupo";
-  $("grupo-modal-resumo").innerHTML = turmas.map((t) => `<div><span class="font-mono">${escH(t.identificacao || "—")}</span> · ${escH(t.tipos_treinamento?.nome || "—")} · ${escH(t.orcamentos?.empresas?.nome || "—")} · orç. ${escH(t.orcamentos?.numero || "—")}</div>`).join("");
-  $("grupo-modal-data").textContent = `${formatarDataBr(data)} · ${turmas[0].centros_treinamento?.nome || ""}`;
-  $("btn-grupo-confirmar").textContent = modo === "novo" ? "Agrupar" : "Salvar instrutores";
-  $("btn-grupo-confirmar").disabled = true;
-  $("modal-grupo-turmas").classList.remove("hidden");
-
-  const { data: insts, error } = await supabase.from("instrutores").select("id, nome, dias_status").eq("status", "Ativo").order("nome");
-  if (error) { erroEl.textContent = "Não foi possível carregar os instrutores: " + error.message; erroEl.classList.remove("hidden"); return; }
-  // instrutores já gravados nas turmas (do primeiro membro que tiver algum)
-  const base = turmas.find((t) => [t.instrutor1_id, t.instrutor2_id, t.instrutor3_id, t.instrutor4_id].some(Boolean)) || turmas[0];
-  const atuais = [base.instrutor1_id, base.instrutor2_id, base.instrutor3_id, base.instrutor4_id];
-  const rotulo = { agendado: "já agendado neste dia", aguardando: "aguardando confirmação neste dia", bloqueado: "indisponível neste dia" };
-  for (let p = 1; p <= 4; p++) {
-    const sel = $("grupo-instr-" + p);
-    sel.innerHTML = `<option value="">${p === 1 ? "— Selecione —" : "— nenhum —"}</option>` + (insts || []).map((i) => {
-      const st = obterStatusDia(i.dias_status, data);
-      const atual = atuais.includes(i.id);
-      const livre = atual || st === "disponivel";
-      return `<option value="${i.id}" ${livre ? "" : "disabled"}>${escH(i.nome)}${livre ? "" : " — " + (rotulo[st] || "indisponível")}</option>`;
-    }).join("");
-    sel.value = atuais[p - 1] || "";
-  }
-  $("btn-grupo-confirmar").disabled = false;
+  return !!t.grupo_id;
 }
 
-async function accConfirmarModalGrupo() {
-  const ctx = accModalGrupo;
-  if (!ctx) return;
-  const erroEl = $("grupo-modal-erro");
-  erroEl.classList.add("hidden");
-  const ids = [1, 2, 3, 4].map((p) => $("grupo-instr-" + p).value).filter(Boolean);
-  if (ctx.modo === "instrutores" && !ids.length) { erroEl.textContent = "Escolha ao menos o Instrutor 1."; erroEl.classList.remove("hidden"); return; }
-  if (new Set(ids).size !== ids.length) { erroEl.textContent = "O mesmo instrutor não pode ocupar duas vagas."; erroEl.classList.remove("hidden"); return; }
-  const btn = $("btn-grupo-confirmar");
-  btn.disabled = true;
-  const { error } = ctx.modo === "novo"
-    ? await supabase.rpc("agrupar_turmas", { p_turmas: ctx.turmas.map((t) => t.id), p_instrutores: ids.length ? ids : null })
-    : await supabase.rpc("definir_instrutores_grupo", { p_grupo: ctx.grupoId, p_instrutores: ids });
-  btn.disabled = false;
-  if (error) {
-    erroEl.textContent = error.message + (ctx.modo === "instrutores" ? ' Para trocar um instrutor que já está agendado, use o botão "Trocar instrutor" em uma das turmas do grupo.' : "");
-    erroEl.classList.remove("hidden");
+function gtSituacaoGrupo(membros) {
+  const set = new Set(membros.map((m) => (m.eh_pre_agendamento && m.status_agendamento === "Agendado" ? "Pré-agendado" : (m.status_agendamento || "Não agendado"))));
+  if (set.size === 1) return badgeStatusAgendamento(membros[0].status_agendamento, membros[0].eh_pre_agendamento);
+  return `<span class="text-[11px] font-medium px-2 py-0.5 rounded-full whitespace-nowrap bg-slate-100 text-slate-600" title="${escH([...set].join(", "))}">Situação mista</span>`;
+}
+
+function gtMostrarMsg() {
+  const el = $("gt-msg");
+  if (!gtMsg) { el.className = "hidden mb-3 text-sm rounded-md px-3 py-2"; el.innerHTML = ""; return; }
+  el.className = `mb-3 text-sm rounded-md px-3 py-2 ${gtMsg.ok ? "bg-teal-50 text-teal-800" : "bg-rose-50 text-rose-700"}`;
+  el.innerHTML = gtMsg.html;
+}
+
+function gtRender() {
+  const pode = gtPode();
+  const grupos = gtGrupos();
+  const centro = $("gt-centro").value, dia = $("gt-dia").value;
+  gtMostrarMsg();
+
+  if (!centro || !dia) {
+    $("gt-resumo").textContent = "";
+    $("gt-grupos").innerHTML = `<p class="text-xs text-slate-400 py-3">Selecione o Centro de Treinamento e o dia.</p>`;
+    $("gt-titulo-turmas").textContent = "Turmas do dia";
+    $("gt-modo").innerHTML = "";
+    $("gt-turmas").innerHTML = "";
+    gtAtualizarBarra();
     return;
   }
-  $("modal-grupo-turmas").classList.add("hidden");
-  accSelGrupo.clear();
-  accMsgGrupo = { ok: true, html: ctx.modo === "novo"
-    ? `Grupo criado com ${ctx.turmas.length} turmas. Clique em "Solicitar confirmação" para avisar os instrutores${ids.length ? "" : " (antes, escolha os instrutores em \"Instrutores\")"}.`
-    : "Instrutores do grupo atualizados. Clique em \"Solicitar confirmação\" para avisá-los." };
-  accModalGrupo = null;
-  await carregarAgendaCentros();
+  $("gt-resumo").textContent = `${gtTurmas.length} turma(s) · ${somaAlunos(gtTurmas)} aluno(s) · ${grupos.length} grupo(s)`;
+
+  // ---- lista de cima: grupos ----
+  const livres = gtTurmas.filter((t) => !t.grupo_id && !gtMotivoFixo(t));
+  let h = `<table class="w-full text-sm"><thead><tr class="text-left text-[11px] uppercase tracking-wide text-slate-500 border-b border-slate-200">
+    <th class="py-2 pr-3">Grupo</th><th class="py-2 pr-3">Turmas</th><th class="py-2 pr-3">Alunos</th><th class="py-2 pr-3">Instrutores</th><th class="py-2 pr-3">Situação</th><th class="py-2"></th></tr></thead><tbody>`;
+  grupos.forEach((g) => {
+    const sel = gtSel === g.id;
+    const efet = sel ? gtTurmas.filter(gtMarcada) : g.membros;
+    const nomes = accNomesInstrutores(gtBaseGrupo(g.membros));
+    const trava = sel && gtAlt.size > 0;
+    const btnCls = "text-[11px] font-medium rounded-md px-2 py-1 disabled:opacity-40";
+    h += `<tr data-gt-grupo="${g.id}" class="border-b border-slate-100 cursor-pointer ${sel ? "bg-amber-50" : "hover:bg-slate-50"}">
+      <td class="py-2 pr-3 whitespace-nowrap"><span class="inline-block w-2.5 h-2.5 rounded-full mr-1.5 align-middle" style="background:${g.cor}"></span><b>Grupo ${g.n}</b></td>
+      <td class="py-2 pr-3 text-xs font-mono">${efet.map((t) => escH(t.identificacao || "—")).join(", ")}${trava ? ` <span class="font-sans text-amber-700">(alterado)</span>` : ""}</td>
+      <td class="py-2 pr-3 text-xs">${somaAlunos(efet)}</td>
+      <td class="py-2 pr-3 text-xs text-slate-700">${nomes.length ? escH(nomes.join(", ")) : `<span class="text-slate-400">não definidos</span>`}</td>
+      <td class="py-2 pr-3">${gtSituacaoGrupo(g.membros)}</td>
+      <td class="py-2 text-right whitespace-nowrap">${pode ? `
+        <button type="button" data-gt-instr="${g.id}" ${trava ? 'disabled title="Salve ou descarte as alterações do grupo antes"' : ""} class="${btnCls} text-slate-700 border border-slate-300 bg-white hover:bg-slate-50">Instrutores</button>
+        <button type="button" data-gt-solic="${g.id}" ${trava ? 'disabled title="Salve ou descarte as alterações do grupo antes"' : ""} class="${btnCls} text-white bg-amber-600 hover:bg-amber-700">✉️ Solicitar confirmação</button>
+        <button type="button" data-gt-desfazer="${g.id}" ${trava ? 'disabled title="Salve ou descarte as alterações do grupo antes"' : ""} class="${btnCls} text-rose-700 border border-rose-300 bg-white hover:bg-rose-50">Desfazer grupo</button>` : ""}</td>
+    </tr>`;
+  });
+  if (!grupos.length) h += `<tr><td colspan="6" class="py-3 text-xs text-slate-400">Nenhum grupo montado neste dia.</td></tr>`;
+  if (pode) {
+    const podeNovo = livres.length >= 2;
+    h += `<tr ${podeNovo ? 'data-gt-novo="1"' : ""} class="${podeNovo ? "cursor-pointer" : "opacity-60"} ${gtSel === "novo" ? "bg-amber-50" : podeNovo ? "hover:bg-slate-50" : ""}">
+      <td class="py-2 pr-3 whitespace-nowrap font-medium text-slate-700">+ Novo grupo</td>
+      <td colspan="5" class="py-2 text-xs text-slate-500">${podeNovo ? `${livres.length} turma(s) sem grupo disponíveis — clique e marque na lista abaixo as que vão treinar juntas.` : "É preciso ao menos 2 turmas sem grupo neste dia."}</td></tr>`;
+  }
+  h += `</tbody></table>`;
+  $("gt-grupos").innerHTML = h;
+
+  // ---- lista de baixo: turmas do dia ----
+  $("gt-titulo-turmas").textContent = `Turmas do dia ${formatarDataBr(dia)}`;
+  const gSel = gtSel && gtSel !== "novo" ? grupos.find((g) => g.id === gtSel) : null;
+  $("gt-modo").innerHTML = gtSel === "novo"
+    ? `<div class="text-xs bg-amber-50 border border-amber-200 text-amber-900 rounded-md px-2.5 py-1.5"><b>Novo grupo</b> — marque ao menos 2 turmas sem grupo.</div>`
+    : gSel
+      ? `<div class="text-xs bg-amber-50 border border-amber-200 text-amber-900 rounded-md px-2.5 py-1.5">Editando o <b>Grupo ${gSel.n}</b> — desmarque uma turma para tirá-la do grupo; marque uma turma sem grupo para incluí-la.</div>`
+      : `<div class="text-xs text-slate-500">Nenhum grupo selecionado. Clique em um grupo acima para alterar as turmas dele, ou em “+ Novo grupo”.</div>`;
+
+  if (!gtTurmas.length) {
+    $("gt-turmas").innerHTML = `<p class="text-xs text-slate-400 py-3">Nenhuma turma neste dia para este Centro de Treinamento.</p>`;
+    gtAtualizarBarra();
+    return;
+  }
+  let t2 = `<table class="w-full text-sm"><thead><tr class="text-left text-[11px] uppercase tracking-wide text-slate-500 border-b border-slate-200">
+    <th class="py-2 pr-2 w-8"></th><th class="py-2 pr-3">Turma</th><th class="py-2 pr-3">Treinamento</th><th class="py-2 pr-3">Empresa · orçamento</th><th class="py-2 pr-3">Horário</th><th class="py-2 pr-3">Alunos</th><th class="py-2 pr-3">Grupo</th><th class="py-2 pr-3">Instrutores</th><th class="py-2">Situação</th></tr></thead><tbody>`;
+  gtTurmas.forEach((t) => {
+    const marcada = gtMarcada(t);
+    const fixo = gtMotivoFixo(t);
+    const outro = !!t.grupo_id && !!gtSel && t.grupo_id !== gtSel;
+    const habil = pode && !!gtSel && !fixo && !outro;
+    const n = t.grupo_id ? gtNumGrupo(t.grupo_id) : null;
+    const g = n ? grupos[n - 1] : null;
+    let tag = g ? `<span class="inline-flex items-center gap-1 text-xs font-medium"><span class="inline-block w-2 h-2 rounded-full" style="background:${g.cor}"></span>Grupo ${n}</span>` : `<span class="text-slate-300">—</span>`;
+    let alterado = false;
+    if (gtSel === "novo" && marcada) { tag += ` <span class="text-[11px] text-amber-700">→ novo grupo</span>`; alterado = true; }
+    else if (gSel && t.grupo_id === gtSel && !marcada) { tag += ` <span class="text-[11px] text-amber-700">sai do grupo</span>`; alterado = true; }
+    else if (gSel && !t.grupo_id && marcada) { tag += ` <span class="text-[11px] text-amber-700">→ Grupo ${gSel.n}</span>`; alterado = true; }
+    const dica = !pode ? "Sem permissão para alterar grupos"
+      : fixo ? "Não entra em grupo: " + fixo
+      : outro ? "Está em outro grupo: tire-a primeiro do grupo dela"
+      : !gtSel ? "Selecione um grupo ou “+ Novo grupo” acima" : "";
+    t2 += `<tr class="border-b border-slate-100 ${alterado ? "bg-amber-50" : ""} ${fixo || outro ? "opacity-60" : ""}">
+      <td class="py-2 pr-2"><input type="checkbox" data-gt-marca="${t.id}" ${marcada ? "checked" : ""} ${habil ? "" : "disabled"} title="${escH(dica)}" class="rounded border-slate-300" /></td>
+      <td class="py-2 pr-3 font-mono text-xs">${escH(t.identificacao || "—")}</td>
+      <td class="py-2 pr-3 text-xs">${escH(t.tipos_treinamento?.nome || "—")}${fixo ? ` <span class="text-slate-400">(${escH(fixo)})</span>` : ""}</td>
+      <td class="py-2 pr-3 text-xs">${escH(t.orcamentos?.empresas?.nome || "—")} <span class="text-slate-400">· orç. ${escH(t.orcamentos?.numero || "—")}</span></td>
+      <td class="py-2 pr-3 text-xs whitespace-nowrap">${escH(t.horario || "—")}</td>
+      <td class="py-2 pr-3 text-xs">${alunosDaTurma(t)}</td>
+      <td class="py-2 pr-3">${tag}</td>
+      <td class="py-2 pr-3 text-xs text-slate-600">${escH(accNomesInstrutores(t).join(", ") || "—")}</td>
+      <td class="py-2">${badgeStatusAgendamento(t.status_agendamento, t.eh_pre_agendamento)}</td>
+    </tr>`;
+  });
+  t2 += `</tbody></table>`;
+  $("gt-turmas").innerHTML = t2;
+  gtAtualizarBarra();
+
+  // ---- eventos ----
+  $("gt-grupos").querySelectorAll("[data-gt-grupo]").forEach((tr) => tr.addEventListener("click", () => gtSelecionar(tr.getAttribute("data-gt-grupo"))));
+  $("gt-grupos").querySelectorAll("[data-gt-novo]").forEach((tr) => tr.addEventListener("click", () => gtSelecionar("novo")));
+  $("gt-grupos").querySelectorAll("[data-gt-instr]").forEach((b) => b.addEventListener("click", (e) => { e.stopPropagation(); gtAbrirInstrutores(b.getAttribute("data-gt-instr")); }));
+  $("gt-grupos").querySelectorAll("[data-gt-solic]").forEach((b) => b.addEventListener("click", (e) => { e.stopPropagation(); gtSolicitar(b.getAttribute("data-gt-solic")); }));
+  $("gt-grupos").querySelectorAll("[data-gt-desfazer]").forEach((b) => b.addEventListener("click", (e) => { e.stopPropagation(); gtDesfazer(b.getAttribute("data-gt-desfazer")); }));
+  $("gt-turmas").querySelectorAll("[data-gt-marca]").forEach((cb) => cb.addEventListener("change", (e) => {
+    const id = e.target.getAttribute("data-gt-marca");
+    const t = gtTurmas.find((x) => x.id === id);
+    if (!t) return;
+    const marcou = e.target.checked;
+    if (gtSel === "novo") {
+      if (marcou) gtMarcNovo.add(id); else gtMarcNovo.delete(id);
+    } else if (gtSel) {
+      if (t.grupo_id === gtSel) { if (marcou) gtAlt.delete(id); else gtAlt.set(id, false); }
+      else { if (marcou) gtAlt.set(id, true); else gtAlt.delete(id); }
+    }
+    gtMsg = null;
+    gtRender();
+  }));
 }
 
-async function accGrupoSolicitar(grupoId) {
-  const ms = accTurmasDoMes.filter((x) => x.grupo_id === grupoId);
+function gtSelecionar(id) {
+  if (gtSel === id) return;
+  if (gtPendencias() > 0 && !confirm("Há alterações não salvas. Descartá-las?")) return;
+  gtAlt.clear(); gtMarcNovo.clear();
+  gtSel = id; gtMsg = null;
+  gtRender();
+}
+
+function gtAtualizarBarra() {
+  const barra = $("gt-barra");
+  const n = gtPendencias();
+  if (!gtSel || n === 0 || !gtPode()) { barra.classList.add("hidden"); return; }
+  barra.classList.remove("hidden");
+  let txt, aviso = "", ok = true;
+  if (gtSel === "novo") {
+    txt = `Novo grupo: ${n} turma(s) marcada(s)`;
+    if (n < 2) { aviso = "Marque ao menos 2 turmas para criar o grupo."; ok = false; }
+  } else {
+    const adds = [...gtAlt.values()].filter((v) => v === true).length;
+    const rems = [...gtAlt.values()].filter((v) => v === false).length;
+    const efet = gtTurmas.filter(gtMarcada).length;
+    txt = `Grupo ${gtNumGrupo(gtSel)}: ${adds ? adds + " turma(s) a incluir" : ""}${adds && rems ? " · " : ""}${rems ? rems + " turma(s) a retirar" : ""}`;
+    if (efet < 2) aviso = "O grupo ficará com menos de 2 turmas e será desfeito.";
+    else if (adds) aviso = "Turma incluída passa a usar os instrutores do grupo (será avisada a troca, se já havia confirmação).";
+  }
+  $("gt-barra-txt").textContent = txt;
+  $("gt-barra-aviso").textContent = aviso;
+  $("btn-gt-salvar").disabled = !ok;
+}
+
+async function gtSalvar() {
+  if (!gtSel || !gtPode()) return;
+  const btn = $("btn-gt-salvar");
+  if (gtSel === "novo") {
+    const ids = [...gtMarcNovo];
+    if (ids.length < 2) return;
+    btn.disabled = true;
+    const { error } = await supabase.rpc("agrupar_turmas", { p_turmas: ids, p_instrutores: null });
+    btn.disabled = false;
+    if (error) { gtMsg = { ok: false, html: escH("Não foi possível criar o grupo: " + error.message) }; gtRender(); return; }
+    gtMsg = { ok: true, html: `Grupo criado com ${ids.length} turmas. Clique em "Instrutores" para escolher os instrutores e depois em "Solicitar confirmação".` };
+    gtSel = null;
+    await carregarGruposTurmas();
+    const t = gtTurmas.find((x) => x.id === ids[0]);
+    if (t && t.grupo_id) { gtSel = t.grupo_id; gtRender(); }
+    return;
+  }
+  const gid = gtSel;
+  const atuais = gtTurmas.filter((t) => t.grupo_id === gid);
+  const adds = gtTurmas.filter((t) => !t.grupo_id && gtAlt.get(t.id) === true);
+  const rems = atuais.filter((t) => gtAlt.get(t.id) === false);
+  const efetivo = atuais.length - rems.length + adds.length;
+  btn.disabled = true;
+  let texto;
+  if (efetivo < 2) {
+    if (!confirm(`Com essas alterações o grupo fica com menos de 2 turmas e será desfeito (${atuais.map((t) => t.identificacao).join(", ")}).\nAs turmas mantêm os instrutores atuais.\n\nContinuar?`)) { btn.disabled = false; return; }
+    const { error } = await supabase.rpc("desagrupar_turmas", { p_turmas: atuais.map((t) => t.id) });
+    btn.disabled = false;
+    if (error) { gtMsg = { ok: false, html: escH("Não foi possível desfazer o grupo: " + error.message) }; gtRender(); return; }
+    texto = "Grupo desfeito.";
+    gtSel = null;
+  } else {
+    const idsGrupo = gtIdsInstr(gtBaseGrupo(atuais)).filter(Boolean);
+    if (adds.length) {
+      const diverge = adds.filter((t) => gtIdsInstr(t).some((i) => i && !idsGrupo.includes(i)));
+      if (diverge.length && !confirm(`A(s) turma(s) ${diverge.map((t) => t.identificacao).join(", ")} tem(têm) instrutor que não faz parte do grupo. Ao incluir, passa(m) a usar os instrutores do grupo: o instrutor anterior é retirado (cancelamento, aviso e registro no log, se já havia confirmação).\n\nContinuar?`)) { btn.disabled = false; return; }
+    }
+    if (adds.length) {
+      const { error } = await supabase.rpc("grupo_incluir_turmas", { p_grupo: gid, p_turmas: adds.map((t) => t.id) });
+      if (error) { btn.disabled = false; gtMsg = { ok: false, html: escH("Não foi possível incluir as turmas: " + error.message) }; await carregarGruposTurmas(); return; }
+    }
+    if (rems.length) {
+      const { error } = await supabase.rpc("desagrupar_turmas", { p_turmas: rems.map((t) => t.id) });
+      if (error) { btn.disabled = false; gtMsg = { ok: false, html: escH((adds.length ? "Turmas incluídas, mas não foi possível retirar as outras: " : "Não foi possível retirar as turmas: ") + error.message) }; await carregarGruposTurmas(); return; }
+    }
+    btn.disabled = false;
+    texto = `Grupo atualizado${adds.length ? ` — ${adds.length} turma(s) incluída(s)` : ""}${rems.length ? ` — ${rems.length} turma(s) retirada(s)` : ""}.` +
+      (adds.length ? ` Use "Solicitar confirmação" para avisar os instrutores nas turmas incluídas.` : "");
+  }
+  gtMsg = { ok: true, html: escH(texto) };
+  await carregarGruposTurmas();
+}
+
+function gtDescartar() {
+  gtAlt.clear(); gtMarcNovo.clear(); gtMsg = null;
+  gtRender();
+}
+
+async function gtDesfazer(gid) {
+  const ms = gtTurmas.filter((t) => t.grupo_id === gid);
   if (!ms.length) return;
-  const semInstr = ms.filter((t) => ![t.instrutor1_id, t.instrutor2_id, t.instrutor3_id, t.instrutor4_id].some(Boolean));
-  if (semInstr.length) { accMsgGrupo = { ok: false, html: "Defina os instrutores do grupo antes de solicitar a confirmação (botão Instrutores)." }; renderizarAgendaCentros(); return; }
-  const nomes = accNomesInstrutores(ms[0]);
+  if (!confirm(`Desfazer o grupo de ${ms.length} turmas (${ms.map((m) => m.identificacao).join(", ")})?\n\nAs turmas ficam como estão (com os mesmos instrutores), só deixam de ser tratadas em conjunto.`)) return;
+  const { error } = await supabase.rpc("desagrupar_turmas", { p_turmas: ms.map((m) => m.id) });
+  gtMsg = error ? { ok: false, html: escH("Não foi possível desfazer: " + error.message) } : { ok: true, html: "Grupo desfeito." };
+  if (!error && gtSel === gid) gtSel = null;
+  await carregarGruposTurmas();
+}
+
+async function gtSolicitar(gid) {
+  const ms = gtTurmas.filter((x) => x.grupo_id === gid);
+  if (!ms.length) return;
+  const semInstr = ms.filter((t) => !gtTemInstr(t));
+  if (semInstr.length) { gtMsg = { ok: false, html: 'Defina os instrutores do grupo antes de solicitar a confirmação (botão "Instrutores").' }; gtRender(); return; }
+  const nomes = accNomesInstrutores(gtBaseGrupo(ms));
   if (!confirm(`Enviar a solicitação de confirmação do grupo (${ms.map((m) => m.identificacao).join(", ")}) para:\n\n${nomes.join(", ")}\n\nO Centro de Treinamento também ficará "Aguardando confirmação".`)) return;
   const erros = []; let enviados = 0;
   for (const t of ms) {
@@ -13631,12 +13787,172 @@ async function accGrupoSolicitar(grupoId) {
     if (error) { erros.push(`Turma ${t.identificacao}: ${error.message}`); continue; }
     if ((data || []).length || solicitarCt) enviados++;
   }
-  accMsgGrupo = { ok: !erros.length, html: `Solicitação enviada para ${enviados} turma(s) do grupo.${erros.length ? "<br>" + erros.map(escH).join("<br>") : ""}` };
-  await carregarAgendaCentros();
+  gtMsg = { ok: !erros.length, html: `Solicitação enviada para ${enviados} turma(s) do grupo.${erros.length ? "<br>" + erros.map(escH).join("<br>") : ""}` };
+  await carregarGruposTurmas();
 }
 
-$("btn-grupo-voltar").addEventListener("click", () => { $("modal-grupo-turmas").classList.add("hidden"); accModalGrupo = null; });
-$("btn-grupo-confirmar").addEventListener("click", accConfirmarModalGrupo);
+// ---- Instrutores do grupo (até 4 vagas, com validação de disponibilidade no dia) ----
+const GT_ROTULO_DIA = { agendado: "já agendado neste dia", aguardando: "aguardando confirmação neste dia", pre_agendamento: "pré-agendado neste dia", bloqueado: "indisponível neste dia" };
+
+async function gtAbrirInstrutores(gid) {
+  const membros = gtTurmas.filter((t) => t.grupo_id === gid);
+  if (!membros.length) return;
+  const ref = gtBaseGrupo(membros);
+  const data = ref.data_inicio;
+  gtInstr = { gid, membros, ref, data, insts: [], conflitos: new Map(), atuais: gtIdsInstr(ref) };
+  $("gi-erro").classList.add("hidden");
+  $("gi-titulo").textContent = `Instrutores do Grupo ${gtNumGrupo(gid)}`;
+  $("gi-sub").innerHTML = `${membros.map((m) => escH(m.identificacao || "—")).join(", ")} · ${formatarDataBr(data)} · ${escH(ref.centros_treinamento?.nome || "")}`;
+  $("btn-gi-confirmar").disabled = true;
+  for (let p = 1; p <= 4; p++) { $("gi-instr-" + p).innerHTML = ""; $("gi-msg-" + p).textContent = ""; }
+  $("modal-grupo-instrutores").classList.remove("hidden");
+
+  const idsGrupo = new Set(membros.map((m) => m.id));
+  const [rI, rT] = await Promise.all([
+    supabase.from("instrutores").select("id, nome, dias_status").eq("status", "Ativo").order("nome"),
+    supabase.from("turmas").select("id, identificacao, grupo_id, centros_treinamento(nome), instrutor1_id, instrutor2_id, instrutor3_id, instrutor4_id").eq("data_inicio", data).neq("status", "Cancelada"),
+  ]);
+  if (rI.error || rT.error) {
+    $("gi-erro").textContent = "Não foi possível carregar os dados: " + (rI.error || rT.error).message;
+    $("gi-erro").classList.remove("hidden");
+    return;
+  }
+  gtInstr.insts = rI.data || [];
+  (rT.data || []).filter((t) => !idsGrupo.has(t.id)).forEach((t) => {
+    gtIdsInstr(t).filter(Boolean).forEach((iid) => {
+      const rot = `turma ${t.identificacao || "—"}${t.centros_treinamento?.nome ? " (" + t.centros_treinamento.nome + ")" : ""}`;
+      gtInstr.conflitos.set(iid, gtInstr.conflitos.has(iid) ? gtInstr.conflitos.get(iid) + ", " + rot : rot);
+    });
+  });
+  const atuais = gtInstr.atuais;
+  for (let p = 1; p <= 4; p++) {
+    const sel = $("gi-instr-" + p);
+    sel.innerHTML = `<option value="">${p === 1 ? "— Selecione —" : "— nenhum —"}</option>` + gtInstr.insts.map((i) => {
+      const st = obterStatusDia(i.dias_status, data);
+      const noGrupo = atuais.includes(i.id);
+      let suf = "";
+      if (!noGrupo) {
+        if (st === "bloqueado") suf = " — indisponível neste dia";
+        else if (gtInstr.conflitos.has(i.id)) suf = " — agendado em outra turma";
+        else if (st && st !== "disponivel") suf = " — " + (GT_ROTULO_DIA[st] || st);
+      }
+      return `<option value="${i.id}" ${!noGrupo && st === "bloqueado" ? "disabled" : ""}>${escH(i.nome)}${suf}</option>`;
+    }).join("");
+    sel.value = atuais[p - 1] || "";
+  }
+  gtInstrMensagens();
+  $("btn-gi-confirmar").disabled = false;
+}
+
+function gtInstrMensagens() {
+  if (!gtInstr) return;
+  const vals = [1, 2, 3, 4].map((p) => $("gi-instr-" + p).value);
+  for (let p = 1; p <= 4; p++) {
+    const el = $("gi-msg-" + p);
+    const v = vals[p - 1];
+    if (!v) { el.textContent = ""; el.className = "text-[11px] mt-0.5"; continue; }
+    const i = gtInstr.insts.find((x) => x.id === v);
+    const st = i ? obterStatusDia(i.dias_status, gtInstr.data) : null;
+    let txt, cor;
+    if (vals.some((x, k) => k !== p - 1 && x === v)) { txt = "Já escolhido em outra vaga."; cor = "text-rose-600"; }
+    else if (gtInstr.atuais.includes(v)) { txt = "Já está neste grupo."; cor = "text-slate-500"; }
+    else if (st === "bloqueado") { txt = "Indisponível neste dia."; cor = "text-rose-600"; }
+    else if (gtInstr.conflitos.has(v)) { txt = `Agendado em ${gtInstr.conflitos.get(v)} — ao salvar, ele sai de lá (o sistema pede confirmação).`; cor = "text-amber-700"; }
+    else if (st && st !== "disponivel") { txt = (GT_ROTULO_DIA[st] || st).replace(/^./, (c) => c.toUpperCase()) + " (em outra turma) — ao salvar, o sistema pede confirmação."; cor = "text-amber-700"; }
+    else { txt = "Disponível neste dia."; cor = "text-teal-700"; }
+    el.textContent = txt;
+    el.className = "text-[11px] mt-0.5 " + cor;
+  }
+}
+
+async function gtConfirmarInstrutores() {
+  const ctx = gtInstr;
+  if (!ctx) return;
+  const erroEl = $("gi-erro");
+  erroEl.classList.add("hidden");
+  const alvo = [1, 2, 3, 4].map((p) => $("gi-instr-" + p).value || null);
+  const ids = alvo.filter(Boolean);
+  if (!ids.length) { erroEl.textContent = "Escolha ao menos um instrutor."; erroEl.classList.remove("hidden"); return; }
+  if (new Set(ids).size !== ids.length) { erroEl.textContent = "O mesmo instrutor não pode ocupar duas vagas."; erroEl.classList.remove("hidden"); return; }
+  const cur = ctx.atuais.slice();
+  let pend = [1, 2, 3, 4].filter((p) => (alvo[p - 1] || null) !== (cur[p - 1] || null));
+  if (!pend.length) { $("modal-grupo-instrutores").classList.add("hidden"); gtInstr = null; gtMsg = { ok: true, html: "Nenhuma alteração nos instrutores." }; gtRender(); return; }
+  const btn = $("btn-gi-confirmar");
+  btn.disabled = true;
+  const linhas = []; let falha = null; let semAgenda = false;
+  for (let passo = 0; passo < 6 && pend.length && !falha; passo++) {
+    // retiradas primeiro; troca só quando o novo instrutor não está em outra vaga ainda não liberada
+    const prontos = pend.filter((p) => !alvo[p - 1] || !cur.some((c, k) => k !== p - 1 && c === alvo[p - 1]))
+      .sort((a, b) => (alvo[a - 1] ? 1 : 0) - (alvo[b - 1] ? 1 : 0));
+    if (!prontos.length) break;
+    for (const p of prontos) {
+      const r = await trocarInstrutorRpc(ctx.ref.id, p, alvo[p - 1], null, false);
+      if (r.cancelado) { falha = { cancelado: true }; break; }
+      if (!r.ok) { falha = { erro: r.erro }; break; }
+      cur[p - 1] = alvo[p - 1];
+      pend = pend.filter((x) => x !== p);
+      linhas.push(trocaMensagemResultado(r.data));
+      if (((r.data && r.data.trocas) || []).some((x) => !x.agendado)) semAgenda = true;
+    }
+  }
+  btn.disabled = false;
+  if (falha || pend.length) {
+    const msg = falha && falha.erro ? falha.erro
+      : falha && falha.cancelado ? "Operação cancelada."
+      : "Troca cruzada entre vagas (um instrutor mudaria de vaga para outra ocupada). Faça em duas etapas: retire um instrutor, salve, e depois reponha na outra vaga.";
+    erroEl.textContent = (linhas.length ? "Parte das alterações já foi gravada. " : "") + msg;
+    erroEl.classList.remove("hidden");
+    if (linhas.length) { gtMsg = { ok: true, html: linhas.join("<br>") }; await carregarGruposTurmas(); gtAbrirInstrutores(ctx.gid); }
+    return;
+  }
+  $("modal-grupo-instrutores").classList.add("hidden");
+  gtInstr = null;
+  gtMsg = { ok: true, html: linhas.join("<br>") + (semAgenda ? `<br>Use "Solicitar confirmação" para avisar os instrutores das turmas que ainda não tinham confirmação solicitada.` : "") };
+  await carregarGruposTurmas();
+}
+
+async function carregarGruposTurmasInit() {
+  $("admin-descricao-pagina").textContent = "Monte os grupos de turmas do mesmo Centro de Treinamento e dia que treinam em conjunto, com os mesmos instrutores.";
+  const { data: centros } = await supabase.from("centros_treinamento").select("id, nome").eq("status", "Ativo").order("nome");
+  const sel = $("gt-centro");
+  const anterior = sel.value;
+  sel.innerHTML = `<option value="">— Selecione o Centro de Treinamento —</option>` + (centros || []).map((c) => `<option value="${c.id}">${escH(c.nome)}</option>`).join("");
+  sel.value = (centros || []).some((c) => c.id === anterior) ? anterior : ((centros || []).length === 1 ? centros[0].id : "");
+  if (!$("gt-dia").value) $("gt-dia").value = hojeSaoPauloIso();
+  gtUltimo = { centro: sel.value, dia: $("gt-dia").value };
+  gtSel = null; gtMsg = null;
+  await carregarGruposTurmas();
+}
+
+async function carregarGruposTurmas() {
+  const centro = $("gt-centro").value, dia = $("gt-dia").value;
+  gtAlt.clear(); gtMarcNovo.clear();
+  gtUltimo = { centro, dia };
+  if (!centro || !dia) { gtTurmas = []; gtSel = null; gtRender(); return; }
+  const { data, error } = await supabase.from("turmas").select(GT_SELECT)
+    .eq("centro_treinamento_id", centro).eq("data_inicio", dia).neq("status", "Cancelada");
+  if (error) { gtMsg = { ok: false, html: escH("Não foi possível carregar as turmas: " + error.message) }; gtTurmas = []; gtSel = null; gtRender(); return; }
+  gtTurmas = (data || []).sort(compararIdentificacaoTurma);
+  if (gtSel && gtSel !== "novo" && !gtTurmas.some((t) => t.grupo_id === gtSel)) gtSel = null;
+  gtRender();
+}
+
+function gtMudouFiltro() {
+  if (gtPendencias() > 0 && !confirm("Há alterações não salvas. Descartá-las?")) {
+    $("gt-centro").value = gtUltimo.centro; $("gt-dia").value = gtUltimo.dia;
+    return;
+  }
+  gtSel = null; gtMsg = null;
+  carregarGruposTurmas();
+}
+$("gt-centro").addEventListener("change", gtMudouFiltro);
+$("gt-dia").addEventListener("change", gtMudouFiltro);
+$("btn-gt-salvar").addEventListener("click", gtSalvar);
+$("btn-gt-descartar").addEventListener("click", gtDescartar);
+[1, 2, 3, 4].forEach((p) => $("gi-instr-" + p).addEventListener("change", gtInstrMensagens));
+$("btn-gi-voltar").addEventListener("click", () => { $("modal-grupo-instrutores").classList.add("hidden"); gtInstr = null; });
+$("btn-gi-confirmar").addEventListener("click", gtConfirmarInstrutores);
+
 
 // ===========================================================
 // Disponibilidade dos Instrutores (consulta mensal, somente leitura)
