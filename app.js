@@ -36,7 +36,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.100 · 02/11/2026";
+const APP_VERSAO = "Prod 2.00 · 02/11/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -17434,8 +17434,6 @@ $("at-emitidos-tbody").addEventListener("click", (e) => {
   const c = e.target.closest("[data-at-cancelar]"); if (c) atCancelar(c.getAttribute("data-at-cancelar"));
 });
 
-})();
-
 // ===========================================================
 // VENDAS POR PESSOA (turmas abertas) — Fase 1
 // Pessoa física compra 1 vaga e paga antes (PIX/cartão fora do sistema; o pagamento é registrado aqui);
@@ -18285,3 +18283,5 @@ $("ca-cab").addEventListener("change", (e) => {
 // o cabeçalho com os filtros fica fixo; acompanha só a rolagem horizontal da lista
 $("ca-corpo").addEventListener("scroll", (e) => { $("ca-cab").scrollLeft = e.target.scrollLeft; });
 window.addEventListener("resize", caAjustarAltura);
+
+})();
