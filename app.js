@@ -36,7 +36,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 1.98 · 31/10/2026";
+const APP_VERSAO = "Prod 1.99 · 02/11/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -1690,6 +1690,8 @@ const LOG_CONFIRMACAO_TIPO_LABEL = {
   resposta_confirmacao: "✅ Resposta do instrutor à confirmação",
   solicitacao_cancelamento: "🚫 Instrutor pediu cancelamento",
   resposta_cancelamento: "📋 Centro de Treinamento respondeu ao cancelamento",
+  instrutor_removido: "➖ Saiu da turma (troca de instrutor)",
+  instrutor_incluido: "➕ Entrou na turma (troca de instrutor)",
 };
 
 async function carregarLogConfirmacaoInstrutor(instrutorId) {
@@ -11854,12 +11856,23 @@ async function solicitarConfirmacaoAgendTurma() {
   };
   const resumo = prontas.map(({ t, insts, locacao }) =>
     `• Turma ${t.identificacao} (${formatarDataBr(t.data_inicio)}): ${locacao ? "locação de espaço — só confirmação do Centro de Treinamento" : insts.map((id) => rotulo(t, id)).filter(Boolean).join(", ")}`).join("\n");
+  const trocasPrev = [];
+  prontas.forEach(({ t, insts, locacao }) => {
+    if (locacao || t.grupo_id) return;
+    INSTR_CAMPOS.forEach((c, k) => {
+      const dbId = t[c + "_id"], novoId = insts[k] || null, ag = t["agenda_" + c];
+      if (dbId && dbId !== novoId && (ag === "Agendado" || ag === "Aguardando confirmação")) {
+        trocasPrev.push(`• Turma ${t.identificacao}: ${nomes(dbId)} sai (agendamento cancelado e avisado) → ${novoId ? nomes(novoId) : "vaga sem instrutor"}`);
+      }
+    });
+  });
   const mudancasCt = prontas.filter((p) => p.t._centroMudara).map((p) => p.t.identificacao);
   const nomeCtTela = listaCentrosAtivos.find((c) => c.id === agendTurmaCentroId)?.nome || "";
   const avisoCt = mudancasCt.length
     ? `\n\nAtenção: o Centro de Treinamento da(s) turma(s) ${mudancasCt.join(", ")} será alterado para ${nomeCtTela} (o cadastro do orçamento é de outra unidade).`
     : "";
-  if (!confirm(`Enviar solicitação de confirmação para ${prontas.length} turma(s)?\n\n${resumo}${avisoCt}\n\nO Centro de Treinamento também ficará "Aguardando confirmação".`)) return;
+  const avisoTroca = trocasPrev.length ? `\n\nTroca de instrutor já agendado:\n${trocasPrev.join("\n")}` : "";
+  if (!confirm(`Enviar solicitação de confirmação para ${prontas.length} turma(s)?\n\n${resumo}${avisoCt}${avisoTroca}\n\nO Centro de Treinamento também ficará "Aguardando confirmação".`)) return;
 
   const btn = $("btn-agend-solicitar-confirmacao");
   btn.disabled = true;
@@ -11874,6 +11887,24 @@ async function solicitarConfirmacaoAgendTurma() {
       const { error: eCt } = await supabase.from("turmas").update({ centro_treinamento_id: t.centro_treinamento_id }).eq("id", t.id);
       if (eCt) { erros.push(`Turma ${t.identificacao}: não foi possível gravar o Centro de Treinamento (${eCt.message}).`); continue; }
       t._centroMudara = false;
+    }
+    if (!locacao && !t.grupo_id) {
+      // v1.99: instrutor que já estava agendado e foi substituído → usa a troca (cancela o anterior, agenda o novo, registra no log)
+      let trocou = false, abortou = false;
+      for (let k = 0; k < INSTR_CAMPOS.length && !abortou; k++) {
+        const c = INSTR_CAMPOS[k], dbId = t[c + "_id"], novoId = insts[k] || null, ag = t["agenda_" + c];
+        if (dbId && dbId !== novoId && (ag === "Agendado" || ag === "Aguardando confirmação")) {
+          const rt = await trocarInstrutorRpc(t.id, k + 1, novoId, null, true);
+          if (!rt.ok) { erros.push(rt.cancelado ? `Turma ${t.identificacao}: troca de instrutor cancelada.` : `Turma ${t.identificacao}: ${rt.erro}`); abortou = true; break; }
+          avisos.push(trocaMensagemResultado(rt.data));
+          trocou = true;
+        }
+      }
+      if (abortou) continue;
+      if (trocou) {
+        const { data: fresh } = await supabase.from("turmas").select("*").eq("id", t.id).single();
+        if (fresh) Object.assign(t, fresh);
+      }
     }
     if (!locacao) {
       const payload = {
@@ -12320,6 +12351,7 @@ function renderizarDetalheDiaCt(porDia) {
     return;
   }
   const podeConfirmar = podeFazer("confirmacao_ct", "alterar");
+  const podeTroca = podeTrocarInstrutor();
   const linhaInst = (nome, resp, agenda) => nome
     ? `<div class="text-xs text-slate-700">${escH(nome)} ${iconeRespostaInstrutor(resp) || textoAgendaItem(agenda)}</div>`
     : "";
@@ -12337,6 +12369,7 @@ function renderizarDetalheDiaCt(porDia) {
       <div class="text-[11px] text-slate-500 mt-1">${t.horario ? `🕒 ${t.horario}` : ""}${t.tipo_dia ? `${t.horario ? " · " : ""}${t.tipo_dia}` : ""}</div>
       <div class="mt-1">${linhaInst(t.inst1?.nome, respostaInstrutorCct(t, t.instrutor1_id), t.agenda_instrutor1)}${linhaInst(t.inst2?.nome, respostaInstrutorCct(t, t.instrutor2_id), t.agenda_instrutor2)}${linhaInst(t.inst3?.nome, respostaInstrutorCct(t, t.instrutor3_id), t.agenda_instrutor3)}${linhaInst(t.inst4?.nome, respostaInstrutorCct(t, t.instrutor4_id), t.agenda_instrutor4)}${!t.inst1 && !t.inst2 && !t.inst3 && !t.inst4 ? `<span class="text-[11px] text-slate-400">${locacao ? "🏢 locação de espaço — sem instrutor" : "sem instrutor"}</span>` : ""}</div>
       ${t.grupo_id ? `<div class="text-[11px] text-violet-700 mt-1">👥 Treina em grupo com: ${escH(todas.filter((x) => x.grupo_id === t.grupo_id && x.id !== t.id).map((x) => `${x.identificacao} (orç. ${x.orcamentos?.numero || "—"})`).join(", ") || "—")}</div>` : ""}
+      ${podeTroca && !locacao && !["Cancelada", "Concluída"].includes(t.status) ? `<button type="button" data-cct-trocar="${t.id}" class="mt-1.5 text-[11px] font-medium text-slate-700 border border-slate-300 bg-white hover:bg-slate-50 rounded-md px-2 py-1">🔁 Trocar instrutor</button>` : ""}
       ${obs ? `<div class="mt-2">${obs}</div>` : ""}
       ${podeConfirmar ? `<div class="flex items-center gap-1.5 mt-2 pt-2 border-t border-slate-100">
         ${t.agenda_ct !== "Agendado" ? `<button data-cct-confirmar="${t.id}" class="text-xs font-medium text-white bg-teal-600 hover:bg-teal-700 px-3 py-1.5 rounded-md">Confirmar</button>` : ""}
@@ -12349,6 +12382,17 @@ function renderizarDetalheDiaCt(porDia) {
     el.addEventListener("click", () => responderConfirmacaoCt(el.getAttribute("data-cct-confirmar"), true)));
   lista.querySelectorAll("[data-cct-recusar]").forEach((el) =>
     el.addEventListener("click", () => responderConfirmacaoCt(el.getAttribute("data-cct-recusar"), false)));
+  lista.querySelectorAll("[data-cct-trocar]").forEach((el) => el.addEventListener("click", () => {
+    const t = cctLista.find((x) => x.id === el.getAttribute("data-cct-trocar"));
+    if (!t) return;
+    abrirTrocaInstrutor(t, null, async (html) => {
+      const r = $("cct-resultado");
+      r.classList.remove("hidden");
+      r.className = "mb-3 text-sm rounded-md px-3 py-2 bg-teal-50 text-teal-800";
+      r.innerHTML = html;
+      await carregarListaConfirmacaoCt();
+    });
+  }));
 }
 
 async function responderConfirmacaoCt(turmaId, confirmar) {
@@ -13260,6 +13304,142 @@ const accPodeAgrupar = () => podeFazer("agendamento_turmas", "alterar") || podeF
 const accEhLocacao = (t) => !!(t.tipos_treinamento && t.tipos_treinamento.somente_locacao_espaco);
 const accNomesInstrutores = (t) => [t.inst1 && t.inst1.nome, t.inst2 && t.inst2.nome, t.inst3 && t.inst3.nome, t.inst4 && t.inst4.nome].filter(Boolean);
 
+// ===========================================================
+// v1.99 — Trocar instrutor da turma (Centro de Treinamento, operador do agendamento, admin)
+// RPC trocar_instrutor_turma: cancela o instrutor que sai (push + log), agenda o que entra
+// (confirmado automaticamente só no dia do treinamento; antes disso fica aguardando) e,
+// se o novo já estiver em outra turma/grupo no período, pede confirmação e tira-o de lá.
+// ===========================================================
+const podeTrocarInstrutor = () => podeFazer("agendamento_turmas", "alterar") || podeFazer("agendamentos", "alterar") || podeFazer("confirmacao_ct", "alterar");
+let trocaCtx = null;
+const hojeSaoPauloIso = () => new Date().toLocaleDateString("sv-SE", { timeZone: "America/Sao_Paulo" });
+const trocaAgendada = (t) => ["agenda_instrutor1", "agenda_instrutor2", "agenda_instrutor3", "agenda_instrutor4"].some((c) => t[c] === "Agendado" || t[c] === "Aguardando confirmação")
+  || t.agenda_ct === "Agendado" || t.agenda_ct === "Aguardando confirmação";
+
+async function trocarInstrutorRpc(turmaId, pos, novoId, motivo, somenteTurma) {
+  let mover = false;
+  for (;;) {
+    const { data, error } = await supabase.rpc("trocar_instrutor_turma", {
+      p_turma: turmaId, p_posicao: pos, p_novo: novoId || null, p_motivo: motivo || null, p_mover: mover, p_somente_turma: !!somenteTurma,
+    });
+    if (!error) return { ok: true, data };
+    const m = String(error.message || "");
+    if (!mover && m.indexOf("CONFLITO:") === 0) {
+      if (!confirm(m.replace(/^CONFLITO:\s*/, "") + "\n\nConfirmar a mudança?")) return { ok: false, cancelado: true };
+      mover = true;
+      continue;
+    }
+    return { ok: false, erro: m };
+  }
+}
+
+function trocaMensagemResultado(data) {
+  const linhas = ((data && data.trocas) || []).map((x) => {
+    const sit = !x.agendado
+      ? (x.novo ? "instrutor atualizado — a turma ainda não tinha confirmação solicitada" : "instrutor retirado")
+      : (x.novo ? (x.confirmado_automatico ? "confirmado automaticamente" : "aguardando confirmação do novo instrutor") : "agendamento cancelado");
+    return `Turma ${escH(x.identificacao)}: ${escH(x.antigo || "—")} → ${escH(x.novo || "sem instrutor")} (${sit})`;
+  });
+  const mv = ((data && data.movidos) || []).map((m) => escH(m.identificacao));
+  return linhas.join("<br>") + (mv.length ? `<br>O novo instrutor saiu da(s) turma(s) ${mv.join(", ")}.` : "");
+}
+
+function trocaAtualizarOpcoes() {
+  const ctx = trocaCtx;
+  if (!ctx) return;
+  const t = ctx.t;
+  const pos = Number($("troca-vaga").value) || 1;
+  const atual = t["instrutor" + pos + "_id"] || null;
+  const outros = [1, 2, 3, 4].filter((p) => p !== pos).map((p) => t["instrutor" + p + "_id"]).filter(Boolean);
+  const rotulo = { agendado: "já agendado neste dia (sai da outra turma)", aguardando: "aguardando confirmação neste dia (sai da outra turma)", pre_agendamento: "pré-agendado neste dia (sai da outra turma)", bloqueado: "indisponível neste dia" };
+  const opts = [`<option value="">— Selecione —</option>`];
+  if (atual) opts.push(`<option value="__remover">— Remover (sem substituto) —</option>`);
+  ctx.insts.forEach((i) => {
+    if (i.id === atual || outros.includes(i.id)) return;
+    const st = obterStatusDia(i.dias_status, t.data_inicio);
+    const livre = !st || st === "disponivel";
+    opts.push(`<option value="${i.id}" ${st === "bloqueado" ? "disabled" : ""}>${escH(i.nome)}${livre ? "" : " — " + (rotulo[st] || st)}</option>`);
+  });
+  $("troca-novo").innerHTML = opts.join("");
+  trocaAtualizarNota();
+}
+
+function trocaAtualizarNota() {
+  const ctx = trocaCtx;
+  if (!ctx) return;
+  const t = ctx.t;
+  const v = $("troca-novo").value;
+  const naoAgendada = !trocaAgendada(t);
+  const noDia = !!t.data_inicio && hojeSaoPauloIso() >= t.data_inicio;
+  let txt;
+  if (naoAgendada) txt = "Esta turma ainda não teve confirmação solicitada: a troca só altera o instrutor, sem avisos e sem registro no log.";
+  else if (v === "__remover") txt = "O instrutor atual terá o agendamento cancelado, será avisado e a movimentação fica no log dele. A vaga ficará sem instrutor.";
+  else if (noDia) txt = "Como a troca é no dia do treinamento, o novo instrutor entra como Agendado (confirmado automaticamente) e é avisado. O instrutor atual terá o agendamento cancelado, será avisado e a movimentação fica no log dos dois.";
+  else txt = "O novo instrutor será agendado e receberá o pedido de confirmação (fica Aguardando confirmação). O instrutor atual terá o agendamento cancelado, será avisado e a movimentação fica no log dos dois.";
+  $("troca-nota").textContent = txt;
+}
+
+async function abrirTrocaInstrutor(t, posIni, aoConcluir) {
+  $("troca-erro").classList.add("hidden");
+  trocaCtx = { t, aoConcluir, insts: [] };
+  $("troca-modal-turma").innerHTML = `Turma <b class="font-mono">${escH(t.identificacao || "—")}</b> · ${escH(t.tipos_treinamento?.nome || "—")} · ${escH(t.orcamentos?.empresas?.nome || "—")} · ${formatarDataBr(t.data_inicio)}`;
+  $("troca-motivo").value = "";
+  $("troca-grupo-wrap").classList.add("hidden");
+  $("btn-troca-confirmar").disabled = true;
+  $("troca-vaga").innerHTML = "";
+  $("troca-novo").innerHTML = "";
+  $("troca-nota").textContent = "";
+  $("modal-trocar-instrutor").classList.remove("hidden");
+
+  const [rI, rG] = await Promise.all([
+    supabase.from("instrutores").select("id, nome, dias_status").eq("status", "Ativo").order("nome"),
+    t.grupo_id ? supabase.from("turmas").select("id, identificacao").eq("grupo_id", t.grupo_id) : Promise.resolve({ data: null }),
+  ]);
+  if (rI.error) { $("troca-erro").textContent = "Não foi possível carregar os instrutores: " + rI.error.message; $("troca-erro").classList.remove("hidden"); return; }
+  trocaCtx.insts = rI.data || [];
+  const nomeDe = (id) => (id ? (trocaCtx.insts.find((i) => i.id === id)?.nome || t["inst" + 0]?.nome || "—") : null);
+  $("troca-vaga").innerHTML = [1, 2, 3, 4].map((p) => {
+    const id = t["instrutor" + p + "_id"];
+    const nome = id ? (t["inst" + p]?.nome || nomeDe(id)) : null;
+    return `<option value="${p}">Instrutor ${p} — ${nome ? escH(nome) : "(vaga vazia)"}</option>`;
+  }).join("");
+  const preferida = posIni || [1, 2, 3, 4].find((p) => t["instrutor" + p + "_id"]) || 1;
+  $("troca-vaga").value = String(preferida);
+  const membros = (rG.data || []);
+  if (t.grupo_id && membros.length > 1) {
+    $("troca-grupo-txt").textContent = `Aplicar a todas as turmas do grupo (${membros.map((m) => m.identificacao).join(", ")})`;
+    $("troca-todo-grupo").checked = true;
+    $("troca-grupo-wrap").classList.remove("hidden");
+  }
+  trocaAtualizarOpcoes();
+  $("btn-troca-confirmar").disabled = false;
+}
+
+async function confirmarTrocaInstrutor() {
+  const ctx = trocaCtx;
+  if (!ctx) return;
+  const erroEl = $("troca-erro");
+  erroEl.classList.add("hidden");
+  const pos = Number($("troca-vaga").value);
+  const v = $("troca-novo").value;
+  if (!v) { erroEl.textContent = 'Escolha o novo instrutor (ou "Remover").'; erroEl.classList.remove("hidden"); return; }
+  const somente = ctx.t.grupo_id ? !$("troca-todo-grupo").checked : true;
+  const btn = $("btn-troca-confirmar");
+  btn.disabled = true;
+  const r = await trocarInstrutorRpc(ctx.t.id, pos, v === "__remover" ? null : v, $("troca-motivo").value.trim(), somente);
+  btn.disabled = false;
+  if (r.cancelado) return;
+  if (!r.ok) { erroEl.textContent = r.erro; erroEl.classList.remove("hidden"); return; }
+  $("modal-trocar-instrutor").classList.add("hidden");
+  const cb = ctx.aoConcluir;
+  trocaCtx = null;
+  if (cb) await cb(trocaMensagemResultado(r.data), true);
+}
+$("troca-vaga").addEventListener("change", trocaAtualizarOpcoes);
+$("troca-novo").addEventListener("change", trocaAtualizarNota);
+$("btn-troca-voltar").addEventListener("click", () => { $("modal-trocar-instrutor").classList.add("hidden"); trocaCtx = null; });
+$("btn-troca-confirmar").addEventListener("click", confirmarTrocaInstrutor);
+
 function accCartaoTurma(t, dentroDeGrupo) {
   const pode = accPodeAgrupar();
   const marcavel = pode && !dentroDeGrupo && !accEhLocacao(t) && !!t.centro_treinamento_id;
@@ -13277,6 +13457,7 @@ function accCartaoTurma(t, dentroDeGrupo) {
       <div class="text-xs text-slate-500">${escH(t.orcamentos?.empresas?.nome || "—")} · orç. ${escH(t.orcamentos?.numero || "—")}</div>
       <div class="text-[11px] text-slate-500 mt-1">🏫 ${escH(t.centros_treinamento?.nome || "—")}${t.horario ? ` · ${t.horario}` : ""}${t.tipo_dia ? ` · ${t.tipo_dia}` : ""}</div>
       <div class="text-[11px] text-slate-500">👤 ${escH(nomes.join(", ") || "sem instrutor")}</div>
+      ${podeTrocarInstrutor() && !accEhLocacao(t) && !["Cancelada", "Concluída"].includes(t.status) ? `<button type="button" data-acc-trocar="${t.id}" class="mt-1.5 text-[11px] font-medium text-slate-700 border border-slate-300 bg-white hover:bg-slate-50 rounded-md px-2 py-1">🔁 Trocar instrutor</button>` : ""}
       ${t.orcamentos?.observacao_ct ? `<div class="mt-2 text-[11px] text-amber-900 bg-amber-50 border border-amber-200 rounded-md px-2 py-1.5 whitespace-pre-line">📌 ${escH(t.orcamentos.observacao_ct)}</div>` : ""}
       ${dentroDeGrupo && pode ? `<button type="button" data-acc-tirar="${t.id}" class="mt-1.5 text-[11px] text-slate-500 hover:text-rose-600 underline">Tirar do grupo</button>` : ""}
     </div>`;
@@ -13348,6 +13529,14 @@ function accRenderDia(turmas, lista) {
     if (!t || !confirm(`Tirar a turma ${t.identificacao} do grupo? Ela mantém os instrutores atuais.`)) return;
     accDesagrupar([t.id], `Turma ${t.identificacao} fora do grupo.`);
   }));
+  lista.querySelectorAll("[data-acc-trocar]").forEach((el) => el.addEventListener("click", () => {
+    const t = accTurmasDoMes.find((x) => x.id === el.getAttribute("data-acc-trocar"));
+    if (!t) return;
+    abrirTrocaInstrutor(t, null, async (html) => {
+      accMsgGrupo = { ok: true, html };
+      await carregarAgendaCentros();
+    });
+  }));
 }
 
 function accAtualizarBotaoAgrupar() {
@@ -13414,7 +13603,11 @@ async function accConfirmarModalGrupo() {
     ? await supabase.rpc("agrupar_turmas", { p_turmas: ctx.turmas.map((t) => t.id), p_instrutores: ids.length ? ids : null })
     : await supabase.rpc("definir_instrutores_grupo", { p_grupo: ctx.grupoId, p_instrutores: ids });
   btn.disabled = false;
-  if (error) { erroEl.textContent = error.message; erroEl.classList.remove("hidden"); return; }
+  if (error) {
+    erroEl.textContent = error.message + (ctx.modo === "instrutores" ? ' Para trocar um instrutor que já está agendado, use o botão "Trocar instrutor" em uma das turmas do grupo.' : "");
+    erroEl.classList.remove("hidden");
+    return;
+  }
   $("modal-grupo-turmas").classList.add("hidden");
   accSelGrupo.clear();
   accMsgGrupo = { ok: true, html: ctx.modo === "novo"
@@ -15949,6 +16142,11 @@ function certSvg(opts) {
     yq += fm * 1.15;
   });
   txt(qcx, yq + 0.2 * u + 0.8 * u * 0.8, modo === "previa" ? "PRÉVIA · sem número" : "Certificado nº " + numero, 0.8 * u, ' text-anchor="middle" font-weight="bold"');
+  // frases da marca abaixo do QR (v1.99)
+  let yb = yq + 0.2 * u + 0.8 * u * 0.8 + 1.15 * u;
+  txt(qcx, yb, "Work Fire mais perto de você!!!", 0.75 * u, ' text-anchor="middle" font-weight="bold"'); yb += 0.95 * u;
+  txt(qcx, yb, "Mais segurança em seus documentos", 0.7 * u, ' text-anchor="middle"'); yb += 0.9 * u;
+  txt(qcx, yb, "Em conformidade com a LGPD", 0.7 * u, ' text-anchor="middle"');
 
   if (modo === "previa") {
     const fs = 9.5 * u, t = "EM ELABORAÇÃO", w = certLargura(t, fs, true);
@@ -16498,7 +16696,11 @@ function atSvgPaginas(opts) {
     let yc = qy + 4;
     txt(qx - 3, yc, modo === "previa" ? "PRÉVIA · sem número" : "Atestado nº " + numero, 3.1, ' text-anchor="end" font-weight="bold"');
     yc += 4.2;
-    certQuebra("Aponte sua câmera e veja se o atestado é válido", 62, 2.6).forEach((ws) => { txt(qx - 3, yc, ws.join(" "), 2.6, ' text-anchor="end"'); yc += 3.4; });
+    certQuebra("Aponte sua câmera e veja se o atestado é válido", 80, 2.6).forEach((ws) => { txt(qx - 3, yc, ws.join(" "), 2.6, ' text-anchor="end"'); yc += 3.4; });
+    yc += 0.8;  // frases da marca ao lado do QR (v1.99)
+    txt(qx - 3, yc, "Work Fire mais perto de você!!!", 2.8, ' text-anchor="end" font-weight="bold"'); yc += 3.4;
+    txt(qx - 3, yc, "Mais segurança em seus documentos", 2.5, ' text-anchor="end"'); yc += 3.2;
+    txt(qx - 3, yc, "Em conformidade com a LGPD", 2.5, ' text-anchor="end"');
     ins.forEach((p, k) => {
       const row = Math.floor(k / 2), col = k % 2;
       const sozinho = ins.length % 2 === 1 && k === ins.length - 1;
