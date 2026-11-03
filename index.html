@@ -1358,16 +1358,23 @@
             <div class="mb-4 bg-white border border-slate-200 rounded-xl p-4 flex flex-wrap items-end gap-4">
               <div class="flex-1 min-w-[220px]">
                 <label class="text-xs font-medium text-slate-500 uppercase tracking-wide" for="fat-busca">Buscar orçamento</label>
-                <input id="fat-busca" type="search" placeholder="Número ou empresa" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm" />
+                <input id="fat-busca" type="search" placeholder="Número ou cliente" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm" />
+              </div>
+              <div>
+                <label class="text-xs font-medium text-slate-500 uppercase tracking-wide" for="fat-com">Comercialização</label>
+                <select id="fat-com" class="mt-1 block rounded-md border border-slate-300 px-3 py-2 text-sm">
+                  <option value="">Todas</option><option value="fechada">Turma fechada</option><option value="encaixe">Encaixe</option><option value="individual">Individual</option>
+                </select>
               </div>
               <button id="btn-fat-buscar" type="button" class="bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium px-4 py-2 rounded-md">Atualizar</button>
             </div>
-            <p class="text-xs text-slate-500 mb-3">Orçamentos com turmas cujos certificados já foram registrados e que ainda não foram faturadas.</p>
+            <p class="text-xs text-slate-500 mb-3">Turma fechada: orçamentos com turmas cujos certificados já foram registrados e que ainda não foram faturadas. Encaixe e Individual: faturados por orçamento (pessoas vendidas × valor por pessoa) depois que a turma aberta foi realizada; no Individual o pagamento antecipado precisa estar registrado.</p>
             <div id="fat-erro" class="hidden bg-rose-50 text-rose-600 text-sm rounded-md px-3 py-2 mb-3"></div>
+            <div id="fat-ok" class="hidden bg-emerald-50 text-emerald-700 text-sm rounded-md px-3 py-2 mb-3"></div>
             <div class="bg-white border border-slate-200 rounded-lg overflow-x-auto">
               <table class="w-full text-sm">
                 <thead class="bg-slate-50 text-left text-[11px] uppercase tracking-wide text-slate-500">
-                  <tr><th class="px-3 py-2">Orçamento</th><th class="px-3 py-2">Empresa</th><th class="px-3 py-2">Forma</th><th class="px-3 py-2 text-right">Turmas disponíveis</th><th class="px-3 py-2 text-right">Já faturadas</th><th class="px-3 py-2"></th></tr>
+                  <tr><th class="px-3 py-2">Orçamento</th><th class="px-3 py-2">Cliente</th><th class="px-3 py-2">Comercialização</th><th class="px-3 py-2">A faturar</th><th class="px-3 py-2">Situação</th><th class="px-3 py-2"></th></tr>
                 </thead>
                 <tbody id="fat-orcs-tbody" class="divide-y divide-slate-100"></tbody>
               </table>
@@ -1407,6 +1414,26 @@
               </div>
             </div>
           </div>
+
+          <div id="fat-view-pessoa" class="hidden">
+            <button id="btn-fat-pes-voltar" type="button" class="text-xs font-medium text-slate-500 hover:text-slate-800 mb-3">← Voltar para os orçamentos</button>
+            <div id="fat-pes-cab" class="bg-white border border-slate-200 rounded-lg p-4 mb-3"></div>
+            <div id="fat-pes-erro" class="hidden bg-rose-50 text-rose-600 text-sm rounded-md px-3 py-2 mb-3"></div>
+            <div id="fat-pes-cards" class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3"></div>
+            <div id="fat-pes-alertas" class="mb-3 space-y-2"></div>
+            <div id="fat-pes-pag" class="bg-white border border-slate-200 rounded-lg p-3 mb-3"></div>
+            <div class="bg-white border border-slate-200 rounded-lg p-3 mb-3">
+              <h4 class="text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-2">Alunos indicados</h4>
+              <div id="fat-pes-alunos" class="overflow-x-auto"></div>
+            </div>
+            <div class="bg-white border border-slate-200 rounded-lg p-3">
+              <h4 class="text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-2">Faturamento que será gerado (um por orçamento, no CNPJ/CPF do cliente)</h4>
+              <div id="fat-pes-prev" class="overflow-x-auto"></div>
+              <div class="mt-3 flex justify-end">
+                <button id="btn-fat-pes-faturar" type="button" disabled class="bg-slate-900 hover:bg-slate-800 disabled:opacity-40 text-white text-sm font-medium px-4 py-2.5 rounded-md">Faturar orçamento</button>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div id="fat-painel-emitidos" class="hidden">
@@ -1428,7 +1455,7 @@
           <div class="bg-white border border-slate-200 rounded-lg overflow-x-auto">
             <table class="w-full text-sm">
               <thead class="bg-slate-50 text-left text-[11px] uppercase tracking-wide text-slate-500">
-                <tr><th class="px-3 py-2">Faturamento</th><th class="px-3 py-2">Orçamento</th><th class="px-3 py-2">CNPJ / empresa</th><th class="px-3 py-2 text-right">Alunos</th><th class="px-3 py-2 text-right">Valor final</th><th class="px-3 py-2">Vencimento</th><th class="px-3 py-2">Situação</th><th class="px-3 py-2"></th></tr>
+                <tr><th class="px-3 py-2">Faturamento</th><th class="px-3 py-2">Orçamento</th><th class="px-3 py-2">CNPJ / empresa</th><th class="px-3 py-2 text-right">Alunos / pessoas</th><th class="px-3 py-2 text-right">Valor final</th><th class="px-3 py-2">Vencimento</th><th class="px-3 py-2">Situação</th><th class="px-3 py-2"></th></tr>
               </thead>
               <tbody id="fat-em-tbody" class="divide-y divide-slate-100"></tbody>
             </table>
@@ -1489,12 +1516,43 @@
             <div id="fat-emi-cancel-bloco" class="hidden mt-3 border border-rose-200 bg-rose-50 rounded-md p-3">
               <label class="text-xs font-medium text-rose-700 uppercase tracking-wide" for="fat-emi-motivo">Motivo do cancelamento</label>
               <textarea id="fat-emi-motivo" rows="2" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"></textarea>
-              <p class="text-xs text-rose-700 mt-1">As turmas deste faturamento voltam a ficar disponíveis para faturar.</p>
+              <p id="fat-emi-cancel-nota" class="text-xs text-rose-700 mt-1">As turmas deste faturamento voltam a ficar disponíveis para faturar.</p>
               <div class="mt-2 flex justify-end"><button id="btn-fat-emi-cancel-ok" type="button" class="bg-rose-600 hover:bg-rose-700 text-white text-sm font-medium px-4 py-2 rounded-md">Confirmar cancelamento</button></div>
             </div>
           </div>
         </div>
       </section>
+
+      <!-- Pagamento antecipado (venda Individual) -->
+      <div id="pag-modal" class="hidden fixed inset-0 z-[60] bg-slate-900/50 overflow-y-auto p-4">
+        <div class="mx-auto max-w-lg bg-white rounded-xl shadow-xl p-5 mt-10">
+          <div class="flex items-start justify-between gap-3">
+            <h3 id="pag-titulo" class="text-lg font-semibold">Registrar pagamento antecipado</h3>
+            <button id="btn-pag-fechar" type="button" class="text-slate-500 hover:text-slate-800 text-sm">Fechar</button>
+          </div>
+          <p id="pag-resumo" class="text-xs text-slate-500 mt-1"></p>
+          <div id="pag-erro" class="hidden bg-rose-50 text-rose-600 text-sm rounded-md px-3 py-2 mt-3"></div>
+          <div class="grid sm:grid-cols-2 gap-3 mt-3">
+            <div><label class="text-xs font-medium text-slate-500 uppercase tracking-wide" for="pag-forma">Forma de pagamento *</label>
+              <select id="pag-forma" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm">
+                <option>PIX</option><option>Cartão de crédito</option><option>Cartão de débito</option><option>Boleto</option><option>Transferência</option><option>Dinheiro</option><option>Outro</option>
+              </select></div>
+            <div><label class="text-xs font-medium text-slate-500 uppercase tracking-wide" for="pag-data">Data do pagamento *</label>
+              <input id="pag-data" type="date" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm" /></div>
+            <div><label class="text-xs font-medium text-slate-500 uppercase tracking-wide" for="pag-valor">Valor pago (R$) *</label>
+              <input id="pag-valor" type="number" min="0" step="0.01" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm" /></div>
+            <div><label class="text-xs font-medium text-slate-500 uppercase tracking-wide" for="pag-comp">Comprovante / ID da transação</label>
+              <input id="pag-comp" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm" placeholder="opcional" /></div>
+            <div class="sm:col-span-2"><label class="text-xs font-medium text-slate-500 uppercase tracking-wide" for="pag-obs">Observações</label>
+              <input id="pag-obs" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm" placeholder="opcional" /></div>
+          </div>
+          <div class="mt-4 flex justify-end gap-2">
+            <button id="btn-pag-cancelar" type="button" class="border border-slate-300 text-sm px-4 py-2 rounded-md">Voltar</button>
+            <button id="btn-pag-ok" type="button" class="bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium px-4 py-2 rounded-md">Registrar pagamento</button>
+          </div>
+        </div>
+      </div>
+
 
       <!-- ---------- FINANCEIRO: CONSULTA DE REEMBOLSOS ---------- -->
       <section id="secao-consulta-reembolsos" class="hidden">
@@ -2132,6 +2190,7 @@
             <div id="orc-ta-wrap" class="hidden col-span-2 md:col-span-8"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide" for="orc-turma-aberta">Turma aberta *</label>
               <select id="orc-turma-aberta" class="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"></select></div>
             <p id="orc-com-info" class="col-span-2 md:col-span-12 text-[11px] text-slate-500"></p>
+            <div id="orc-pag-bloco" class="hidden col-span-2 md:col-span-12 rounded-md border border-slate-200 bg-slate-50 px-3 py-2"></div>
           </div>
         </div>
       </section>
@@ -2904,6 +2963,6 @@
     <div id="vp-modal-corpo" class="mt-3"></div>
   </div>
 </div>
-<script src="app.js?v=20261103a"></script>
+<script src="app.js?v=20261103b"></script>
 </body>
 </html>

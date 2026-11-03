@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mockup — Faturamento de Individual e Encaixe</title>
+<style>
+  :root{--bg:#f1f5f9;--card:#fff;--line:#e2e8f0;--ink:#0f172a;--mut:#64748b;--teal:#0d9488;--teal-d:#0f766e;--vio:#7c3aed;--amb:#d97706;--rose:#e11d48;--blue:#2563eb}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif}
+  .wrap{max-width:1080px;margin:0 auto;padding:16px}
+  .ribbon{background:#fef3c7;border:1px solid #fde68a;color:#92400e;font-size:12px;border-radius:8px;padding:6px 10px;margin-bottom:12px}
+  h1{font:600 22px Georgia,"Times New Roman",serif;margin:0}
+  .sub{color:var(--mut);font-size:12px;margin:2px 0 12px}
+  .abas{display:flex;gap:4px;flex-wrap:wrap;border-bottom:1px solid var(--line);margin-bottom:14px}
+  .aba{border:0;background:none;padding:8px 12px;font-size:13px;color:var(--mut);cursor:pointer;border-bottom:2px solid transparent}
+  .aba.on{color:var(--ink);font-weight:600;border-bottom-color:var(--amb)}
+  .tela{display:none}.tela.on{display:block}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:12px}
+  .card h2{font:600 15px Georgia,serif;margin:0 0 2px}
+  .hint{font-size:12px;color:var(--mut);margin:0 0 8px}
+  label{display:block;font-size:11px;font-weight:600;color:var(--mut);margin-bottom:3px;text-transform:uppercase;letter-spacing:.03em}
+  select,input[type=text],input[type=date],input[type=number],textarea{border:1px solid #cbd5e1;border-radius:6px;padding:6px 8px;font-size:13px;background:#fff;width:100%;font-family:inherit}
+  input[disabled],select[disabled]{background:#f1f5f9;color:#64748b}
+  .grid{display:grid;gap:12px}
+  .g2{grid-template-columns:repeat(2,1fr)}.g3{grid-template-columns:repeat(3,1fr)}.g4{grid-template-columns:repeat(4,1fr)}
+  @media(max-width:760px){.g2,.g3,.g4{grid-template-columns:1fr}}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{font-size:11px;text-transform:uppercase;letter-spacing:.03em;color:var(--mut);text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+  td{padding:7px 8px;border-bottom:1px solid #f1f5f9;vertical-align:middle}
+  tr.clic{cursor:pointer}tr.clic:hover td{background:#f8fafc}tr.sel td{background:#fffbeb}
+  .badge{display:inline-block;font-size:11px;font-weight:600;border-radius:999px;padding:2px 8px;border:1px solid;white-space:nowrap}
+  .b-ok{background:#ecfdf5;color:#047857;border-color:#a7f3d0}
+  .b-amb{background:#fffbeb;color:#b45309;border-color:#fde68a}
+  .b-pend{background:#f1f5f9;color:#475569;border-color:#cbd5e1}
+  .b-pf{background:#fdf2f8;color:#be185d;border-color:#fbcfe8}
+  .b-pj{background:#eff6ff;color:#1d4ed8;border-color:#bfdbfe}
+  .b-ta{background:#f5f3ff;color:#6d28d9;border-color:#ddd6fe}
+  .b-enc{background:#f5f3ff;color:#6d28d9;border-color:#ddd6fe}
+  .b-ind{background:#fdf2f8;color:#be185d;border-color:#fbcfe8}
+  .b-fec{background:#ecfeff;color:#0e7490;border-color:#a5f3fc}
+  .b-rose{background:#fff1f2;color:#be123c;border-color:#fecdd3}
+  .btn{font-size:12px;font-weight:600;border-radius:6px;padding:6px 11px;border:1px solid #cbd5e1;background:#fff;color:#334155;cursor:pointer}
+  .btn:hover{background:#f8fafc}
+  .btn.pri{background:var(--teal);border-color:var(--teal);color:#fff}
+  .btn.esc{background:#0f172a;border-color:#0f172a;color:#fff}
+  .novo{outline:2px dashed #f59e0b;outline-offset:3px;border-radius:8px}
+  .tagnovo{display:inline-block;background:#f59e0b;color:#fff;font-size:10px;font-weight:700;border-radius:4px;padding:1px 6px;margin-left:6px;vertical-align:middle;letter-spacing:.04em}
+  .mut{color:var(--mut);font-size:12px}
+  .seg{display:inline-flex;border:1px solid #cbd5e1;border-radius:8px;overflow:hidden}
+  .seg button{border:0;background:#fff;padding:6px 12px;font-size:12px;font-weight:600;color:#475569;cursor:pointer}
+  .seg button.on{background:#0f172a;color:#fff}
+  .nota{font-size:12px;background:#f0f9ff;border:1px solid #bae6fd;color:#075985;border-radius:8px;padding:8px 10px;margin:8px 0}
+  .aviso{font-size:12px;background:#fffbeb;border:1px solid #fde68a;color:#92400e;border-radius:8px;padding:8px 10px;margin:8px 0}
+  .calc{background:#f8fafc;border:1px solid var(--line);border-radius:10px;padding:12px}
+  .calc .l{display:flex;justify-content:space-between;padding:3px 0;font-size:13px}
+  .calc .t{font-size:16px;font-weight:700}
+  .calc hr{border:0;border-top:1px solid var(--line);margin:6px 0}
+  .perg{counter-reset:p;padding-left:0;list-style:none}
+  .perg li{counter-increment:p;margin:0 0 10px;padding:10px 12px 10px 40px;background:#fff;border:1px solid var(--line);border-radius:10px;position:relative}
+  .perg li:before{content:counter(p);position:absolute;left:12px;top:10px;width:20px;height:20px;border-radius:50%;background:#f59e0b;color:#fff;font-size:12px;font-weight:700;text-align:center;line-height:20px}
+  .ov{position:fixed;inset:0;background:rgba(15,23,42,.55);display:none;align-items:center;justify-content:center;padding:16px;z-index:20}
+  .ov.on{display:flex}
+  .modal{background:#fff;border-radius:12px;max-width:640px;width:100%;padding:18px;max-height:92vh;overflow:auto}
+  .modal h3{font:600 18px Georgia,serif;margin:0 0 6px}
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .sp{justify-content:space-between}
+  .dia{border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:#fafafa}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="ribbon">MOCKUP — nada foi alterado no sistema. Bordas tracejadas com a marca <b>NOVO</b> são o que muda na tela de Faturamento. Data fictícia de hoje: <b>07/11/2026</b>. Clique nas abas.</div>
+  <h1>Faturamento de venda Individual e Encaixe</h1>
+  <p class="sub">Mesma tela <b>Financeiro › Faturamento</b>. Encaixe cobra <b>pessoas vendidas × valor por pessoa</b>. Individual tem o pagamento registrado antes e a OS no Omie é gerada depois da aula.</p>
+
+  <div class="abas">
+    <button class="aba on" data-t="t1">1. A faturar (lista)</button>
+    <button class="aba" data-t="t2">2. Faturar Encaixe</button>
+    <button class="aba" data-t="t3">3. Faturar Individual</button>
+    <button class="aba" data-t="t4">4. Registrar pagamento antecipado</button>
+    <button class="aba" data-t="t5">5. Faturamentos emitidos</button>
+    <button class="aba" data-t="t6">6. Regras e pontos a confirmar</button>
+  </div>
+
+  <!-- 1 -->
+  <div class="tela on" id="t1">
+    <div class="card novo">
+      <h2>A faturar <span class="tagnovo">NOVO: filtro e situação</span></h2>
+      <p class="hint">Turma fechada continua como hoje (turmas com certificados). Individual e Encaixe entram na mesma lista, no nível do orçamento.</p>
+      <div class="grid g4" style="margin-bottom:10px">
+        <div style="grid-column:span 2"><label>Buscar orçamento</label><input type="text" placeholder="Número ou cliente"></div>
+        <div><label>Comercialização</label><select id="fcom"><option value="">Todas</option><option value="fec">Turma fechada</option><option value="enc">Encaixe</option><option value="ind">Individual</option></select></div>
+        <div><label>Situação</label><select><option>Prontos para faturar</option><option>Todos</option></select></div>
+      </div>
+      <table id="tbl1">
+        <thead><tr><th>Orçamento</th><th>Cliente</th><th>Comercialização</th><th>Base de cobrança</th><th style="text-align:right">Valor</th><th>Situação</th><th></th></tr></thead>
+        <tbody>
+          <tr data-c="fec"><td><b>26180</b></td><td>Construtora Beta S/A <span class="badge b-pj">PJ</span></td><td><span class="badge b-fec">Turma fechada</span></td><td>Por turma · 2 turmas disponíveis</td><td style="text-align:right">R$ 8.400,00</td><td><span class="badge b-ok">Turmas com certificados</span></td><td><button class="btn">Faturar</button></td></tr>
+          <tr data-c="enc"><td><b>26210</b></td><td>Metalúrgica Alfa Ltda <span class="badge b-pj">PJ</span></td><td><span class="badge b-enc">Encaixe</span> <span class="mut">TA-0003</span></td><td>3 pessoas × R$ 350,00</td><td style="text-align:right">R$ 945,00</td><td><span class="badge b-ok">Turma realizada · pronto</span></td><td><button class="btn" onclick="aba('t2')">Faturar</button></td></tr>
+          <tr data-c="enc"><td><b>26214</b></td><td>Construtora Beta S/A <span class="badge b-pj">PJ</span></td><td><span class="badge b-enc">Encaixe</span> <span class="mut">TA-0003</span></td><td>1 pessoa × R$ 350,00</td><td style="text-align:right">R$ 350,00</td><td><span class="badge b-ok">Turma realizada · pronto</span></td><td><button class="btn">Faturar</button></td></tr>
+          <tr data-c="ind"><td><b>26219</b></td><td>João da Silva <span class="badge b-pf">PF</span></td><td><span class="badge b-ind">Individual</span> <span class="mut">TA-0003</span></td><td>1 pessoa × R$ 280,00</td><td style="text-align:right">R$ 280,00</td><td><span class="badge b-ok">Pago (PIX 02/11) · turma realizada</span></td><td><button class="btn" onclick="aba('t3')">Faturar</button></td></tr>
+          <tr data-c="ind"><td><b>26225</b></td><td>Maria Souza <span class="badge b-pf">PF</span></td><td><span class="badge b-ind">Individual</span> <span class="mut">TA-0005</span></td><td>1 pessoa × R$ 280,00</td><td style="text-align:right">R$ 280,00</td><td><span class="badge b-amb">Aguardando pagamento</span></td><td><button class="btn" onclick="aba('t4')">Registrar pagamento</button></td></tr>
+          <tr data-c="enc"><td><b>26230</b></td><td>Indústria Gama Ltda <span class="badge b-pj">PJ</span></td><td><span class="badge b-enc">Encaixe</span> <span class="mut">TA-0006</span></td><td>2 pessoas × R$ 350,00</td><td style="text-align:right">R$ 700,00</td><td><span class="badge b-pend">Turma em 19/11/2026</span></td><td></td></tr>
+        </tbody>
+      </table>
+      <p class="mut" style="margin-top:8px">Individual só fica pronto com <b>pagamento registrado</b> e turma realizada. Encaixe fica pronto quando a última etapa da turma aberta já aconteceu.</p>
+    </div>
+  </div>
+
+  <!-- 2 -->
+  <div class="tela" id="t2">
+    <div class="card novo">
+      <div class="row" style="gap:14px"><h2 style="margin:0">Orçamento 26210</h2><span>Metalúrgica Alfa Ltda</span><span class="badge b-enc">Encaixe</span><span class="badge b-amb">Faturamento por pessoa vendida</span></div>
+      <p class="hint" style="margin-top:6px">Cobra <b>3 pessoas contratadas × R$ 350,00</b> (valor por pessoa do orçamento), sem depender de certificado. Desconto do orçamento: <b>10%</b>. Um faturamento no CNPJ do cliente.</p>
+      <div class="grid g4" style="margin:10px 0">
+        <div class="calc"><label>Valor do orçamento</label><div class="t">R$ 945,00</div><span class="mut">3 pessoas</span></div>
+        <div class="calc"><label>Já faturado</label><div class="t">R$ 0,00</div></div>
+        <div class="calc"><label>Turma aberta</label><div class="t">TA-0003</div><span class="mut">05/11 a 06/11/2026 · Guarulhos</span></div>
+        <div class="calc"><label>Alunos indicados</label><div class="t">2 de 3</div><span class="mut">informativo</span></div>
+      </div>
+      <div class="aviso">1 aluno ainda não foi indicado pelo cliente. Não bloqueia o faturamento (a cobrança é pelas pessoas vendidas), mas fica o aviso.</div>
+      <table>
+        <thead><tr><th>Aluno</th><th>Documento</th><th>CNPJ faturamento</th><th>Presença / certificado</th></tr></thead>
+        <tbody>
+          <tr><td>Carlos Lima</td><td>CPF 111.222.333-96</td><td>12.345.678/0001-90</td><td><span class="badge b-ok">Certificado</span></td></tr>
+          <tr><td>Ana Paula</td><td>CPF 222.333.444-05</td><td>12.345.678/0001-90</td><td><span class="badge b-ok">Certificado</span></td></tr>
+          <tr><td class="mut">— vaga não indicada —</td><td></td><td></td><td></td></tr>
+        </tbody>
+      </table>
+      <h2 style="margin-top:14px">Faturamento que será gerado</h2>
+      <table>
+        <thead><tr><th>CNPJ / cliente</th><th>Descrição</th><th style="text-align:right">Subtotal</th><th style="text-align:right">Desconto</th><th style="text-align:right">Total</th></tr></thead>
+        <tbody><tr><td>12.345.678/0001-90<br><span class="mut">Metalúrgica Alfa Ltda</span></td><td>NR-35 · TA-0003 · 3 pessoas × R$ 350,00</td><td style="text-align:right">R$ 1.050,00</td><td style="text-align:right" class="mut">− R$ 105,00</td><td style="text-align:right"><b>R$ 945,00</b></td></tr></tbody>
+      </table>
+      <div class="row" style="justify-content:flex-end;margin-top:10px"><button class="btn esc">Faturar orçamento</button></div>
+    </div>
+  </div>
+
+  <!-- 3 -->
+  <div class="tela" id="t3">
+    <div class="card novo">
+      <div class="row" style="gap:14px"><h2 style="margin:0">Orçamento 26219</h2><span>João da Silva</span><span class="badge b-ind">Individual</span><span class="badge b-pf">PF · CPF 123.456.789-09</span></div>
+      <p class="hint" style="margin-top:6px">1 pessoa × <b>R$ 280,00</b> (valor pessoa física). O aluno é o próprio cliente. Pago antes: a OS vai ao Omie já com a informação do pagamento.</p>
+      <div class="grid g3" style="margin:10px 0">
+        <div class="calc"><label>Pagamento antecipado</label><div class="t" style="color:#047857">R$ 280,00 · PIX</div><span class="mut">recebido em 02/11/2026 · comprovante anexado</span></div>
+        <div class="calc"><label>Turma aberta</label><div class="t">TA-0003</div><span class="mut">05/11 a 06/11/2026 · realizada</span></div>
+        <div class="calc"><label>Saldo a cobrar</label><div class="t">R$ 0,00</div><span class="mut">pago = valor do faturamento</span></div>
+      </div>
+      <h2>Faturamento que será gerado</h2>
+      <table>
+        <thead><tr><th>CPF / cliente</th><th>Descrição</th><th style="text-align:right">Total</th><th>Pagamento</th></tr></thead>
+        <tbody><tr><td>123.456.789-09<br><span class="mut">João da Silva</span></td><td>NR-35 · TA-0003 · 1 pessoa × R$ 280,00</td><td style="text-align:right"><b>R$ 280,00</b></td><td><span class="badge b-ok">Quitado · PIX 02/11</span></td></tr></tbody>
+      </table>
+      <div class="nota">No Omie: OS nº <b>26219 + 20261107</b> na etapa “Faturar”, cliente pessoa física pelo CPF, vendedor do orçamento, tributação “Exigível”. Em Observações entra “Pago antecipadamente por PIX em 02/11/2026” junto do resumo de sempre.</div>
+      <div class="row" style="justify-content:flex-end"><button class="btn esc">Gerar OS no Omie</button></div>
+    </div>
+  </div>
+
+  <!-- 4 -->
+  <div class="tela" id="t4">
+    <div class="card novo">
+      <h2>Pagamento antecipado do Individual <span class="tagnovo">NOVO</span></h2>
+      <p class="hint">Aparece no orçamento (aba Dados gerais, bloco Comercialização) e na tela de Faturamento, em “Registrar pagamento”. Substitui o registro de pagamento da antiga tela “Vendas por pessoa”.</p>
+      <div class="grid g3">
+        <div><label>Orçamento</label><input type="text" value="26225 · Maria Souza (Individual)" disabled></div>
+        <div><label>Valor a pagar</label><input type="text" value="R$ 280,00" disabled></div>
+        <div><label>Valor pago *</label><input type="text" value="R$ 280,00"></div>
+        <div><label>Forma *</label><select><option>PIX</option><option>Cartão de crédito</option><option>Cartão de débito</option><option>Boleto</option><option>Transferência</option><option>Dinheiro</option><option>Outra</option></select></div>
+        <div><label>Data do pagamento *</label><input type="date" value="2026-11-07"></div>
+        <div><label>Comprovante (opcional)</label><input type="text" placeholder="foto ou PDF"></div>
+      </div>
+      <div class="aviso">Se o valor pago for diferente do valor do orçamento, o sistema avisa e pede confirmação. Pago a menor deixa saldo para cobrar no faturamento.</div>
+      <div class="row"><button class="btn pri">Registrar pagamento</button><button class="btn">Cancelar</button></div>
+    </div>
+  </div>
+
+  <!-- 5 -->
+  <div class="tela" id="t5">
+    <div class="card novo">
+      <h2>Faturamentos emitidos <span class="tagnovo">NOVO: chips</span></h2>
+      <table>
+        <thead><tr><th>Nº faturamento</th><th>Orçamento</th><th>Cliente / documento</th><th>Comercialização</th><th style="text-align:right">Valor</th><th>Omie</th><th>Situação</th></tr></thead>
+        <tbody>
+          <tr><td>FAT-000412</td><td>26180</td><td>Construtora Beta S/A<br><span class="mut">CNPJ 98.765.432/0001-10</span></td><td><span class="badge b-fec">Turma fechada</span></td><td style="text-align:right">R$ 4.200,00</td><td>OS 2618020261105</td><td><span class="badge b-ok">Enviado</span></td></tr>
+          <tr><td>FAT-000413</td><td>26210</td><td>Metalúrgica Alfa Ltda<br><span class="mut">CNPJ 12.345.678/0001-90</span></td><td><span class="badge b-enc">Encaixe</span> <span class="mut">3 pessoas</span></td><td style="text-align:right">R$ 945,00</td><td>OS 2621020261107</td><td><span class="badge b-ok">Enviado</span></td></tr>
+          <tr><td>FAT-000414</td><td>26219</td><td>João da Silva<br><span class="mut">CPF 123.456.789-09</span></td><td><span class="badge b-ind">Individual</span> <span class="mut">1 pessoa</span></td><td style="text-align:right">R$ 280,00</td><td>OS 2621920261107</td><td><span class="badge b-ok">Enviado</span> <span class="badge b-ok">Quitado</span></td></tr>
+        </tbody>
+      </table>
+      <p class="mut" style="margin-top:8px">Cancelar um faturamento de Individual/Encaixe volta o orçamento para “A faturar”. O pagamento antecipado continua registrado.</p>
+    </div>
+  </div>
+
+  <!-- 6 -->
+  <div class="tela" id="t6">
+    <div class="card">
+      <h2>Decidido</h2>
+      <ul>
+        <li>Encaixe cobra <b>pessoas vendidas × valor por pessoa</b> (não depende de certificado nem de aluno indicado).</li>
+        <li>Individual: <b>pagamento registrado antes</b>; a <b>OS no Omie é gerada depois da aula</b>.</li>
+        <li>Mesma tela Faturamento, com filtro por comercialização.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h2>Assumido (corrija se estiver diferente)</h2>
+      <ol class="perg">
+        <li><b>Quando libera.</b> Encaixe: depois da última etapa da turma aberta. Individual: pagamento registrado <u>e</u> turma realizada.</li>
+        <li><b>Um faturamento por orçamento</b> (no CNPJ do cliente; no CPF para Individual), com o desconto do orçamento. Não há faturamento parcial dentro de um orçamento.</li>
+        <li><b>Individual no Omie.</b> A OS vai na etapa “Faturar” com o pagamento citado nas Observações. O app <u>não</u> dá baixa no recebimento do Omie. A baixa fica com o financeiro. Se quiser baixa automática, preciso confirmar se o Omie permite pelo acesso que já temos.</li>
+        <li><b>Cliente pessoa física no Omie</b> é cadastrado/localizado pelo CPF, como já é feito com CNPJ.</li>
+        <li><b>Individual que faltou.</b> Como o pagamento é antecipado, fatura mesmo assim. Cancelamento e estorno ao cliente ficam fora do app.</li>
+        <li><b>Aluno ainda não indicado no Encaixe</b> só gera aviso na tela; não impede o faturamento.</li>
+      </ol>
+    </div>
+    <div class="card">
+      <h2>Efeito técnico (para você saber)</h2>
+      <p class="hint">Hoje o “já faturado” é controlado por turma. Como a turma aberta é compartilhada por vários orçamentos, para Individual/Encaixe o controle passa a ser <b>por orçamento</b>. Turma fechada não muda. O novo módulo de permissão não é necessário: vale a permissão de Faturamento.</p>
+    </div>
+  </div>
+</div>
+<script>
+function aba(id){document.querySelectorAll('.tela').forEach(e=>e.classList.toggle('on',e.id===id));document.querySelectorAll('.aba').forEach(b=>b.classList.toggle('on',b.dataset.t===id));window.scrollTo(0,0)}
+document.querySelectorAll('.aba').forEach(b=>b.onclick=()=>aba(b.dataset.t));
+document.getElementById('fcom').onchange=e=>{const v=e.target.value;document.querySelectorAll('#tbl1 tbody tr').forEach(r=>r.style.display=(!v||r.dataset.c===v)?'':'none')};
+</script>
+</body></html>

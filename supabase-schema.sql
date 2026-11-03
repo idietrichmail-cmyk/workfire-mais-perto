@@ -3480,3 +3480,236 @@ revoke all on function public.ta_para_orcamento(uuid) from anon, public;
 grant execute on function public.ta_para_orcamento(uuid) to authenticated;
 
 -- Parte B (SQL Editor): ver turmas-abertas-v201-parteB.sql (excluir_orcamento recusa exclusão com alunos em turma aberta)
+
+
+-- =====================================================================
+-- v2.02 — Faturamento de venda Individual e turma de Encaixe
+--  * pagamento antecipado (Individual) registrado no orçamento
+--  * faturamento por orçamento: pessoas vendidas x valor por pessoa
+-- =====================================================================
+
+-- 1) Pagamentos antecipados do orçamento
+create table if not exists public.orcamento_pagamentos (
+  id uuid primary key default gen_random_uuid(),
+  orcamento_id uuid not null references public.orcamentos(id),
+  forma text not null,
+  data_pagamento date not null,
+  valor numeric(12,2) not null check (valor > 0),
+  comprovante text,
+  observacoes text,
+  status text not null default 'Ativo' check (status in ('Ativo','Cancelado')),
+  registrado_por text,
+  registrado_por_id uuid,
+  created_at timestamptz not null default now(),
+  cancelado_em timestamptz,
+  cancelado_por text,
+  cancelado_motivo text
+);
+create index if not exists orcamento_pagamentos_orc_idx on public.orcamento_pagamentos (orcamento_id);
+alter table public.orcamento_pagamentos enable row level security;
+
+create policy orcamento_pagamentos_select on public.orcamento_pagamentos for select to authenticated
+  using ( is_admin_sistema(auth.uid())
+          or tem_permissao(auth.uid(), 'faturamento', 'consultar')
+          or tem_permissao(auth.uid(), 'orcamentos', 'consultar') );
+
+-- 2) Faturamento por orçamento: gravado com modo 'turma' (a coluna modo só aceita turma/aluno);
+--    o tipo (Individual/Encaixe) vem de orcamentos.comercializacao.
+
+-- 3) Situação e valores de um orçamento Individual/Encaixe (interna)
+create or replace function public._fat_pessoa_info(p_orc uuid)
+returns jsonb language plpgsql stable security definer set search_path to 'public' as $$
+declare
+  o orcamentos%rowtype; e empresas%rowtype;
+  v_hoje date := (now() at time zone 'America/Sao_Paulo')::date;
+  v_pago numeric := 0; v_pag record; v_ult date; v_prim date; v_nturmas int;
+  v_turma uuid; v_ident text; v_indic int; v_fat record;
+  v_bloq jsonb := '[]'::jsonb; v_avisos jsonb := '[]'::jsonb;
+  v_bruto numeric; v_pct numeric := 0; v_desc numeric; v_final numeric;
+  v_cod text; v_realizada boolean; v_aprov boolean; v_ind boolean; v_qtd int; v_doc text; v_item jsonb; v_fats jsonb := '[]'::jsonb;
+begin
+  select * into o from orcamentos where id = p_orc;
+  if not found then raise exception 'Orçamento não encontrado.' using errcode = 'P0001'; end if;
+  if coalesce(o.comercializacao,'fechada') not in ('encaixe','individual') then
+    raise exception 'O orçamento % é de turma fechada: use o faturamento por turma.', o.numero using errcode = 'P0001';
+  end if;
+  v_ind := o.comercializacao = 'individual';
+  v_qtd := coalesce(o.qtd_alunos, 0);
+  select * into e from empresas where id = o.empresa_id;
+  v_doc := e.cnpj_digitos;
+  v_aprov := o.status like 'Aprovado%' or o.status = 'Concluído';
+
+  select max(coalesce(data_fim, data_inicio)), min(data_inicio), count(*) into v_ult, v_prim, v_nturmas
+    from turmas where orcamento_id = o.turma_aberta_id and status <> 'Cancelada';
+  v_turma := _vp_turma_ultimo_dia(o.turma_aberta_id);
+  select identificacao into v_ident from turmas where id = v_turma;
+  v_realizada := v_ult is not null and v_ult <= v_hoje;
+
+  select coalesce(sum(valor),0) into v_pago from orcamento_pagamentos where orcamento_id = p_orc and status = 'Ativo';
+  select forma, data_pagamento, comprovante into v_pag from orcamento_pagamentos
+    where orcamento_id = p_orc and status = 'Ativo' order by data_pagamento desc, created_at desc limit 1;
+  select count(*) into v_indic from turma_alunos where orcamento_id = p_orc;
+  select id, numero into v_fat from faturamentos where orcamento_id = p_orc and status = 'Emitido' order by created_at desc limit 1;
+
+  v_bruto := round(coalesce(o.valor_pessoa,0) * v_qtd, 2);
+  if coalesce(o.valor_total,0) > 0 then v_pct := greatest(coalesce(o.valor_desconto,0) / o.valor_total, 0); end if;
+  v_desc := round(v_bruto * v_pct, 2);
+  v_final := v_bruto - v_desc;
+
+  if v_fat.id is not null then v_bloq := v_bloq || to_jsonb('Este orçamento já foi faturado.'::text); end if;
+  if o.status = 'Recusado' then v_bloq := v_bloq || to_jsonb('O orçamento está recusado.'::text);
+  elsif not v_aprov then v_bloq := v_bloq || to_jsonb('O orçamento ainda não foi aprovado.'::text); end if;
+  if coalesce(o.valor_pessoa,0) <= 0 or v_qtd <= 0 then v_bloq := v_bloq || to_jsonb('O orçamento não tem pessoas ou valor por pessoa.'::text); end if;
+  if v_doc is null or length(v_doc) not in (11,14) then v_bloq := v_bloq || to_jsonb('O cliente do orçamento não tem CNPJ/CPF cadastrado.'::text); end if;
+  if v_ind and v_pago <= 0 then v_bloq := v_bloq || to_jsonb('O pagamento antecipado ainda não foi registrado.'::text); end if;
+  if v_ult is null then v_bloq := v_bloq || to_jsonb('A turma aberta ainda não tem datas agendadas.'::text);
+  elsif not v_realizada then v_bloq := v_bloq || to_jsonb(('A turma aberta ainda não foi realizada (última etapa em ' || to_char(v_ult,'DD/MM/YYYY') || ').')::text); end if;
+
+  if v_indic < v_qtd then v_avisos := v_avisos || to_jsonb(format('%s de %s pessoa(s) vendida(s) ainda sem aluno indicado. O faturamento considera as pessoas vendidas.', v_indic, v_qtd)); end if;
+  if v_ind and v_pago > 0 and v_pago < v_final then v_avisos := v_avisos || to_jsonb(format('Pagamento parcial: pago R$ %s de R$ %s.', to_char(v_pago,'FM999G999G990D00'), to_char(v_final,'FM999G999G990D00'))); end if;
+  if v_ind and v_pago > v_final then v_avisos := v_avisos || to_jsonb(format('O valor pago (R$ %s) é maior que o valor do orçamento (R$ %s).', to_char(v_pago,'FM999G999G990D00'), to_char(v_final,'FM999G999G990D00'))); end if;
+
+  v_cod := case
+    when v_fat.id is not null then 'faturado'
+    when o.status = 'Recusado' or not v_aprov then 'nao_aprovado'
+    when v_ind and v_pago <= 0 then 'aguardando_pagamento'
+    when v_ult is null then 'sem_data'
+    when not v_realizada then 'turma_futura'
+    when jsonb_array_length(v_bloq) > 0 then 'pendente'
+    else 'pronto' end;
+
+  v_item := jsonb_build_object('turma_id', v_turma, 'turma_identificacao', v_ident, 'alunos', v_qtd, 'alunos_turma', v_qtd,
+              'alunos_orcados', v_qtd, 'valor_base', v_bruto, 'excedentes_turma', 0, 'valor_excedentes', 0, 'valor', v_bruto);
+  v_fats := jsonb_build_array(jsonb_build_object(
+      'cnpj', _vp_fmt_doc(e.cnpj), 'cnpj_digitos', v_doc, 'razao_social', e.nome, 'alunos', v_qtd,
+      'valor_bruto', v_bruto, 'perc_desconto', round(v_pct*100, 4), 'valor_desconto', v_desc, 'valor_final', v_final,
+      'itens', jsonb_build_array(v_item)));
+
+  return jsonb_build_object(
+    'orcamento_id', o.id, 'numero', o.numero, 'comercializacao', o.comercializacao, 'status_orcamento', o.status,
+    'empresa_id', o.empresa_id, 'empresa_nome', e.nome, 'cnpj', _vp_fmt_doc(e.cnpj), 'cnpj_digitos', v_doc,
+    'turma_aberta_id', o.turma_aberta_id, 'turma_id', v_turma, 'turma_identificacao', v_ident,
+    'turma_primeira_data', v_prim, 'turma_ultima_data', v_ult, 'turma_realizada', v_realizada,
+    'qtd_pessoas', v_qtd, 'alunos_indicados', v_indic, 'valor_pessoa', coalesce(o.valor_pessoa,0),
+    'valor_bruto', v_bruto, 'perc_desconto', round(v_pct*100,4), 'valor_desconto', v_desc, 'valor_final', v_final,
+    'valor_pago', v_pago, 'saldo', greatest(v_final - v_pago, 0),
+    'pagamento_forma', v_pag.forma, 'pagamento_data', v_pag.data_pagamento,
+    'situacao', v_cod, 'pronto', (v_cod = 'pronto'), 'bloqueios', v_bloq, 'avisos', v_avisos,
+    'faturamento_id', v_fat.id, 'faturamento_numero', v_fat.numero,
+    'modo', 'pessoa', 'faturamentos', v_fats,
+    'total_bruto', v_bruto, 'total_desconto', v_desc, 'total_final', v_final);
+end $$;
+revoke all on function public._fat_pessoa_info(uuid) from public, anon, authenticated;
+
+-- 4) A faturar: Individual/Encaixe aprovados ainda sem faturamento emitido
+create or replace function public.fat_pessoa_listar()
+returns jsonb language plpgsql stable security definer set search_path to 'public' as $$
+declare v_uid uuid := auth.uid();
+begin
+  if v_uid is null or not (is_admin_sistema(v_uid) or tem_permissao(v_uid, 'faturamento', 'consultar')) then
+    raise exception 'Sem permissão para consultar faturamento.' using errcode = '42501';
+  end if;
+  return coalesce((
+    select jsonb_agg(_fat_pessoa_info(o.id) order by o.created_at desc)
+      from orcamentos o
+     where o.comercializacao in ('encaixe','individual') and not coalesce(o.turma_aberta,false)
+       and (o.status like 'Aprovado%' or o.status = 'Concluído')
+       and not exists (select 1 from faturamentos f where f.orcamento_id = o.id and f.status = 'Emitido')
+  ), '[]'::jsonb);
+end $$;
+
+create or replace function public.fat_pessoa_calcular(p_orcamento uuid)
+returns jsonb language plpgsql stable security definer set search_path to 'public' as $$
+declare v_uid uuid := auth.uid();
+begin
+  if v_uid is null or not (is_admin_sistema(v_uid) or tem_permissao(v_uid, 'faturamento', 'consultar')) then
+    raise exception 'Sem permissão para consultar faturamento.' using errcode = '42501';
+  end if;
+  return _fat_pessoa_info(p_orcamento);
+end $$;
+
+-- 5) Gerar o faturamento (um por orçamento)
+create or replace function public.gerar_faturamento_pessoa(p_orcamento uuid, p_dados jsonb default '{}'::jsonb)
+returns jsonb language plpgsql security definer set search_path to 'public' as $$
+declare v_uid uuid := auth.uid(); r jsonb; f jsonb; it jsonb; v_id uuid; v_num bigint;
+begin
+  if v_uid is null or not (is_admin_sistema(v_uid) or tem_permissao(v_uid, 'faturamento', 'incluir')) then
+    raise exception 'Sem permissão para emitir faturamento.' using errcode = '42501';
+  end if;
+  perform 1 from orcamentos where id = p_orcamento for update;
+  r := _fat_pessoa_info(p_orcamento);
+  if jsonb_array_length(r->'bloqueios') > 0 then
+    raise exception '%', (r->'bloqueios'->>0) using errcode = 'P0001';
+  end if;
+  f := r->'faturamentos'->0;
+  insert into faturamentos (orcamento_id, cnpj, cnpj_digitos, razao_social, modo, alunos, valor_bruto, perc_desconto, valor_desconto, valor_final,
+                            ordem_compra, vencimento, observacoes, criado_por, criado_por_id)
+  values (p_orcamento, f->>'cnpj', f->>'cnpj_digitos', f->>'razao_social', 'turma', (f->>'alunos')::int,
+          (f->>'valor_bruto')::numeric, (f->>'perc_desconto')::numeric, (f->>'valor_desconto')::numeric, (f->>'valor_final')::numeric,
+          nullif(btrim(coalesce(p_dados->>'ordem_compra','')), ''), nullif(p_dados->>'vencimento','')::date,
+          nullif(btrim(coalesce(p_dados->>'observacoes','')), ''), _fat_nome_usuario(v_uid), v_uid)
+  returning id, numero into v_id, v_num;
+  for it in select * from jsonb_array_elements(f->'itens') loop
+    insert into faturamento_itens (faturamento_id, turma_id, turma_identificacao, alunos, alunos_turma, alunos_orcados, valor_base, excedentes_turma, valor_excedentes, valor)
+    values (v_id, (it->>'turma_id')::uuid, it->>'turma_identificacao', (it->>'alunos')::int, (it->>'alunos_turma')::int, (it->>'alunos_orcados')::int,
+            (it->>'valor_base')::numeric, (it->>'excedentes_turma')::int, (it->>'valor_excedentes')::numeric, (it->>'valor')::numeric);
+  end loop;
+  return jsonb_build_object('faturamentos', jsonb_build_array(jsonb_build_object('id', v_id, 'numero', v_num, 'cnpj', f->>'cnpj', 'valor_final', (f->>'valor_final')::numeric)));
+end $$;
+
+-- 6) Pagamento antecipado (venda Individual)
+create or replace function public.orcamento_pagamento_registrar(p_orcamento uuid, p_forma text, p_data date, p_valor numeric,
+                                                                p_comprovante text default null, p_obs text default null)
+returns jsonb language plpgsql security definer set search_path to 'public' as $$
+declare v_uid uuid := auth.uid(); o orcamentos%rowtype; v_id uuid;
+begin
+  if v_uid is null or not (is_admin_sistema(v_uid) or tem_permissao(v_uid, 'faturamento', 'incluir')) then
+    raise exception 'Sem permissão para registrar pagamento.' using errcode = '42501';
+  end if;
+  select * into o from orcamentos where id = p_orcamento for update;
+  if not found then raise exception 'Orçamento não encontrado.' using errcode = 'P0001'; end if;
+  if coalesce(o.comercializacao,'fechada') <> 'individual' then
+    raise exception 'O pagamento antecipado é registrado apenas em vendas Individuais.' using errcode = 'P0001';
+  end if;
+  if o.status = 'Recusado' then raise exception 'O orçamento está recusado.' using errcode = 'P0001'; end if;
+  if exists (select 1 from faturamentos where orcamento_id = p_orcamento and status = 'Emitido') then
+    raise exception 'O orçamento já foi faturado.' using errcode = 'P0001';
+  end if;
+  if length(btrim(coalesce(p_forma,''))) < 2 then raise exception 'Informe a forma de pagamento.' using errcode = 'P0001'; end if;
+  if p_data is null or p_data > (now() at time zone 'America/Sao_Paulo')::date then
+    raise exception 'Informe a data do pagamento (não pode ser futura).' using errcode = 'P0001';
+  end if;
+  if coalesce(p_valor,0) <= 0 then raise exception 'Informe o valor pago.' using errcode = 'P0001'; end if;
+  insert into orcamento_pagamentos (orcamento_id, forma, data_pagamento, valor, comprovante, observacoes, registrado_por, registrado_por_id)
+  values (p_orcamento, btrim(p_forma), p_data, round(p_valor,2), nullif(btrim(coalesce(p_comprovante,'')),''), nullif(btrim(coalesce(p_obs,'')),''),
+          _fat_nome_usuario(v_uid), v_uid)
+  returning id into v_id;
+  return jsonb_build_object('id', v_id, 'pago', (select coalesce(sum(valor),0) from orcamento_pagamentos where orcamento_id = p_orcamento and status = 'Ativo'));
+end $$;
+
+create or replace function public.orcamento_pagamento_cancelar(p_id uuid, p_motivo text)
+returns void language plpgsql security definer set search_path to 'public' as $$
+declare v_uid uuid := auth.uid(); v_orc uuid;
+begin
+  if v_uid is null or not (is_admin_sistema(v_uid) or tem_permissao(v_uid, 'faturamento', 'excluir')) then
+    raise exception 'Sem permissão para cancelar pagamento.' using errcode = '42501';
+  end if;
+  if length(btrim(coalesce(p_motivo,''))) < 3 then raise exception 'Informe o motivo.' using errcode = 'P0001'; end if;
+  select orcamento_id into v_orc from orcamento_pagamentos where id = p_id and status = 'Ativo';
+  if not found then raise exception 'Pagamento não encontrado ou já cancelado.' using errcode = 'P0001'; end if;
+  if exists (select 1 from faturamentos where orcamento_id = v_orc and status = 'Emitido') then
+    raise exception 'O orçamento já foi faturado: cancele o faturamento antes de cancelar o pagamento.' using errcode = 'P0001';
+  end if;
+  update orcamento_pagamentos set status = 'Cancelado', cancelado_em = now(), cancelado_por = _fat_nome_usuario(v_uid), cancelado_motivo = btrim(p_motivo) where id = p_id;
+end $$;
+
+revoke all on function public.fat_pessoa_listar() from public, anon;
+revoke all on function public.fat_pessoa_calcular(uuid) from public, anon;
+revoke all on function public.gerar_faturamento_pessoa(uuid, jsonb) from public, anon;
+revoke all on function public.orcamento_pagamento_registrar(uuid, text, date, numeric, text, text) from public, anon;
+revoke all on function public.orcamento_pagamento_cancelar(uuid, text) from public, anon;
+grant execute on function public.fat_pessoa_listar() to authenticated;
+grant execute on function public.fat_pessoa_calcular(uuid) to authenticated;
+grant execute on function public.gerar_faturamento_pessoa(uuid, jsonb) to authenticated;
+grant execute on function public.orcamento_pagamento_registrar(uuid, text, date, numeric, text, text) to authenticated;
+grant execute on function public.orcamento_pagamento_cancelar(uuid, text) to authenticated;
