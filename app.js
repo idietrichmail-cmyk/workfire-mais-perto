@@ -36,7 +36,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 2.00 · 02/11/2026";
+const APP_VERSAO = "Prod 2.01 · 03/11/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -457,9 +457,8 @@ const MODULOS = [
   { id: "prazos_pagamento", label: "Prazos de Pagamento", icone: "🗓️", grupo: "Cadastros Básicos" },
   { id: "treinamentos_capacitacao", label: "Treinamentos de Capacitação", icone: "📚", grupo: "Cadastros Básicos" },
   // Comercial
-  { id: "empresas", label: "Empresas", icone: "🏢", grupo: "Comercial" },
+  { id: "empresas", label: "Clientes", icone: "🏢", grupo: "Comercial" },
   { id: "orcamentos", label: "Orçamentos", icone: "💰", grupo: "Comercial" },
-  { id: "vendas_pessoa", label: "Vendas por pessoa", icone: "🎟️", grupo: "Comercial" },
   // Compras
   { id: "materiais", label: "Materiais", icone: "📦", grupo: "Compras" },
   // Logística
@@ -468,6 +467,7 @@ const MODULOS = [
   { id: "agendamento_turmas", label: "Agendamento de Turmas", icone: "📆", grupo: "Logística" },
   { id: "agenda_centros", label: "Agenda por Centro de Treinamento", icone: "📅", grupo: "Logística" },
   { id: "grupos_turmas", label: "Grupos de Turmas", icone: "👥", grupo: "Logística" },
+  { id: "turmas_abertas", label: "Turmas Abertas", icone: "🎟️", grupo: "Logística" },
   { id: "consulta_agenda", label: "Consulta de Agenda", icone: "🔎", grupo: "Logística" },
   { id: "disponibilidade_instrutores", label: "Disponibilidade dos Instrutores", icone: "📊", grupo: "Logística" },
   { id: "turmas", label: "Turmas por Orçamento", icone: "🎓", grupo: "Logística" },
@@ -1412,6 +1412,10 @@ function irParaModulo(id) {
   } else if (id === "agenda_centros") {
     $("secao-agenda-centros").classList.remove("hidden");
     carregarAgendaCentrosInit();
+  } else if (id === "turmas_abertas") {
+    $("admin-descricao-pagina").textContent = "Crie turmas abertas (treinamento, centro, vagas e datas) e acompanhe os orçamentos de comercialização Individual e Encaixe vinculados a elas.";
+    $("secao-turmas-abertas").classList.remove("hidden");
+    carregarTurmasAbertasInit();
   } else if (id === "grupos_turmas") {
     $("secao-grupos-turmas").classList.remove("hidden");
     carregarGruposTurmasInit();
@@ -1917,20 +1921,25 @@ async function excluirInstrutor(id) {
 const CRUD_CONFIG = {
   empresas: {
     tabela: "empresas",
-    titulo: "Empresa",
-    descricao: "Empresas clientes que contratam treinamentos.",
+    titulo: "Cliente",
+    descricao: "Clientes que contratam treinamentos: pessoa jurídica (CNPJ) ou pessoa física (CPF).",
+    validarForm: () => {
+      const d = ($("crud-campo-cnpj")?.value || "").replace(/\D/g, "");
+      if (d.length === 11 && !cpfValido(d)) return "CPF inválido. Confira os dígitos informados.";
+      return null;
+    },
     painelTelaCheia: true,
     camposExtraHtml: () => htmlSecaoContatosEmpresa(),
     aoMontarForm: (item) => iniciarSecaoContatosEmpresa(item),
     aoSalvar: aoSalvarEmpresaCrud,
-    buscaPlaceholder: "Buscar por nome, nome fantasia ou CNPJ",
+    buscaPlaceholder: "Buscar por nome, nome fantasia, CNPJ ou CPF",
     ordenarPor: "nome",
     // Lista paginada no servidor: só 30 empresas por vez (a busca também roda no servidor).
     paginacao: { tamanho: 30, colunasTexto: ["nome", "nome_fantasia"], colunaDigitos: "cnpj_digitos" },
     campos: [
-      { id: "nome", label: "Nome da empresa (razão social)", obrigatorio: true },
+      { id: "nome", label: "Nome do cliente (razão social ou nome da pessoa física)", obrigatorio: true },
       { id: "nome_fantasia", label: "Nome fantasia" },
-      { id: "cnpj", label: "CNPJ", mascara: "cnpj", botaoAcao: { id: "btn-buscar-cnpj", label: "🔎 Pesquisar Receita Federal", onClick: buscarCnpjReceitaFederal } },
+      { id: "cnpj", label: "CNPJ (pessoa jurídica) ou CPF (pessoa física)", mascara: "docfat", botaoAcao: { id: "btn-buscar-cnpj", label: "🔎 Pesquisar Receita Federal", onClick: buscarCnpjReceitaFederal } },
       {
         id: "cnpj_grupo_economico",
         label: "CNPJ do Grupo Econômico (opcional)",
@@ -1944,6 +1953,7 @@ const CRUD_CONFIG = {
           return count > 0 ? null : "Esse CNPJ do grupo econômico não corresponde a nenhuma empresa já cadastrada.";
         },
       },
+      { id: "data_nascimento", label: "Data de nascimento (pessoa física — vai para o certificado do aluno)", tipo: "date" },
       { id: "contato_nome", label: "Contato principal — nome" },
       { id: "contato_cargo", label: "Contato principal — cargo" },
       { id: "contato_depto", label: "Contato principal — departamento" },
@@ -1955,7 +1965,7 @@ const CRUD_CONFIG = {
     ],
     campoBusca: (i) => `${i.nome} ${i.nome_fantasia || ""} ${i.cnpj || ""}`,
     cardTitulo: (i) => i.nome,
-    cardLinhas: (i) => [i.nome_fantasia && `Fantasia: ${i.nome_fantasia}`, i.cnpj && `CNPJ: ${i.cnpj}`, i.cnpj_grupo_economico && `Grupo: ${i.cnpj_grupo_economico}`, i.contato_nome, i.contato_email, i.contato_telefone].filter(Boolean),
+    cardLinhas: (i) => [i.nome_fantasia && `Fantasia: ${i.nome_fantasia}`, i.cnpj && `${String(i.cnpj).replace(/\D/g, "").length === 11 ? "CPF (pessoa física)" : "CNPJ"}: ${i.cnpj}`, i.cnpj_grupo_economico && `Grupo: ${i.cnpj_grupo_economico}`, i.contato_nome, i.contato_email, i.contato_telefone].filter(Boolean),
     renderTabela: (lista, { podeAlterar, podeExcluir }) => {
       const badge = (s) => `<span class="text-[11px] font-medium px-2 py-0.5 rounded-full ${s === "Inativo" ? "bg-rose-50 text-rose-600" : "bg-teal-50 text-teal-700"}">${s || "—"}</span>`;
       return `
@@ -1964,7 +1974,7 @@ const CRUD_CONFIG = {
           <tr class="bg-slate-50 text-left text-slate-500 uppercase tracking-wide text-[10px]">
             <th class="px-3 py-2 font-medium">Empresa</th>
             <th class="px-3 py-2 font-medium">Nome fantasia</th>
-            <th class="px-3 py-2 font-medium">CNPJ</th>
+            <th class="px-3 py-2 font-medium">CNPJ / CPF</th>
             <th class="px-3 py-2 font-medium">Grupo econômico</th>
             <th class="px-3 py-2 font-medium">Contato</th>
             <th class="px-3 py-2 font-medium">Status</th>
@@ -1976,7 +1986,7 @@ const CRUD_CONFIG = {
           <tr class="hover:bg-slate-50">
             <td class="px-3 py-2 text-slate-800 font-medium">${escH(i.nome || "—")}</td>
             <td class="px-3 py-2 text-slate-600">${escH(i.nome_fantasia || "—")}</td>
-            <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${escH(i.cnpj || "—")}</td>
+            <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${escH(i.cnpj || "—")}${String(i.cnpj || "").replace(/\D/g, "").length === 11 ? ' <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-violet-50 text-violet-700">PF</span>' : ""}</td>
             <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${escH(i.cnpj_grupo_economico || "—")}</td>
             <td class="px-3 py-2 text-slate-600">${escH([i.contato_nome, i.contato_telefone, i.contato_email].filter(Boolean).join(" · ") || "—")}</td>
             <td class="px-3 py-2 whitespace-nowrap">${badge(i.status)}</td>
@@ -2121,7 +2131,9 @@ const CRUD_CONFIG = {
       }
       if ($("crud-campo-vendido_por_pessoa")?.checked) {
         const vi = ($("crud-campo-valor_individual")?.value || "").trim();
-        if (vi === "" || !(Number(vi) >= 0)) return "Treinamento vendido por pessoa: informe o valor individual por pessoa.";
+        if (vi === "" || !(Number(vi) >= 0)) return "Treinamento com turma aberta: informe o valor individual (comercialização Encaixe).";
+        const vpf = ($("crud-campo-valor_pessoa_fisica")?.value || "").trim();
+        if (vpf === "" || !(Number(vpf) >= 0)) return "Treinamento com turma aberta: informe o valor pessoa física (comercialização Individual).";
       }
       const mp = ($("crud-campo-minimo_pessoas_turma")?.value || "").trim();
       if (mp !== "" && !(Number(mp) >= 1)) return "Mínimo de pessoas: informe 1 ou mais.";
@@ -2161,8 +2173,9 @@ const CRUD_CONFIG = {
       },
       { id: "texto_certificado", label: "Texto do certificado (variáveis: #nome_aluno#, #tip_docto#, #numero_docto#, #data_inicio#, #data_termino#)", tipo: "textarea" },
       { id: "texto_atestado", label: "Texto de impressão do atestado (variáveis: #razao_social_empresa#, #cnpj_empresa#, #endereco_empresa#; opcionais: #nome_treinamento#, #carga_horaria#, #data_inicio#, #data_termino#)", tipo: "textarea" },
-      { id: "vendido_por_pessoa", label: "Vendido por pessoa (turmas abertas: pessoa física compra 1 vaga; empresa compra várias vagas)", tipo: "checkbox", padrao: false },
-      { id: "valor_individual", label: "Valor individual por pessoa (R$) — preço de tabela; vendas abaixo dele pedem aprovação", tipo: "number", min: 0, step: "0.01" },
+      { id: "vendido_por_pessoa", label: "Permite turma aberta (comercialização Individual e Encaixe por pessoa)", tipo: "checkbox", padrao: false },
+      { id: "valor_individual", label: "Valor individual (R$ por pessoa) — usado na comercialização Encaixe / turma aberta", tipo: "number", min: 0, step: "0.01" },
+      { id: "valor_pessoa_fisica", label: "Valor pessoa física (R$) — usado na comercialização Individual (cliente pessoa física)", tipo: "number", min: 0, step: "0.01" },
       { id: "minimo_pessoas_turma", label: "Mínimo de pessoas para abrir turma (opcional, usado na fila de pedidos)", tipo: "number", min: 1, step: "1" },
       { id: "perc_apoio", label: "% de apoio", tipo: "number", min: 0, max: 100, step: "0.01", padrao: 0 },
       { id: "perc_margem", label: "% de margem", tipo: "number", min: 0, max: 100, step: "0.01", padrao: 0 },
@@ -2180,7 +2193,7 @@ const CRUD_CONFIG = {
     cardLinhas: (i) => [
       rotuloCategoriaTreinamento(i.categoria_treinamento_id),
       i.somente_locacao_espaco && "🏢 Somente locação de espaço",
-      i.vendido_por_pessoa && `🎟️ Vendido por pessoa${i.valor_individual != null ? " · " + fmtBRL(i.valor_individual) + " por pessoa" : ""}`,
+      i.vendido_por_pessoa && `🎟️ Turma aberta${i.valor_individual != null ? " · individual " + fmtBRL(i.valor_individual) : ""}${i.valor_pessoa_fisica != null ? " · pessoa física " + fmtBRL(i.valor_pessoa_fisica) : ""}`,
       i.emite_certificado === false ? "📄 Não emite certificado" : (treinoRefRespTecnicos.find((r) => r.id === i.responsavel_tecnico_id) ? `🎓 Resp. técnico: ${treinoRefRespTecnicos.find((r) => r.id === i.responsavel_tecnico_id).nome}` : "🎓 Emite certificado (sem responsável técnico)"),
       i.categoria,
       i.carga_horaria && `Carga horária: ${i.carga_horaria}`,
@@ -6899,7 +6912,7 @@ function renderizarListaOrcamentos() {
   };
   cont.innerHTML = lista.map((o) => `
     <tr class="hover:bg-slate-50">
-      <td class="px-3 py-2 font-mono text-slate-700 cursor-pointer select-none" data-orc-numero="${o.id}" title="Dois cliques para editar">${escH(o.numero)}</td>
+      <td class="px-3 py-2 font-mono text-slate-700 cursor-pointer select-none" data-orc-numero="${o.id}" title="Dois cliques para editar">${escH(o.numero)}${o.comercializacao === "individual" ? ' <span class="text-[10px] font-sans px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-800">Individual</span>' : o.comercializacao === "encaixe" ? ' <span class="text-[10px] font-sans px-1.5 py-0.5 rounded-full bg-sky-100 text-sky-800">Encaixe</span>' : ""}</td>
       <td class="px-3 py-2 text-slate-700">${escH(o.empresas?.nome || "—")}</td>
       <td class="px-3 py-2 text-slate-500">${escH(o.tipos_treinamento?.nome || "—")}</td>
       <td class="px-3 py-2 text-slate-500">${escH(o.centros_treinamento?.nome || "—")}</td>
@@ -7035,7 +7048,9 @@ function orcAtualizarAbas() {
   bd3.textContent = `${grupos} turma(s) · ${dias} dia(s)`;
   const cor = c.precisaAprovacao ? "text-rose-600" : "text-slate-800";
   resumo.classList.toggle("hidden", false);
-  resumo.innerHTML = temCalc
+  resumo.innerHTML = c.pessoa
+    ? `<span>Valor final <b class="text-sm text-slate-800">${fmtBRL(c.final)}</b></span><span>${c.q.alunos} pessoa(s) × ${fmtBRL(c.porAluno)}</span>`
+    : temCalc
     ? `<span>Valor final <b class="text-sm ${cor}">${fmtBRL(c.final)}</b></span><span>Margem <b class="text-sm ${cor}">${fmtPercOrc(c.margemPerc)}</b></span><span>${c.q.alunos} alunos · ${c.q.turmas} turma(s)</span>`
     : `<span>${c.q.alunos} alunos · ${c.q.turmas} turma(s)</span>`;
 }
@@ -7070,6 +7085,203 @@ let orcCalcErro = null;      // falha ao carregar o cálculo (bloqueia o salvame
 const r2 = (v) => Math.round((Number(v) + Number.EPSILON) * 100) / 100;
 const fmtQtd = (n) => Number(n || 0).toLocaleString("pt-BR", { maximumFractionDigits: 4 });
 const fmtPercOrc = (v) => `${Number(v || 0).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}%`;
+
+// ---------------------------------------------------------
+// v2.01 — Comercialização do orçamento: Turma fechada (como sempre), Encaixe (turma aberta) e Individual
+// (cliente pessoa física). Encaixe e Individual não geram turmas: o orçamento entra numa turma aberta, usa o
+// valor por pessoa do cadastro do treinamento e não tem tabela de custos.
+// ---------------------------------------------------------
+let orcTasRef = [];            // turmas abertas do treinamento escolhido (ta_para_orcamento)
+let orcValorPessoaManual = false;
+const orcCom = () => (($("orc-comercializacao") && $("orc-comercializacao").value) || "fechada");
+const orcModoPessoa = () => orcCom() !== "fechada";
+const orcDataBR = (d) => { const m = String(d || "").match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[3]}/${m[2]}/${m[1]}` : "—"; };
+function orcPrecoTabela(tipo, modo) {
+  if (!tipo) return null;
+  const v = modo === "individual" ? tipo.valor_pessoa_fisica : tipo.valor_individual;
+  return v == null || v === "" ? null : Number(v);
+}
+function orcPessoaPreencherPreco(forcar) {
+  const tipo = listaTiposAtivos.find((t) => t.id === $("orc-tipo").value);
+  const tab = orcPrecoTabela(tipo, orcCom());
+  $("orc-valor-pessoa-tabela").textContent = tab != null ? `Tabela: ${fmtBRL(tab)}` : "Sem valor de tabela no cadastro do treinamento";
+  if (forcar || !orcValorPessoaManual) $("orc-valor-pessoa").value = tab != null ? tab : "";
+}
+function orcEmpresaPessoaFisica() {
+  const e = empresaSelecionadaOrc();
+  return !!e && String(e.cnpj || "").replace(/\D/g, "").length === 11;
+}
+async function orcCarregarTAs(tipoId, manterId) {
+  const sel = $("orc-turma-aberta");
+  const atual = manterId || sel.value;
+  if (!tipoId) { orcTasRef = []; }
+  else {
+    try { orcTasRef = (await taRpc("ta_para_orcamento", { p_tipo: tipoId })) || []; }
+    catch (e) { orcTasRef = []; mostrarErro("orc-form-erro", "Não foi possível carregar as turmas abertas: " + taMsgErro(e)); }
+  }
+  sel.innerHTML = `<option value="">${tipoId ? "— Selecione a turma aberta —" : "— Escolha o treinamento primeiro —"}</option>` + orcTasRef.map((t) =>
+    `<option value="${escH(t.id)}" ${t.livres <= 0 && t.id !== atual ? "disabled" : ""}>${escH(t.numero)} · ${orcDataBR(t.data_inicio)}${t.data_fim && t.data_fim !== t.data_inicio ? " a " + orcDataBR(t.data_fim) : ""} · ${escH(t.centro || "—")} · ${t.livres} vaga(s) livre(s) de ${t.vagas}</option>`).join("");
+  if (atual && !orcTasRef.some((t) => t.id === atual)) {
+    sel.insertAdjacentHTML("beforeend", `<option value="${escH(atual)}">Turma aberta vinculada (encerrada ou de outro treinamento)</option>`);
+  }
+  sel.value = atual && [...sel.options].some((o) => o.value === atual) ? atual : "";
+}
+function orcAplicarModoCom() {
+  const modo = orcCom(), pessoa = modo !== "fechada";
+  $("painel-orcamento").classList.toggle("orc-modo-pessoa", pessoa);
+  $("orc-ta-wrap").classList.toggle("hidden", !pessoa);
+  const info = $("orc-com-info");
+  if (!pessoa) {
+    $("orc-qtd-alunos").readOnly = false;
+    info.className = "col-span-2 md:col-span-12 text-[11px] text-slate-500";
+    info.textContent = "Turma fechada: as turmas do treinamento são geradas e ficam vinculadas a este orçamento. Os alunos são indicados pelo cliente.";
+    return;
+  }
+  $("orc-qtd-turmas").value = "1";
+  $("orc-qtd-localidades").value = "1";
+  $("orc-formato-teoria").value = "CT";
+  $("orc-formato-pratica").value = "CT";
+  $("orc-dois-instrutores").checked = false;
+  if (modo === "individual") { $("orc-qtd-alunos").value = "1"; $("orc-qtd-alunos").readOnly = true; }
+  else $("orc-qtd-alunos").readOnly = false;
+  const ta = orcTasRef.find((t) => t.id === $("orc-turma-aberta").value);
+  if (ta) {
+    if (ta.centro_id) $("orc-centro").value = ta.centro_id;
+    $("orc-horario-teoria").value = String(ta.horario_teoria || "").slice(0, 5);
+    $("orc-horario-pratica").value = String(ta.horario_pratica || ta.horario_teoria || "").slice(0, 5);
+  }
+  atualizarBlocosEnderecoInCompanyOrc();
+  atualizarBlocoHorarioPraticaOrc();
+  const base = modo === "individual"
+    ? "Individual: o aluno é o próprio cliente (pessoa física, com CPF). Usa o valor pessoa física do cadastro do treinamento. Não gera turma: entra na turma aberta escolhida."
+    : "Encaixe: o cliente (pessoa física ou jurídica) indica os alunos depois. Usa o valor individual do cadastro do treinamento. Não gera turma: entra na turma aberta escolhida. Não pode passar das vagas livres.";
+  const aviso = modo === "individual" && $("orc-empresa").value && !orcEmpresaPessoaFisica();
+  info.className = "col-span-2 md:col-span-12 text-[11px] " + (aviso ? "text-rose-600" : "text-slate-500");
+  info.textContent = aviso ? "Atenção: para comercialização Individual o cliente precisa ser pessoa física (CPF no cadastro de clientes). " + base : base;
+}
+async function orcMudouComercializacao() {
+  const antes = orcModoPessoa();
+  orcAplicarModoCom();
+  orcEditorSujo = true;
+  if (orcModoPessoa()) {
+    orcLinhasCalc = []; orcCalcOrigem = "vazio"; orcCalcErro = null;
+    await orcCarregarTAs($("orc-tipo").value);
+    orcValorPessoaManual = false;
+    orcPessoaPreencherPreco(true);
+    orcAplicarModoCom();
+    renderizarCalcOrcamento();
+  } else if (antes !== orcModoPessoa() || !orcLinhasCalc.length) {
+    $("orc-turma-aberta").value = "";
+    try { await aplicarCadastroNoCalculo(); } catch (e) { mostrarErro("orc-form-erro", "Não foi possível carregar os itens de custo do treinamento: " + (e?.message || "erro desconhecido")); }
+  }
+  atualizarQtdAlunosCalculado();
+  if (editandoOrcamentoId) orcPessoaRenderPainel(editandoOrcamentoId);
+}
+$("orc-comercializacao").addEventListener("change", orcMudouComercializacao);
+$("orc-turma-aberta").addEventListener("change", () => { orcEditorSujo = true; orcAplicarModoCom(); if (editandoOrcamentoId) orcPessoaRenderPainel(editandoOrcamentoId); });
+$("orc-valor-pessoa").addEventListener("input", () => { orcValorPessoaManual = true; orcEditorSujo = true; recalcularOrcamentoTela(); });
+$("orc-empresa").addEventListener("change", () => { if (orcModoPessoa()) orcAplicarModoCom(); });
+$("orc-tipo").addEventListener("change", async () => {
+  if (!orcModoPessoa()) return;
+  $("orc-turma-aberta").value = "";
+  await orcCarregarTAs($("orc-tipo").value);
+  orcValorPessoaManual = false;
+  orcPessoaPreencherPreco(true);
+  orcAplicarModoCom();
+  recalcularOrcamentoTela();
+});
+
+// valida a comercialização por pessoa antes de gravar (o banco confere de novo)
+function orcPessoaValidar() {
+  const modo = orcCom();
+  const taId = $("orc-turma-aberta").value;
+  if (!taId) return "Escolha a turma aberta do orçamento.";
+  if (modo === "individual" && !orcEmpresaPessoaFisica()) return "Comercialização Individual: o cliente precisa ser pessoa física (CPF no cadastro de clientes).";
+  const qtd = Math.floor(Number($("orc-qtd-alunos").value) || 0);
+  if (modo === "individual" && qtd !== 1) return "Comercialização Individual: a quantidade é 1 pessoa (o próprio cliente).";
+  if (!(Number($("orc-valor-pessoa").value) > 0)) return "Informe o valor por pessoa (o treinamento não tem valor de tabela para esta comercialização).";
+  const ta = orcTasRef.find((t) => t.id === taId);
+  if (ta) {
+    const meu = editandoOrcamentoId && orcPessoaQtdSalva && orcPessoaQtdSalva.ta === taId ? orcPessoaQtdSalva.qtd : 0;
+    if (qtd > ta.livres + meu) return `A turma aberta ${ta.numero} tem ${ta.livres + meu} vaga(s) livre(s); o orçamento pede ${qtd}.`;
+  }
+  return null;
+}
+let orcPessoaQtdSalva = null;   // { ta, qtd } do orçamento aberto (para somar de volta as vagas dele próprio)
+
+async function orcPessoaRenderPainel(orcId) {
+  const box = $("orc-pessoa-painel");
+  if (!box) return;
+  if (!orcModoPessoa()) { box.innerHTML = ""; return; }
+  const modo = orcCom();
+  const ta = orcTasRef.find((t) => t.id === $("orc-turma-aberta").value);
+  const cab = ta
+    ? `<div class="text-sm bg-sky-50 text-sky-900 rounded-md px-3 py-2 mb-3"><b>${escH(ta.numero)}</b> · ${escH(ta.treinamento)} · ${escH(ta.centro || "—")} · ${orcDataBR(ta.data_inicio)}${ta.data_fim && ta.data_fim !== ta.data_inicio ? " a " + orcDataBR(ta.data_fim) : ""} · ${ta.ocupadas} de ${ta.vagas} vaga(s) ocupada(s)</div>`
+    : `<p class="text-xs text-amber-700 bg-amber-50 rounded-md px-3 py-2 mb-3">Escolha a turma aberta na aba “Dados gerais”.</p>`;
+  if (!orcId) { box.innerHTML = cab + `<p class="text-xs text-slate-400 py-2">Salve o orçamento para ${modo === "individual" ? "vincular o aluno (o próprio cliente)" : "indicar os alunos"}.</p>`; return; }
+  let alunos = [];
+  try {
+    const { data, error } = await supabase.from("turma_alunos").select("id, nome, cpf, tipo_documento, data_nascimento, certificado_emitido").eq("orcamento_id", orcId).order("nome");
+    if (error) throw error;
+    alunos = data || [];
+  } catch (e) { box.innerHTML = cab + `<p class="text-xs text-rose-600">Não foi possível carregar os alunos: ${escH(taMsgErro(e))}</p>`; return; }
+  const pessoas = Math.floor(Number($("orc-qtd-alunos").value) || 0);
+  const podeAlt = podeFazer("orcamentos", "alterar") || podeFazer("turmas_abertas", "alterar");
+  const inp = "w-full rounded-md border border-slate-300 px-2 py-1 text-xs";
+  box.innerHTML = cab + `
+    <p class="text-xs text-slate-500 mb-2">${modo === "individual" ? "O aluno é o próprio cliente: o nome, o CPF e a data de nascimento vêm do cadastro de clientes e são vinculados ao salvar." : `Alunos indicados pelo cliente: <b>${alunos.length} de ${pessoas}</b>. Eles entram na última turma de agendamento da turma aberta.`}</p>
+    <table class="w-full text-xs"><thead><tr class="text-slate-500 text-left"><th class="px-2 py-1 font-medium">Aluno</th><th class="px-2 py-1 font-medium">Documento</th><th class="px-2 py-1 font-medium">Nascimento</th><th></th></tr></thead>
+      <tbody class="divide-y divide-slate-100">${alunos.length ? alunos.map((a) => `<tr><td class="px-2 py-1">${escH(a.nome)}</td><td class="px-2 py-1">${escH(a.tipo_documento || "CPF")} ${escH(a.cpf || "")}</td><td class="px-2 py-1">${orcDataBR(a.data_nascimento)}</td>
+        <td class="px-2 py-1 text-right">${modo === "encaixe" && podeAlt && !a.certificado_emitido ? `<button type="button" data-orc-al-rem="${escH(a.id)}" class="text-rose-600 hover:text-rose-800">Remover</button>` : ""}</td></tr>`).join("") : `<tr><td colspan="4" class="px-2 py-3 text-slate-400">Nenhum aluno vinculado ainda.</td></tr>`}</tbody></table>
+    ${modo === "encaixe" && podeAlt && alunos.length < pessoas ? `
+    <div class="grid grid-cols-2 md:grid-cols-12 gap-2 mt-3 items-end">
+      <div class="col-span-2 md:col-span-4"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Nome do aluno</label><input id="orc-al-nome" class="${inp}" /></div>
+      <div class="col-span-1 md:col-span-2"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Documento</label><select id="orc-al-tipo" class="${inp}"><option>CPF</option><option>RG</option></select></div>
+      <div class="col-span-1 md:col-span-3"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Número</label><input id="orc-al-doc" class="${inp}" /></div>
+      <div class="col-span-1 md:col-span-2"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Nascimento</label><input id="orc-al-nasc" type="date" class="${inp}" /></div>
+      <div class="col-span-1 md:col-span-1"><button type="button" id="orc-al-add" class="w-full bg-slate-900 text-white text-xs rounded-md px-2 py-1.5">Indicar</button></div>
+    </div><p id="orc-al-erro" class="hidden text-xs text-rose-600 mt-1"></p>` : ""}`;
+}
+$("orc-pessoa-painel").addEventListener("input", (e) => { if (e.target.id === "orc-al-doc" && $("orc-al-tipo").value === "CPF") e.target.value = MASCARAS.cpf(e.target.value); });
+$("orc-pessoa-painel").addEventListener("change", (e) => { if (e.target.id === "orc-al-tipo") $("orc-al-doc").value = ""; });
+$("orc-pessoa-painel").addEventListener("click", async (e) => {
+  const rem = e.target.closest("[data-orc-al-rem]");
+  if (rem) {
+    if (!window.confirm("Remover este aluno da turma aberta?")) return;
+    const { error } = await supabase.from("turma_alunos").delete().eq("id", rem.getAttribute("data-orc-al-rem"));
+    if (error) return mostrarErro("orc-form-erro", "Não foi possível remover o aluno: " + error.message);
+    return orcPessoaRenderPainel(editandoOrcamentoId);
+  }
+  if (e.target.id === "orc-al-add") {
+    const erro = $("orc-al-erro"); erro.classList.add("hidden");
+    try {
+      await taRpc("ta_incluir_aluno", { p_orc: editandoOrcamentoId, p_nome: $("orc-al-nome").value, p_tipo_doc: $("orc-al-tipo").value, p_doc: $("orc-al-doc").value, p_nasc: $("orc-al-nasc").value || null });
+      await orcPessoaRenderPainel(editandoOrcamentoId);
+    } catch (er) { erro.textContent = taMsgErro(er); erro.classList.remove("hidden"); }
+  }
+});
+
+function calcularOrcamentoPessoa() {
+  const q = orcQuantidades();
+  q.turmas = 1; q.localidades = 1; q.alunosPorTurma = q.alunos;
+  const vp = Math.max(0, Number($("orc-valor-pessoa").value) || 0);
+  const valorTurma = vp * q.alunos, total = valorTurma;
+  let desconto, valorDesc;
+  if (orcDescontoModo === "valor") {
+    valorDesc = Math.max(0, Number($("orc-valor-desconto").value) || 0);
+    desconto = total > 0 ? valorDesc / total * 100 : 0;
+  } else {
+    desconto = Number($("orc-perc-desconto").value) || 0;
+    valorDesc = total * desconto / 100;
+  }
+  const final = total - valorDesc;
+  return {
+    q, itens: [], custo: 0, apoio: 0, margem: 0, imposto: 0, desconto, pctCusto: 1, pctCustoEfetivo: 0, margemMinimaAplicada: false, valorTurmaPerc: valorTurma,
+    valido: true, valorTurma, total, valorDesc, final, finalTurma: final, margemTurma: 0, margemPerc: 0, margemTotal: 0, minPerc: 0, minValor: 0,
+    abaixoPerc: false, abaixoValor: false, precisaAprovacao: false, descontoInvalido: valorDesc > total + 0.005 || desconto > 100.0001,
+    apoioV: 0, impostoV: 0, margemV: 0, margemEfetivaPerc: 0, porAluno: vp, finalAluno: q.alunos ? final / q.alunos : 0, pessoa: true, valorPessoa: vp,
+  };
+}
 
 function orcQuantidades() {
   const alunos = Math.max(0, Math.floor(Number($("orc-qtd-alunos").value) || 0));
@@ -7131,6 +7343,7 @@ function orcAtualizarAjudaFaturarAluno(c) {
 }
 
 function calcularOrcamento() {
+  if (orcModoPessoa()) return calcularOrcamentoPessoa();
   const q = orcQuantidades();
   const itens = orcLinhasCalc.map((l) => ({ l, ...calcularLinhaOrcamento(l, q) }));
   const custo = itens.reduce((s, i) => s + i.total, 0);
@@ -7235,6 +7448,13 @@ async function linhasDoCadastroDoTreinamento(tipoId) {
 // Traz do cadastro do treinamento os itens de custo e os percentuais (apoio, margem, imposto).
 // O desconto é só do orçamento e não é alterado aqui.
 async function aplicarCadastroNoCalculo() {
+  if (orcModoPessoa()) {
+    // comercialização por pessoa: sem tabela de custos; o valor vem do cadastro do treinamento
+    orcCalcToken++; orcLinhasCalc = []; orcCalcErro = null; orcCalcOrigem = "vazio"; orcCalcSalvoEm = null; orcMinSalvo = null;
+    orcPessoaPreencherPreco(true);
+    renderizarCalcOrcamento();
+    return;
+  }
   const token = ++orcCalcToken;
   const tipoId = $("orc-tipo").value;
   const tipo = listaTiposAtivos.find((t) => t.id === tipoId);
@@ -7278,6 +7498,14 @@ function limparCalculoOrcamento(carregando = false) {
 
 // Edição: usa o cálculo gravado; se ainda não houver (orçamento antigo/importado), parte do cadastro.
 async function carregarCalculoDoOrcamento(o) {
+  if (o.comercializacao && o.comercializacao !== "fechada") {
+    orcCalcToken++; orcLinhasCalc = []; orcCalcErro = null; orcCalcOrigem = "vazio"; orcMinSalvo = null;
+    orcDescontoModo = o.desconto_modo === "valor" ? "valor" : "percentual";
+    $("orc-perc-desconto").value = Number(o.perc_desconto) || 0;
+    $("orc-valor-desconto").value = Number(o.valor_desconto) || 0;
+    renderizarCalcOrcamento();
+    return;
+  }
   const token = ++orcCalcToken;
   orcCalcPendentes++;
   let data, error;
@@ -7427,6 +7655,8 @@ function recalcularOrcamentoTela() {
     ? `${fmtBRL(c.margemV)} · ${fmtPercOrc(c.margemEfetivaPerc)} (margem mínima de ${fmtBRL(c.minValor)} aplicada; pelo % seria ${fmtPercOrc(c.margem)})`
     : `${fmtBRL(c.margemV)} · ${fmtPercOrc(c.margem)}`;
   $("orc-r-turma").textContent = fmtBRL(c.valorTurma);
+  $("orc-r-turma-rot").textContent = c.pessoa ? "Valor (pessoas × valor por pessoa)" : "Valor da turma";
+  $("orc-r-por-aluno-rot").textContent = c.pessoa ? "Valor por pessoa" : "Valor por aluno";
   $("orc-r-por-aluno").textContent = fmtBRL(c.porAluno);
   $("orc-r-qt").textContent = c.q.turmas;
   $("orc-r-total").textContent = fmtBRL(c.total);
@@ -7655,6 +7885,10 @@ async function abrirNovoOrcamento() {
   orcAprovPrevia = null;
   orcPropostaTravada = false;
   mensagemEnvioBitrix("");
+  $("orc-comercializacao").value = "fechada";
+  orcTasRef = []; $("orc-turma-aberta").innerHTML = ""; orcValorPessoaManual = false; orcPessoaQtdSalva = null; $("orc-valor-pessoa").value = "";
+  orcAplicarModoCom();
+  orcPessoaRenderPainel(null);
   limparCalculoOrcamento();
   atualizarQtdAlunosCalculado();
   orcAtualizarModoProposta();
@@ -7719,6 +7953,19 @@ async function abrirEdicaoOrcamento(id) {
   orcAprovPrevia = lerAprovPrevia(o);
   orcPropostaTravada = false;
   mensagemEnvioBitrix("");
+  $("orc-comercializacao").value = o.comercializacao || "fechada";
+  orcTasRef = []; $("orc-turma-aberta").innerHTML = ""; orcPessoaQtdSalva = null;
+  if ((o.comercializacao || "fechada") !== "fechada") {
+    await orcCarregarTAs(o.tipo_treinamento_id, o.turma_aberta_id);
+    $("orc-turma-aberta").value = o.turma_aberta_id || "";
+    orcPessoaQtdSalva = { ta: o.turma_aberta_id, qtd: Number(o.qtd_alunos) || 0 };
+    const tipoSalvo = listaTiposAtivos.find((t) => t.id === o.tipo_treinamento_id);
+    const tab = orcPrecoTabela(tipoSalvo, o.comercializacao);
+    $("orc-valor-pessoa").value = o.valor_pessoa != null ? o.valor_pessoa : (tab != null ? tab : "");
+    orcValorPessoaManual = o.valor_pessoa != null && tab != null && Math.abs(Number(o.valor_pessoa) - tab) > 0.0049;
+  } else { $("orc-valor-pessoa").value = ""; orcValorPessoaManual = false; }
+  orcAplicarModoCom();
+  if ((o.comercializacao || "fechada") !== "fechada") { $("orc-qtd-alunos").value = o.qtd_alunos || 1; orcPessoaPreencherPreco(false); }
   limparCalculoOrcamento(true);
   atualizarQtdAlunosCalculado();
   orcAtualizarModoProposta();
@@ -7776,6 +8023,7 @@ function agruparTurmasOrcamento(turmas) {
 let orcTurmasOrcId = null;
 async function carregarTabelaTurmasOrcamento(orcamentoId) {
   if (orcTurmasOrcId !== orcamentoId) { orcTurmasOrcId = orcamentoId; orcTurmasPagina = 1; }
+  if (orcModoPessoa()) { orcTurmasGrupos = []; await orcPessoaRenderPainel(orcamentoId); renderizarDockTurmas(""); return; }
   if (!orcamentoId) {
     orcTurmasGrupos = [];
     renderizarDockTurmas("As turmas são geradas automaticamente quando você salvar o orçamento.");
@@ -7892,6 +8140,8 @@ async function salvarOrcamento(opts = {}) {
     await garantirEmpresaDoOrcamento({ empresa_id: orcEmpresaDoOrcamento });
     definirEmpresaSelect("orc-empresa", orcEmpresaDoOrcamento);
   }
+  const pessoa = orcModoPessoa();
+  if (pessoa) { const msgPessoa = orcPessoaValidar(); if (msgPessoa) return orcFalha(1, msgPessoa); }
   const empresaId = $("orc-empresa").value;
   const centroId = $("orc-centro").value;
   const tipoId = $("orc-tipo").value;
@@ -7984,7 +8234,14 @@ async function salvarOrcamento(opts = {}) {
     perc_desconto: r2(calc.desconto),
     desconto_modo: orcDescontoModo,
     faturar_por_aluno: $("orc-faturar-por-aluno").checked,
-    ...(orcLinhasCalc.length ? {
+    comercializacao: orcCom(),
+    turma_aberta_id: pessoa ? ($("orc-turma-aberta").value || null) : null,
+    valor_pessoa: pessoa ? r2(calc.valorPessoa) : null,
+    ...(pessoa ? {
+      custo_turma: null, valor_turma: r2(calc.valorTurma), valor_total: r2(calc.total), valor_desconto: r2(calc.valorDesc),
+      valor_final: r2(calc.final), valor_por_aluno: r2(calc.porAluno), valor_final_aluno: r2(calc.finalAluno), calculado_em: new Date().toISOString(),
+      margem_final_valor: null, margem_final_perc: null, margem_minima_perc: null, margem_minima_valor: null, requer_aprovacao_gestor: false,
+    } : orcLinhasCalc.length ? {
       custo_turma: r2(calc.custo), valor_turma: r2(calc.valorTurma), valor_total: r2(calc.total), valor_desconto: r2(calc.valorDesc),
       valor_final: r2(calc.final), valor_por_aluno: r2(calc.porAluno), valor_final_aluno: r2(calc.finalAluno), calculado_em: new Date().toISOString(),
       margem_final_valor: r2(calc.margemTurma), margem_final_perc: r2(calc.margemPerc),
@@ -7993,7 +8250,7 @@ async function salvarOrcamento(opts = {}) {
       custo_turma: null, valor_turma: null, valor_total: null, valor_desconto: null, valor_final: null, valor_por_aluno: null, valor_final_aluno: null, calculado_em: null,
       margem_final_valor: null, margem_final_perc: null, margem_minima_perc: null, margem_minima_valor: null, requer_aprovacao_gestor: false,
     }),
-    necessita_dois_instrutores: $("orc-dois-instrutores").checked,
+    necessita_dois_instrutores: pessoa ? false : $("orc-dois-instrutores").checked,
     data: $("orc-data").value || null,
     validade: validadeData,
     validade_dias: validadeDias,
@@ -8057,6 +8314,7 @@ async function salvarOrcamento(opts = {}) {
     if (erro.message && erro.message.includes("duplicate")) {
       return orcFalha(1, "Já existe um orçamento com esse número.");
     }
+    if (erro.message && /Comercialização|turma aberta|Turma aberta|alunos numa turma/.test(erro.message)) return orcFalha(1, erro.message);
     return mostrarErro("orc-form-erro", "Não foi possível salvar. Tente novamente.");
   }
 
@@ -8072,6 +8330,12 @@ async function salvarOrcamento(opts = {}) {
   } catch (e) {
     erroCalculo = e?.message || "erro desconhecido";
   }
+  if (pessoa && orcCom() === "individual") {
+    // individual: o aluno é o cliente; vincula (ou atualiza) o aluno na turma aberta
+    try { await taRpc("ta_sincronizar_individual", { p_orc: linha.id }); }
+    catch (e) { erroCalculo = erroCalculo || ("o aluno não foi vinculado à turma aberta: " + taMsgErro(e)); }
+  }
+  if (pessoa) orcPessoaQtdSalva = { ta: linha.turma_aberta_id, qtd: Number(linha.qtd_alunos) || 0 };
   orcEditorSujo = false;
   guardarVinculoBitrixOrc(linha);
   const tinhaPendente = !!orcBxPendente;
@@ -8079,7 +8343,7 @@ async function salvarOrcamento(opts = {}) {
   if (!tinhaPendente || associou) atualizarResponsavelNoBitrix(linha, { assumir_campos: tinhaPendente }); // sem await: não atrasa o salvamento; mostra o resultado ao lado do botão
 
   if (eraNovo) {
-    const geracaoTurmas = await gerarTurmasParaOrcamento(linha, qtdTurmas);
+    const geracaoTurmas = pessoa ? { ok: true } : await gerarTurmasParaOrcamento(linha, qtdTurmas);
     const erroTurmas = geracaoTurmas.ok ? null : (geracaoTurmas.erro || "erro desconhecido");
     // Mantém o painel aberto, já em modo edição, para preencher a tabela de turmas geradas.
     editandoOrcamentoId = linha.id;
@@ -8093,7 +8357,7 @@ async function salvarOrcamento(opts = {}) {
     await carregarPaginaOrcamentos();
     orcAtualizarModoProposta();
     if (erroTurmas) mostrarErro("orc-form-erro", `Orçamento salvo, mas as turmas NÃO foram geradas: ${erroTurmas}. Use o botão "Gerar turmas agora", na área de turmas do orçamento.`);
-    if (erroCalculo) { mostrarErro("orc-form-erro", `Orçamento salvo, mas o cálculo não foi gravado: ${erroCalculo}. Clique em "Salvar alterações" para tentar de novo.`); return null; }
+    if (erroCalculo) { mostrarErro("orc-form-erro", `Orçamento salvo, mas ${/^o aluno/.test(erroCalculo) ? erroCalculo : "o cálculo não foi gravado: " + erroCalculo}. Clique em "Salvar alterações" para tentar de novo.`); return null; }
     if (erroTurmas) return null;
     return { linha, calc };
   }
@@ -8101,7 +8365,7 @@ async function salvarOrcamento(opts = {}) {
   if (erroCalculo) {
     $("btn-salvar-orcamento").textContent = "Salvar alterações";
     await carregarPaginaOrcamentos();
-    mostrarErro("orc-form-erro", `Orçamento salvo, mas o cálculo não foi gravado: ${erroCalculo}. Clique em "Salvar alterações" para tentar de novo.`);
+    mostrarErro("orc-form-erro", `Orçamento salvo, mas ${/^o aluno/.test(erroCalculo) ? erroCalculo : "o cálculo não foi gravado: " + erroCalculo}. Clique em "Salvar alterações" para tentar de novo.`);
     return null;
   }
 
@@ -18283,5 +18547,312 @@ $("ca-cab").addEventListener("change", (e) => {
 // o cabeçalho com os filtros fica fixo; acompanha só a rolagem horizontal da lista
 $("ca-corpo").addEventListener("scroll", (e) => { $("ca-cab").scrollLeft = e.target.scrollLeft; });
 window.addEventListener("resize", caAjustarAltura);
+
+// ===========================================================
+// v2.01 — TURMAS ABERTAS (Logística)
+// Uma turma aberta é criada aqui (treinamento, CT, vagas e datas por etapa; o sistema gera as turmas
+// de agendamento como no orçamento). Os orçamentos de comercialização Individual e Encaixe entram nela.
+// ===========================================================
+let taMontado = false, taView = "lista", taLista = [], taRefs = null, taDet = null, taSelId = null, taOcupado = false;
+let taFiltro = { trein: "", centro: "", encerradas: false };
+let taVinc = null;
+const taPodeInc = () => podeFazer("turmas_abertas", "incluir");
+const taPodeAlt = () => podeFazer("turmas_abertas", "alterar");
+const taData = (d) => { if (!d) return "—"; const m = String(d).match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[3]}/${m[2]}/${m[1]}` : String(d); };
+const taInput = "mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500";
+const taLabel = "text-xs font-medium text-slate-500 uppercase tracking-wide";
+const taBtnPri = "bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium px-4 py-2 rounded-md disabled:opacity-50";
+const taBtnSec = "border border-slate-300 text-sm px-4 py-2 rounded-md hover:bg-slate-50 disabled:opacity-50";
+const taMsgErro = (e) => (e && (e.message || e.details)) || String(e);
+async function taRpc(nome, args) { const { data, error } = await supabase.rpc(nome, args || {}); if (error) throw error; return data; }
+function taAviso(tipo, msg) {
+  const ok = $("ta-ok"), er = $("ta-erro"); if (!ok || !er) return;
+  (tipo === "ok" ? er : ok).classList.add("hidden");
+  const el = tipo === "ok" ? ok : er;
+  el.textContent = msg; el.classList.remove("hidden");
+  if (tipo === "ok") setTimeout(() => ok.classList.add("hidden"), 7000);
+}
+const taLimparAvisos = () => { $("ta-erro")?.classList.add("hidden"); $("ta-ok")?.classList.add("hidden"); };
+const taBadgeCom = (c) => c === "individual" ? `<span class="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-violet-100 text-violet-800">Individual</span>`
+  : c === "encaixe" ? `<span class="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-sky-100 text-sky-800">Encaixe</span>`
+  : `<span class="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700">Turma fechada</span>`;
+const taBadgePessoa = (p) => p === "fisica" ? `<span class="text-[10px] px-1.5 py-0.5 rounded-full bg-violet-50 text-violet-700">PF</span>` : `<span class="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600">PJ</span>`;
+function taSituacao(t) {
+  const hoje = new Date().toISOString().slice(0, 10);
+  if (t.cancelada) return { txt: "Cancelada", cls: "bg-slate-100 text-slate-500" };
+  if (t.data_fim && t.data_fim < hoje) return { txt: "Encerrada", cls: "bg-slate-100 text-slate-600" };
+  if (t.vagas > 0 && t.livres <= 0) return { txt: "Lotada", cls: "bg-rose-100 text-rose-700" };
+  return { txt: "Aberta", cls: "bg-emerald-100 text-emerald-800" };
+}
+
+function taMontarCasca() {
+  $("ta-raiz").innerHTML = `
+    <div id="ta-erro" class="hidden bg-rose-50 text-rose-600 text-sm rounded-md px-3 py-2 mb-3"></div>
+    <div id="ta-ok" class="hidden bg-emerald-50 text-emerald-700 text-sm rounded-md px-3 py-2 mb-3"></div>
+    <div id="ta-corpo"></div>
+    <div id="ta-modal" class="hidden fixed inset-0 z-50 bg-slate-900/50 flex items-start justify-center p-4 overflow-y-auto"></div>`;
+  taMontado = true;
+}
+
+async function carregarTurmasAbertasInit() {
+  if (!taMontado || !$("ta-corpo")) taMontarCasca();
+  taLimparAvisos();
+  taView = "lista"; taDet = null; taSelId = null;
+  $("ta-corpo").innerHTML = `<p class="text-sm text-slate-500">Carregando…</p>`;
+  try {
+    const [{ data: trein, error: e1 }, { data: centros, error: e2 }] = await Promise.all([
+      supabase.from("tipos_treinamento").select("id, nome, dias_teoria, dias_pratica, dias_teoria_pratica, minimo_pessoas_turma, valor_individual, valor_pessoa_fisica, vendido_por_pessoa, status").eq("status", "Ativo").order("nome"),
+      supabase.from("centros_treinamento").select("id, nome, status").eq("status", "Ativo").order("nome"),
+    ]);
+    if (e1) throw e1; if (e2) throw e2;
+    taRefs = { treinamentos: trein || [], centros: centros || [] };
+    await taRecarregarLista();
+  } catch (e) {
+    $("ta-corpo").innerHTML = "";
+    taAviso("erro", "Não foi possível carregar: " + taMsgErro(e));
+  }
+}
+async function taRecarregarLista() {
+  taLista = (await taRpc("ta_listar", { p_incluir_encerradas: !!taFiltro.encerradas })) || [];
+  taRender();
+}
+function taRender() {
+  if (taView === "form") return taRenderForm();
+  if (taView === "detalhe") return taRenderDetalhe();
+  return taRenderLista();
+}
+
+function taRenderLista() {
+  const ref = taRefs || { treinamentos: [], centros: [] };
+  const lista = taLista.filter((t) => (!taFiltro.trein || t.tipo_treinamento_id === taFiltro.trein) && (!taFiltro.centro || t.centro_id === taFiltro.centro));
+  $("ta-corpo").innerHTML = `
+    <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+      <p class="text-xs text-slate-500 max-w-3xl">Turmas abertas recebem orçamentos de comercialização <b>Individual</b> (cliente pessoa física) e <b>Encaixe</b> (qualquer cliente). A turma gera as turmas de agendamento como o orçamento faz.</p>
+      ${taPodeInc() ? `<button type="button" id="ta-btn-nova" class="${taBtnPri}">+ Nova turma aberta</button>` : ""}
+    </div>
+    <div class="bg-white border border-slate-200 rounded-xl p-3 mb-3 grid gap-3 sm:grid-cols-3 items-end">
+      <div><label class="${taLabel}" for="ta-f-trein">Treinamento</label><select id="ta-f-trein" class="${taInput}"><option value="">Todos</option>${ref.treinamentos.filter((t) => t.vendido_por_pessoa).map((t) => `<option value="${escH(t.id)}">${escH(t.nome)}</option>`).join("")}</select></div>
+      <div><label class="${taLabel}" for="ta-f-centro">Centro de Treinamento</label><select id="ta-f-centro" class="${taInput}"><option value="">Todos</option>${ref.centros.map((c) => `<option value="${escH(c.id)}">${escH(c.nome)}</option>`).join("")}</select></div>
+      <label class="flex items-center gap-2 text-sm text-slate-600 pb-2"><input type="checkbox" id="ta-f-enc" ${taFiltro.encerradas ? "checked" : ""}/> Mostrar encerradas e canceladas</label>
+    </div>
+    <div class="bg-white border border-slate-200 rounded-xl overflow-x-auto">
+      <table class="min-w-[860px] w-full text-sm">
+        <thead class="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500"><tr>
+          <th class="text-left px-3 py-2">Turma</th><th class="text-left px-3 py-2">Treinamento</th><th class="text-left px-3 py-2">Datas</th>
+          <th class="text-left px-3 py-2">CT</th><th class="text-left px-3 py-2">Vagas</th><th class="text-left px-3 py-2">Orçamentos</th><th class="text-left px-3 py-2">Situação</th></tr></thead>
+        <tbody id="ta-tbody">${lista.length ? lista.map((t) => {
+          const s = taSituacao(t);
+          const datas = t.data_inicio ? (t.data_fim && t.data_fim !== t.data_inicio ? `${taData(t.data_inicio)} a ${taData(t.data_fim)}` : taData(t.data_inicio)) : "—";
+          const min = t.minimo_pessoas ? ` <span class="text-xs text-slate-400">(mín. ${t.minimo_pessoas}, informativo)</span>` : "";
+          return `<tr class="border-t border-slate-100 hover:bg-slate-50 cursor-pointer" data-ta-abrir="${escH(t.id)}">
+            <td class="px-3 py-2 font-semibold">${escH(t.numero)}</td><td class="px-3 py-2">${escH(t.treinamento)}</td><td class="px-3 py-2 whitespace-nowrap">${datas}</td>
+            <td class="px-3 py-2">${escH(t.centro || "—")}</td><td class="px-3 py-2 whitespace-nowrap">${t.ocupadas} de ${t.vagas}${min}</td>
+            <td class="px-3 py-2">${t.qtd_orcamentos}${t.qtd_encaixe ? ` ${taBadgeCom("encaixe")} ×${t.qtd_encaixe}` : ""}${t.qtd_individual ? ` ${taBadgeCom("individual")} ×${t.qtd_individual}` : ""}</td>
+            <td class="px-3 py-2"><span class="text-[11px] font-semibold px-2 py-0.5 rounded-full ${s.cls}">${s.txt}</span></td></tr>`;
+        }).join("") : `<tr><td colspan="7" class="px-3 py-6 text-center text-slate-500">Nenhuma turma aberta${taFiltro.encerradas ? "" : " em andamento"}. ${taPodeInc() ? 'Use "Nova turma aberta".' : ""}</td></tr>`}</tbody>
+      </table>
+    </div>
+    <p class="text-xs text-slate-500 mt-2">Clique numa turma para ver as turmas de agendamento geradas e os orçamentos vinculados.</p>`;
+  $("ta-f-trein").value = taFiltro.trein; $("ta-f-centro").value = taFiltro.centro;
+}
+
+// ---------- nova turma aberta ----------
+function taEtapas(t) {
+  const e = [];
+  for (let i = 0; i < (t.dias_teoria || 0); i++) e.push("Teoria");
+  for (let i = 0; i < (t.dias_pratica || 0); i++) e.push("Prática");
+  for (let i = 0; i < (t.dias_teoria_pratica || 0); i++) e.push("Teoria com Prática");
+  return e.length ? e : ["Treinamento"];
+}
+function taProxDiaUtil(iso) {
+  const d = new Date(iso + "T12:00:00"); d.setDate(d.getDate() + 1);
+  while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+function taRenderForm() {
+  const ref = taRefs;
+  const trs = ref.treinamentos.filter((t) => t.vendido_por_pessoa);
+  $("ta-corpo").innerHTML = `
+    <div class="bg-white border border-slate-200 rounded-xl p-4">
+      <div class="flex items-center justify-between mb-3"><h3 class="font-serif text-base text-slate-900">Nova turma aberta</h3>
+        <button type="button" id="ta-btn-voltar" class="${taBtnSec}">Voltar</button></div>
+      ${trs.length ? "" : `<div class="bg-amber-50 text-amber-800 text-sm rounded-md px-3 py-2 mb-3">Nenhum treinamento está marcado como "Permite turma aberta". Marque no cadastro do treinamento e informe os valores individual e pessoa física.</div>`}
+      <div class="grid gap-3 sm:grid-cols-3">
+        <div><label class="${taLabel}" for="ta-n-trein">Treinamento *</label><select id="ta-n-trein" class="${taInput}"><option value="">— Selecione —</option>${trs.map((t) => `<option value="${escH(t.id)}">${escH(t.nome)}</option>`).join("")}</select></div>
+        <div><label class="${taLabel}" for="ta-n-centro">Centro de Treinamento *</label><select id="ta-n-centro" class="${taInput}"><option value="">— Selecione —</option>${ref.centros.map((c) => `<option value="${escH(c.id)}">${escH(c.nome)}</option>`).join("")}</select></div>
+        <div><label class="${taLabel}" for="ta-n-vagas">Vagas *</label><input id="ta-n-vagas" type="number" min="1" step="1" class="${taInput}" /></div>
+      </div>
+      <div id="ta-n-etapas" class="mt-3"></div>
+      <div class="grid gap-3 sm:grid-cols-3 mt-3">
+        <div><label class="${taLabel}">Mínimo de pessoas (informativo)</label><input id="ta-n-min" type="text" disabled class="${taInput} bg-slate-50" /></div>
+        <div class="sm:col-span-2"><label class="${taLabel}">Valores de tabela</label><input id="ta-n-valores" type="text" disabled class="${taInput} bg-slate-50" /></div>
+      </div>
+      <div class="mt-3"><label class="${taLabel}" for="ta-n-obs">Observação para o CT (opcional)</label><input id="ta-n-obs" type="text" class="${taInput}" /></div>
+      <div class="flex gap-2 mt-4"><button type="button" id="ta-btn-salvar" class="${taBtnPri}">Salvar turma aberta</button><button type="button" id="ta-btn-cancelar-form" class="${taBtnSec}">Cancelar</button></div>
+    </div>`;
+  taAtualizarEtapas();
+}
+function taTreinoSel() { const id = $("ta-n-trein")?.value; return (taRefs.treinamentos || []).find((t) => t.id === id) || null; }
+function taAtualizarEtapas() {
+  const t = taTreinoSel(), box = $("ta-n-etapas");
+  if (!t) { box.innerHTML = ""; $("ta-n-min").value = ""; $("ta-n-valores").value = ""; return; }
+  const et = taEtapas(t);
+  box.innerHTML = `<div class="text-sm bg-sky-50 text-sky-900 rounded-md px-3 py-2 mb-3">Este treinamento tem <b>${et.length} etapa(s)</b>. Informe a data de cada etapa: o sistema gera as turmas de agendamento do mesmo jeito que faz no orçamento.</div>
+    <div class="grid gap-3 sm:grid-cols-2">${et.map((rot, i) => `
+      <div class="border border-slate-200 rounded-lg p-3"><div class="text-sm font-semibold">${i + 1}. ${escH(rot)}</div>
+        <div class="grid grid-cols-2 gap-3"><div><label class="${taLabel}">Data *</label><input type="date" data-ta-data="${i}" class="${taInput}" /></div>
+        <div><label class="${taLabel}">Início</label><input type="time" data-ta-hora="${i}" value="08:00" class="${taInput}" /></div></div></div>`).join("")}</div>`;
+  $("ta-n-min").value = t.minimo_pessoas_turma ? `${t.minimo_pessoas_turma} (não bloqueia o agendamento)` : "não definido";
+  $("ta-n-valores").value = `Individual (encaixe) ${t.valor_individual != null ? fmtBRL(t.valor_individual) : "—"} · Pessoa física ${t.valor_pessoa_fisica != null ? fmtBRL(t.valor_pessoa_fisica) : "—"}`;
+  if (!$("ta-n-vagas").value) $("ta-n-vagas").value = t.minimo_pessoas_turma || 12;
+}
+async function taSalvarNova() {
+  taLimparAvisos();
+  const t = taTreinoSel();
+  if (!t) return taAviso("erro", "Escolha o treinamento.");
+  const centro = $("ta-n-centro").value; if (!centro) return taAviso("erro", "Escolha o Centro de Treinamento.");
+  const vagas = Number($("ta-n-vagas").value); if (!(vagas >= 1)) return taAviso("erro", "Informe o número de vagas.");
+  const datas = [...document.querySelectorAll("[data-ta-data]")].map((i) => i.value);
+  const horas = [...document.querySelectorAll("[data-ta-hora]")].map((i) => i.value);
+  if (datas.some((d) => !d)) return taAviso("erro", "Informe a data de todas as etapas.");
+  const hoje = new Date().toISOString().slice(0, 10);
+  if (datas[0] < hoje) return taAviso("erro", "A data de início não pode estar no passado.");
+  for (let i = 1; i < datas.length; i++) if (datas[i] < datas[i - 1]) return taAviso("erro", `A data da etapa ${i + 1} não pode ser anterior à da etapa ${i}.`);
+  const et = taEtapas(t);
+  const iT = et.findIndex((r) => r !== "Prática"), iP = et.findIndex((r) => r === "Prática");
+  const p = { tipo_treinamento_id: t.id, centro_treinamento_id: centro, vagas, datas, observacoes: $("ta-n-obs").value.trim() || null,
+    horario_teoria: horas[iT >= 0 ? iT : 0] || null, horario_pratica: horas[iP >= 0 ? iP : 0] || null };
+  if (taOcupado) return; taOcupado = true; $("ta-btn-salvar").disabled = true;
+  try {
+    const r = await taRpc("ta_criar", { p });
+    taAviso("ok", `Turma aberta ${r.numero} criada.`);
+    await taRecarregarLista();
+    await taAbrir(r.id);
+  } catch (e) { taAviso("erro", "Não foi possível criar a turma aberta: " + taMsgErro(e)); }
+  finally { taOcupado = false; if ($("ta-btn-salvar")) $("ta-btn-salvar").disabled = false; }
+}
+
+// ---------- detalhe ----------
+async function taAbrir(id) {
+  taSelId = id; taView = "detalhe"; taDet = null;
+  $("ta-corpo").innerHTML = `<p class="text-sm text-slate-500">Carregando…</p>`;
+  try { taDet = await taRpc("ta_detalhe", { p_ta: id }); taRender(); }
+  catch (e) { taView = "lista"; taRender(); taAviso("erro", "Não foi possível abrir a turma: " + taMsgErro(e)); }
+}
+function taRenderDetalhe() {
+  const t = taLista.find((x) => x.id === taSelId);
+  if (!t || !taDet) { taView = "lista"; return taRenderLista(); }
+  const s = taSituacao(t), alt = taPodeAlt() && !t.cancelada;
+  $("ta-corpo").innerHTML = `
+    <div class="bg-white border border-slate-200 rounded-xl p-4 mb-4">
+      <div class="flex flex-wrap items-start justify-between gap-2">
+        <div><h3 class="font-serif text-lg text-slate-900">Turma aberta ${escH(t.numero)} <span class="text-[11px] font-semibold px-2 py-0.5 rounded-full ${s.cls}">${s.txt}</span></h3>
+          <p class="text-sm text-slate-600">${escH(t.treinamento)} · ${escH(t.centro || "—")} · ${t.data_inicio ? taData(t.data_inicio) + (t.data_fim && t.data_fim !== t.data_inicio ? " a " + taData(t.data_fim) : "") : "—"}</p>
+          <p class="text-sm text-slate-600">Vagas ocupadas: <b>${t.ocupadas} de ${t.vagas}</b> (${t.livres} livre(s))${t.minimo_pessoas ? ` · mínimo ${t.minimo_pessoas} (informativo)` : ""}</p></div>
+        <div class="flex flex-wrap gap-2"><button type="button" id="ta-btn-voltar" class="${taBtnSec}">Voltar</button>
+          ${alt ? `<button type="button" id="ta-btn-cancelar-ta" class="${taBtnSec} text-rose-600">Cancelar turma aberta</button>` : ""}</div>
+      </div>
+    </div>
+    <div class="bg-white border border-slate-200 rounded-xl p-4 mb-4">
+      <h4 class="font-semibold text-sm mb-1">Turmas de agendamento geradas</h4>
+      <p class="text-xs text-slate-500 mb-2">Aparecem em Agendamento de Turmas, Agenda por Centro e no app dos instrutores.</p>
+      <table class="w-full text-sm"><thead class="text-[11px] uppercase tracking-wide text-slate-500"><tr><th class="text-left py-1 pr-3">Identificação</th><th class="text-left py-1 pr-3">Etapa</th><th class="text-left py-1 pr-3">Data</th><th class="text-left py-1 pr-3">Início</th><th class="text-left py-1">Agendamento</th></tr></thead>
+        <tbody>${taDet.turmas.map((x) => `<tr class="border-t border-slate-100"><td class="py-1 pr-3 font-medium">${escH(t.numero)}-${escH(x.identificacao)}</td><td class="py-1 pr-3">${escH(x.tipo_dia || "—")}</td><td class="py-1 pr-3">${taData(x.data_inicio)}</td><td class="py-1 pr-3">${escH(x.horario || "—")}</td><td class="py-1">${x.cancelada ? "Cancelada" : escH(x.status_agendamento || "Não agendado")}</td></tr>`).join("") || `<tr><td colspan="5" class="py-2 text-slate-500">Sem turmas.</td></tr>`}</tbody></table>
+    </div>
+    <div class="bg-white border border-slate-200 rounded-xl p-4">
+      <div class="flex flex-wrap items-center justify-between gap-2 mb-2"><div><h4 class="font-semibold text-sm">Orçamentos vinculados</h4>
+        <p class="text-xs text-slate-500">Encaixes e individuais nesta turma, de clientes pessoa jurídica ou física.</p></div>
+        ${alt ? `<button type="button" id="ta-btn-vincular" class="${taBtnPri}">Vincular orçamento existente</button>` : ""}</div>
+      <div class="overflow-x-auto"><table class="min-w-[760px] w-full text-sm"><thead class="text-[11px] uppercase tracking-wide text-slate-500"><tr>
+        <th class="text-left py-1 pr-3">Orçamento</th><th class="text-left py-1 pr-3">Cliente</th><th class="text-left py-1 pr-3">Comercialização</th><th class="text-left py-1 pr-3">Pessoas</th><th class="text-right py-1 pr-3">Valor</th><th class="text-left py-1 pr-3">Situação</th><th></th></tr></thead>
+        <tbody>${taDet.orcamentos.length ? taDet.orcamentos.map((o) => `<tr class="border-t border-slate-100">
+          <td class="py-1.5 pr-3 font-semibold">${escH(o.numero)}</td><td class="py-1.5 pr-3">${escH(o.empresa)} ${taBadgePessoa(o.pessoa)} <span class="text-xs text-slate-400">${escH(o.doc || "")}</span></td>
+          <td class="py-1.5 pr-3">${taBadgeCom(o.comercializacao)}</td><td class="py-1.5 pr-3">${o.pessoas} <span class="text-xs text-slate-400">(${o.indicados} indicado(s))</span></td>
+          <td class="py-1.5 pr-3 text-right">${fmtBRL(o.valor_final)}</td><td class="py-1.5 pr-3">${escH(o.status)}</td>
+          <td class="py-1.5 text-right whitespace-nowrap"><button type="button" data-ta-orc="${escH(o.id)}" class="text-slate-600 hover:text-slate-900 text-xs mr-2">Abrir</button>${alt ? `<button type="button" data-ta-desv="${escH(o.id)}" class="text-rose-600 hover:text-rose-800 text-xs">Retirar</button>` : ""}</td></tr>`).join("")
+          : `<tr><td colspan="7" class="py-3 text-slate-500">Nenhum orçamento vinculado ainda. Crie um orçamento com comercialização Individual/Encaixe escolhendo esta turma, ou vincule um existente.</td></tr>`}</tbody></table></div>
+    </div>`;
+}
+async function taAtualizarDetalhe() { await taRecarregarLista(); taDet = await taRpc("ta_detalhe", { p_ta: taSelId }); taRender(); }
+
+// ---------- vincular orçamento existente ----------
+async function taAbrirVincular() {
+  const t = taLista.find((x) => x.id === taSelId); if (!t) return;
+  const m = $("ta-modal"); m.classList.remove("hidden");
+  m.innerHTML = `<div class="bg-white rounded-xl shadow-xl w-full max-w-3xl mt-10 p-4"><p class="text-sm text-slate-500">Carregando orçamentos…</p></div>`;
+  try { taVinc = { lista: await taRpc("ta_orcamentos_vinculaveis", { p_ta: taSelId }), busca: "" }; taRenderVincular(); }
+  catch (e) { m.classList.add("hidden"); taAviso("erro", "Não foi possível listar os orçamentos: " + taMsgErro(e)); }
+}
+function taRenderVincular() {
+  const t = taLista.find((x) => x.id === taSelId); if (!t || !taVinc) return;
+  const b = taVinc.busca.trim().toLowerCase();
+  const lista = taVinc.lista.filter((o) => !b || `${o.numero} ${o.empresa} ${o.doc}`.toLowerCase().includes(b));
+  $("ta-modal").innerHTML = `<div class="bg-white rounded-xl shadow-xl w-full max-w-3xl mt-10 p-4">
+    <div class="flex items-center justify-between mb-2"><h3 class="font-serif text-base">Vincular orçamento à turma ${escH(t.numero)}</h3><button type="button" id="ta-modal-fechar" class="${taBtnSec}">Fechar</button></div>
+    <p class="text-xs text-slate-500 mb-2">Só aparecem orçamentos do mesmo treinamento (${escH(t.treinamento)}) sem turmas geradas. Vagas livres: <b>${t.livres}</b>. Um orçamento de turma fechada vinculado vira Encaixe.</p>
+    <input id="ta-vinc-busca" type="search" placeholder="Buscar por número, cliente ou documento" value="${escH(taVinc.busca)}" class="${taInput} mb-2" />
+    <div class="max-h-[50vh] overflow-y-auto"><table class="w-full text-sm"><tbody>${lista.length ? lista.map((o) => {
+      const cabe = o.pessoas <= t.livres;
+      return `<tr class="border-t border-slate-100"><td class="py-1.5 pr-2 font-semibold">${escH(o.numero)}</td>
+        <td class="py-1.5 pr-2">${escH(o.empresa)} ${taBadgePessoa(o.pessoa)}</td><td class="py-1.5 pr-2">${taBadgeCom(o.comercializacao)}</td>
+        <td class="py-1.5 pr-2 whitespace-nowrap">${o.pessoas} pessoa(s)</td><td class="py-1.5 pr-2 text-right">${fmtBRL(o.valor_final)}</td>
+        <td class="py-1.5 text-right">${cabe ? `<button type="button" data-ta-vinc="${escH(o.id)}" class="${taBtnSec} !py-1">Vincular</button>` : `<span class="text-xs text-rose-600">sem vagas</span>`}</td></tr>`;
+    }).join("") : `<tr><td class="py-4 text-center text-slate-500">Nenhum orçamento disponível.</td></tr>`}</tbody></table></div></div>`;
+}
+async function taVincular(orcId) {
+  if (taOcupado) return; taOcupado = true;
+  try {
+    const r = await taRpc("ta_vincular", { p_ta: taSelId, p_orc: orcId });
+    $("ta-modal").classList.add("hidden"); taVinc = null;
+    taAviso("ok", `Orçamento vinculado como ${r.comercializacao === "individual" ? "Individual" : "Encaixe"}.`);
+    await taAtualizarDetalhe();
+  } catch (e) { taAviso("erro", "Não foi possível vincular: " + taMsgErro(e)); $("ta-modal").classList.add("hidden"); }
+  finally { taOcupado = false; }
+}
+async function taDesvincular(orcId) {
+  if (!window.confirm("Retirar este orçamento da turma aberta? (o orçamento continua existindo, sem turma)")) return;
+  try { await taRpc("ta_desvincular", { p_orc: orcId }); taAviso("ok", "Vínculo retirado."); await taAtualizarDetalhe(); }
+  catch (e) { taAviso("erro", taMsgErro(e)); }
+}
+async function taCancelarTurma() {
+  const t = taLista.find((x) => x.id === taSelId); if (!t) return;
+  if (!window.confirm(`Cancelar a turma aberta ${t.numero}? As turmas de agendamento dela serão canceladas.`)) return;
+  try { await taRpc("ta_cancelar", { p_ta: taSelId }); taAviso("ok", `Turma aberta ${t.numero} cancelada.`); taView = "lista"; await taRecarregarLista(); }
+  catch (e) { taAviso("erro", taMsgErro(e)); }
+}
+async function taAbrirOrcamento(id) {
+  irParaModulo("orcamentos");
+  try { await abrirEdicaoOrcamento(id); } catch (e) { taAviso("erro", "Não foi possível abrir o orçamento: " + taMsgErro(e)); }
+}
+
+$("ta-raiz").addEventListener("click", async (e) => {
+  const q = (s) => e.target.closest(s);
+  let b;
+  if ((b = q("[data-ta-abrir]"))) return taAbrir(b.getAttribute("data-ta-abrir"));
+  if (q("#ta-btn-nova")) { taView = "form"; taLimparAvisos(); return taRender(); }
+  if (q("#ta-btn-voltar") || q("#ta-btn-cancelar-form")) { taView = "lista"; taLimparAvisos(); await taRecarregarLista().catch(() => {}); return; }
+  if (q("#ta-btn-salvar")) return taSalvarNova();
+  if (q("#ta-btn-vincular")) return taAbrirVincular();
+  if (q("#ta-modal-fechar") || e.target.id === "ta-modal") { $("ta-modal").classList.add("hidden"); taVinc = null; return; }
+  if ((b = q("[data-ta-vinc]"))) return taVincular(b.getAttribute("data-ta-vinc"));
+  if ((b = q("[data-ta-desv]"))) return taDesvincular(b.getAttribute("data-ta-desv"));
+  if ((b = q("[data-ta-orc]"))) return taAbrirOrcamento(b.getAttribute("data-ta-orc"));
+  if (q("#ta-btn-cancelar-ta")) return taCancelarTurma();
+});
+$("ta-raiz").addEventListener("input", (e) => {
+  if (e.target.id === "ta-vinc-busca") { taVinc.busca = e.target.value; const pos = e.target.selectionStart; taRenderVincular(); const n = $("ta-vinc-busca"); n.focus(); n.setSelectionRange(pos, pos); }
+});
+$("ta-raiz").addEventListener("change", async (e) => {
+  const id = e.target.id;
+  if (id === "ta-f-trein") { taFiltro.trein = e.target.value; taRenderLista(); }
+  else if (id === "ta-f-centro") { taFiltro.centro = e.target.value; taRenderLista(); }
+  else if (id === "ta-f-enc") { taFiltro.encerradas = e.target.checked; await taRecarregarLista().catch((er) => taAviso("erro", taMsgErro(er))); }
+  else if (id === "ta-n-trein") { $("ta-n-vagas").value = ""; taAtualizarEtapas(); }
+  else if (e.target.matches && e.target.matches("[data-ta-data]")) {
+    const inputs = [...document.querySelectorAll("[data-ta-data]")]; const i = inputs.indexOf(e.target);
+    let prev = e.target.value;
+    for (let k = i + 1; k < inputs.length && prev; k++) { if (!inputs[k].value || inputs[k].value < prev) inputs[k].value = taProxDiaUtil(prev); prev = inputs[k].value; }
+  }
+});
 
 })();

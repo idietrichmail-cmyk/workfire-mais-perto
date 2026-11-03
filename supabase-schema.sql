@@ -2616,3 +2616,867 @@ end $$;
 
 revoke all on function gerar_turmas_orcamento(uuid) from public, anon;
 grant execute on function gerar_turmas_orcamento(uuid) to authenticated;
+
+-- =========================================================
+-- v1.97 (31/10/2026) — até 4 instrutores por turma
+-- Migração aplicada: instrutores_3_4_v197
+--  * turmas: instrutor3_id, instrutor4_id (fk instrutores, on delete set null) e agenda_instrutor3/4
+--    ('A agendar','Agendado','Aguardando confirmação','Não aplicável'); instrutor 3/4 vazio = "Não aplicável".
+--  * calcular_status_agendamento_turma, turma_aplicar_locacao_espaco e solicitar_confirmacao_turma reescritas
+--    para os 4 instrutores; triggers trg_a_turma_locacao_espaco e trg_status_agendamento_turma recriados
+--    com as colunas novas.
+--  * ajustadas (troca de trechos): cancelar_agendamento_turmas, responder_data_agendamento,
+--    responder_desmarcacao_agendamento, listar_desmarcacoes_pendentes, impedir_exclusao_instrutor_vinculado,
+--    notificar_alteracao_horario_turma, notificar_pre_agendamento_definitivo, emitir_certificados,
+--    _atestados_montar, excluir_orcamento, consulta_agenda (coluna "aux" = instrutores 2, 3 e 4).
+-- O certificado impresso mantém 2 assinaturas de instrutor (papel pré-impresso); o atestado imprime até 4.
+alter table public.turmas
+  add column if not exists instrutor3_id uuid references public.instrutores(id) on delete set null,
+  add column if not exists instrutor4_id uuid references public.instrutores(id) on delete set null,
+  add column if not exists agenda_instrutor3 text check (agenda_instrutor3 in ('A agendar','Agendado','Aguardando confirmação','Não aplicável')),
+  add column if not exists agenda_instrutor4 text check (agenda_instrutor4 in ('A agendar','Agendado','Aguardando confirmação','Não aplicável'));
+create index if not exists turmas_instrutor3_id_idx on public.turmas (instrutor3_id);
+create index if not exists turmas_instrutor4_id_idx on public.turmas (instrutor4_id);
+
+-- =========================================================
+-- v1.98 (31/10/2026) — grupos de turmas do dia
+-- Migrações: grupos_de_turmas_v198 (+ _fix, _fix2, _instrutores, _cancelar)
+--  * turma_grupos (centro_treinamento_id, data, criado_por, criado_em) + turmas.grupo_id.
+--    Turmas do mesmo CT e do mesmo dia (de orçamentos iguais ou diferentes) treinam em conjunto;
+--    pode haver mais de um grupo por dia; instrutores (até 4) iguais em todas as turmas do grupo.
+--  * RPCs (security definer, só authenticated): agrupar_turmas(p_turmas uuid[], p_instrutores uuid[]),
+--    definir_instrutores_grupo(p_grupo, p_instrutores) e desagrupar_turmas(p_turmas).
+--    Exigem admin ou permissão de alterar turmas; recusam CT/data diferentes, turma cancelada/concluída,
+--    turma de locação de espaço e troca de instrutor que já tem agendamento na turma.
+--  * triggers: trg_turma_sair_do_grupo (muda data/CT ou cancela -> sai do grupo) e
+--    trg_turma_limpar_grupo_orfao (grupo com menos de 2 turmas é desfeito).
+--  * cancelar_agendamento_turmas: a turma cancelada também sai do grupo.
+create table if not exists public.turma_grupos (
+  id uuid primary key default gen_random_uuid(),
+  centro_treinamento_id uuid not null references public.centros_treinamento(id) on delete cascade,
+  data date not null,
+  criado_por uuid references public.usuarios_sistema(id) on delete set null,
+  criado_em timestamptz not null default now()
+);
+create index if not exists turma_grupos_ct_data_idx on public.turma_grupos (centro_treinamento_id, data);
+alter table public.turma_grupos enable row level security;
+create policy turma_grupos_select on public.turma_grupos for select
+  using (is_admin_sistema(auth.uid()) or tem_permissao(auth.uid(), 'turmas', 'consultar'));
+alter table public.turmas add column if not exists grupo_id uuid references public.turma_grupos(id) on delete set null;
+create index if not exists turmas_grupo_id_idx on public.turmas (grupo_id) where grupo_id is not null;
+
+
+-- ============================================================
+-- v1.99 (Etapa 3): troca de instrutores da turma
+-- instrutor_confirmacao_log aceita tipo_evento instrutor_removido e instrutor_incluido:
+--   alter table public.instrutor_confirmacao_log drop constraint instrutor_confirmacao_log_tipo_evento_check;
+--   alter table public.instrutor_confirmacao_log add constraint instrutor_confirmacao_log_tipo_evento_check check (tipo_evento = any (array['solicitacao_confirmacao','resposta_confirmacao','solicitacao_cancelamento','resposta_cancelamento','instrutor_removido','instrutor_incluido']));
+-- ============================================================
+-- v1.99 (Etapa 3): troca de instrutores da turma (CT e operador do agendamento)
+-- A tabela instrutor_confirmacao_log ja aceita 'instrutor_removido' e 'instrutor_incluido' (migracao troca_instrutor_v199_log).
+-- Rodar este arquivo inteiro no SQL Editor do Supabase.
+
+create or replace function public._troca_pos_instrutor(p_t turmas, p_instrutor uuid) returns int
+language sql immutable set search_path to 'public','pg_temp' as $f$
+  select case when p_instrutor is null then 0
+    when p_t.instrutor1_id = p_instrutor then 1
+    when p_t.instrutor2_id = p_instrutor then 2
+    when p_t.instrutor3_id = p_instrutor then 3
+    when p_t.instrutor4_id = p_instrutor then 4 else 0 end
+$f$;
+
+create or replace function public._troca_datas(p_t turmas, p_antigo uuid) returns jsonb
+language plpgsql set search_path to 'public','pg_temp' as $f$
+declare v jsonb;
+begin
+  if p_antigo is not null then
+    select a.datas into v from agendamentos a
+      where a.turma_id = p_t.id and a.instrutor_id = p_antigo and jsonb_array_length(coalesce(a.datas,'[]'::jsonb)) > 0 limit 1;
+  end if;
+  if v is null then
+    select a.datas into v from agendamentos a
+      where a.turma_id = p_t.id and jsonb_array_length(coalesce(a.datas,'[]'::jsonb)) > 0 order by a.created_at limit 1;
+  end if;
+  if v is null and p_t.data_inicio is not null then
+    select coalesce(jsonb_agg(to_char(d::date,'YYYY-MM-DD') order by d), '[]'::jsonb) into v
+      from generate_series(p_t.data_inicio::timestamp, coalesce(p_t.data_fim, p_t.data_inicio)::timestamp, interval '1 day') d;
+  end if;
+  return v;
+end $f$;
+
+create or replace function public._troca_tirar_instrutor(p_turma_id uuid, p_instrutor uuid, p_motivo text, p_usuario uuid)
+returns boolean language plpgsql security definer set search_path to 'public','extensions','pg_temp' as $f$
+declare
+  v_t turmas; v_ag agendamentos; v_url text; v_secret text; v_orc text; v_emp text; v_d text;
+  v_pos int; v_agenda text; v_tinha boolean := false; v_corpo text; v_primeiro date;
+begin
+  select * into v_t from turmas where id = p_turma_id;
+  if v_t.id is null then return false; end if;
+  select valor into v_url from config_sistema where chave = 'supabase_url';
+  select valor into v_secret from config_sistema where chave = 'internal_push_secret';
+  select o.numero, e.nome into v_orc, v_emp from orcamentos o left join empresas e on e.id = o.empresa_id where o.id = v_t.orcamento_id;
+  v_pos := _troca_pos_instrutor(v_t, p_instrutor);
+  v_agenda := case v_pos when 1 then v_t.agenda_instrutor1 when 2 then v_t.agenda_instrutor2 when 3 then v_t.agenda_instrutor3 when 4 then v_t.agenda_instrutor4 else null end;
+
+  for v_ag in select * from agendamentos where turma_id = p_turma_id and instrutor_id = p_instrutor loop
+    v_tinha := true;
+    for v_d in select jsonb_array_elements_text(coalesce(v_ag.datas,'[]'::jsonb)) loop
+      v_primeiro := coalesce(v_primeiro, v_d::date);
+      insert into instrutor_confirmacao_log (instrutor_id, turma_id, agendamento_id, data_treinamento, tipo_evento, justificativa, usuario_sistema_id)
+        values (p_instrutor, p_turma_id, null, v_d::date, 'instrutor_removido', p_motivo, p_usuario);
+      if not exists (select 1 from agendamentos a where a.instrutor_id = p_instrutor and a.id <> v_ag.id and coalesce(a.datas,'[]'::jsonb) ? v_d) then
+        update instrutores
+          set dias_status = jsonb_set(coalesce(dias_status,'{}'::jsonb), array[v_d], to_jsonb('disponivel'::text))
+          where id = p_instrutor and coalesce(dias_status ->> v_d,'disponivel') in ('agendado','aguardando','pre_agendamento');
+      end if;
+    end loop;
+    delete from agendamentos where id = v_ag.id;
+  end loop;
+
+  if not v_tinha and coalesce(v_agenda,'') in ('Agendado','Aguardando confirmação') and v_t.data_inicio is not null then
+    insert into instrutor_confirmacao_log (instrutor_id, turma_id, data_treinamento, tipo_evento, justificativa, usuario_sistema_id)
+      values (p_instrutor, p_turma_id, v_t.data_inicio, 'instrutor_removido', p_motivo, p_usuario);
+  end if;
+
+  if v_tinha and v_url is not null and v_secret is not null then
+    v_corpo := 'Orçamento ' || coalesce(v_orc,'—') || ' (' || coalesce(v_emp,'—') || ') — turma ' || coalesce(v_t.identificacao,'—')
+      || ' em ' || to_char(coalesce(v_primeiro, v_t.data_inicio),'DD/MM/YYYY') || ': você foi retirado desta turma e o agendamento foi CANCELADO.'
+      || case when coalesce(p_motivo,'') <> '' then ' Motivo: ' || p_motivo else '' end;
+    perform net.http_post(
+      url := v_url || '/functions/v1/notificar-agenda',
+      headers := jsonb_build_object('Content-Type','application/json','x-internal-secret', v_secret),
+      body := jsonb_build_object('instrutor_id', p_instrutor, 'titulo', 'Agendamento cancelado', 'corpo', v_corpo, 'forcar_mensagem', true));
+  end if;
+  return v_tinha;
+end $f$;
+
+create or replace function public._troca_limpar_vaga(p_turma_id uuid, p_instrutor uuid)
+returns void language plpgsql security definer set search_path to 'public','pg_temp' as $f$
+declare v_t turmas; v_pos int;
+begin
+  select * into v_t from turmas where id = p_turma_id;
+  v_pos := _troca_pos_instrutor(v_t, p_instrutor);
+  if v_pos = 0 then return; end if;
+  execute format('update turmas set instrutor%s_id = null, agenda_instrutor%s = %L where id = %L',
+    v_pos, v_pos, case when v_pos = 1 then 'A agendar' else 'Não aplicável' end, p_turma_id);
+end $f$;
+
+create or replace function public._troca_incluir_instrutor(p_turma_id uuid, p_pos int, p_novo uuid, p_datas jsonb, p_usuario uuid, p_motivo text)
+returns boolean language plpgsql security definer set search_path to 'public','extensions','pg_temp' as $f$
+declare
+  v_t turmas; v_hoje date := (now() at time zone 'America/Sao_Paulo')::date;
+  v_min date; v_auto boolean; v_ds jsonb := '{}'::jsonb; v_ag_id uuid; v_d text; v_cal text;
+  v_url text; v_secret text; v_orc text; v_emp text; v_corpo text;
+begin
+  select * into v_t from turmas where id = p_turma_id;
+  select min(d::date) into v_min from jsonb_array_elements_text(p_datas) d;
+  v_auto := v_min <= v_hoje;
+  if v_auto then
+    select coalesce(jsonb_object_agg(d, jsonb_build_object('status','confirmado','justificativa','Confirmado automaticamente: troca de instrutor no dia do treinamento','automatico',true)), '{}'::jsonb)
+      into v_ds from jsonb_array_elements_text(p_datas) d;
+  end if;
+
+  select id into v_ag_id from agendamentos where turma_id = p_turma_id and instrutor_id = p_novo limit 1;
+  if v_ag_id is null then
+    insert into agendamentos (instrutor_id, turma_id, datas, datas_status, horario, status, tipo_treinamento_id, centro_treinamento_id)
+      values (p_novo, p_turma_id, p_datas, v_ds, v_t.horario, 'Aguardando', v_t.tipo_treinamento_id, v_t.centro_treinamento_id)
+      returning id into v_ag_id;
+  else
+    update agendamentos set datas = p_datas, datas_status = v_ds, status = 'Aguardando' where id = v_ag_id;
+  end if;
+
+  if v_auto then
+    v_cal := case when coalesce(v_t.eh_pre_agendamento,false) then 'pre_agendamento' else 'agendado' end;
+    for v_d in select jsonb_array_elements_text(p_datas) loop
+      update instrutores set dias_status = jsonb_set(coalesce(dias_status,'{}'::jsonb), array[v_d], to_jsonb(v_cal)) where id = p_novo;
+    end loop;
+  end if;
+
+  for v_d in select jsonb_array_elements_text(p_datas) loop
+    insert into instrutor_confirmacao_log (instrutor_id, turma_id, agendamento_id, data_treinamento, tipo_evento, resposta, justificativa, usuario_sistema_id)
+      values (p_novo, p_turma_id, v_ag_id, v_d::date, 'instrutor_incluido', case when v_auto then 'confirmado' else null end,
+        case when v_auto then 'Confirmado automaticamente: troca no dia do treinamento' else 'Aguardando confirmação do instrutor' end
+          || case when coalesce(p_motivo,'') <> '' then ' · ' || p_motivo else '' end, p_usuario);
+  end loop;
+
+  execute format('update turmas set instrutor%s_id = %L, agenda_instrutor%s = %L where id = %L',
+    p_pos, p_novo, p_pos, case when v_auto then 'Agendado' else 'Aguardando confirmação' end, p_turma_id);
+
+  if v_auto then
+    select valor into v_url from config_sistema where chave = 'supabase_url';
+    select valor into v_secret from config_sistema where chave = 'internal_push_secret';
+    select o.numero, e.nome into v_orc, v_emp from orcamentos o left join empresas e on e.id = o.empresa_id where o.id = v_t.orcamento_id;
+    if v_url is not null and v_secret is not null then
+      v_corpo := 'Orçamento ' || coalesce(v_orc,'—') || ' (' || coalesce(v_emp,'—') || ') — turma ' || coalesce(v_t.identificacao,'—')
+        || ' em ' || to_char(v_min,'DD/MM/YYYY') || ': você foi incluído nesta turma (confirmado automaticamente).';
+      perform net.http_post(
+        url := v_url || '/functions/v1/notificar-agenda',
+        headers := jsonb_build_object('Content-Type','application/json','x-internal-secret', v_secret),
+        body := jsonb_build_object('instrutor_id', p_novo, 'titulo', 'Você foi incluído em uma turma', 'corpo', v_corpo, 'forcar_mensagem', true));
+    end if;
+  end if;
+  return v_auto;
+end $f$;
+
+create or replace function public.trocar_instrutor_turma(p_turma uuid, p_posicao int, p_novo uuid, p_motivo text default null, p_mover boolean default false, p_somente_turma boolean default false)
+returns jsonb language plpgsql security definer set search_path to 'public','extensions','pg_temp' as $f$
+declare
+  v_base turmas; v_t turmas; v_c turmas; v_id uuid; v_usuario uuid;
+  v_motivo text := nullif(btrim(coalesce(p_motivo,'')), '');
+  v_alvos uuid[]; v_antigo uuid; v_datas jsonb; v_agendada boolean; v_auto boolean;
+  v_conf uuid[] := '{}'; v_conf_todos uuid[] := '{}'; v_r record; v_msg text := ''; v_bloq text;
+  v_res jsonb := '[]'::jsonb; v_movidos jsonb := '[]'::jsonb; v_nome_novo text; v_nome_antigo text; v_d text;
+begin
+  if not (is_admin(auth.uid()) or is_admin_sistema(auth.uid()) or pode_acessar_tabela(auth.uid(), 'turmas', 'update')) then
+    raise exception 'Sem permissão para trocar instrutores de turmas.';
+  end if;
+  if p_posicao is null or p_posicao not between 1 and 4 then raise exception 'Vaga de instrutor inválida.'; end if;
+  select * into v_base from turmas where id = p_turma;
+  if v_base.id is null then raise exception 'Turma não encontrada.'; end if;
+  if v_base.status in ('Cancelada','Concluída') then raise exception 'Turma % não pode ter instrutor trocado.', lower(v_base.status); end if;
+  if exists (select 1 from tipos_treinamento tt where tt.id = v_base.tipo_treinamento_id and tt.somente_locacao_espaco) then
+    raise exception 'Turma de locação de espaço não tem instrutor.';
+  end if;
+  if p_novo is not null and not exists (select 1 from instrutores where id = p_novo) then raise exception 'Instrutor não encontrado.'; end if;
+  select id into v_usuario from usuarios_sistema where user_id = auth.uid();
+  select nome into v_nome_novo from instrutores where id = p_novo;
+
+  select coalesce(array_agg(t.id order by t.identificacao), '{}'::uuid[]) into v_alvos
+    from turmas t
+    where (t.id = p_turma or (v_base.grupo_id is not null and not p_somente_turma and t.grupo_id = v_base.grupo_id))
+      and t.status not in ('Cancelada','Concluída')
+      and (case p_posicao when 1 then t.instrutor1_id when 2 then t.instrutor2_id when 3 then t.instrutor3_id else t.instrutor4_id end) is distinct from p_novo;
+  if coalesce(array_length(v_alvos,1),0) = 0 then raise exception 'Nada a trocar: a vaga já está com esse instrutor.'; end if;
+  if p_novo is null and not exists (select 1 from turmas t where t.id = any(v_alvos) and (case p_posicao when 1 then t.instrutor1_id when 2 then t.instrutor2_id when 3 then t.instrutor3_id else t.instrutor4_id end) is not null) then
+    raise exception 'Esta vaga já está vazia.';
+  end if;
+
+  if p_novo is not null then
+    foreach v_id in array v_alvos loop
+      select * into v_t from turmas where id = v_id;
+      if _troca_pos_instrutor(v_t, p_novo) <> 0 then
+        raise exception 'O instrutor % já está em outra vaga da turma %.', v_nome_novo, v_t.identificacao;
+      end if;
+      v_antigo := case p_posicao when 1 then v_t.instrutor1_id when 2 then v_t.instrutor2_id when 3 then v_t.instrutor3_id else v_t.instrutor4_id end;
+      v_datas := _troca_datas(v_t, v_antigo);
+      if v_datas is null then continue; end if;
+      select string_agg(to_char(d::date,'DD/MM/YYYY'), ', ') into v_bloq
+        from jsonb_array_elements_text(v_datas) d
+        where (select dias_status ->> d from instrutores where id = p_novo) = 'bloqueado';
+      if v_bloq is not null then raise exception 'O instrutor % está bloqueado em %.', v_nome_novo, v_bloq; end if;
+      if exists (select 1 from agendamentos a where a.instrutor_id = p_novo and a.turma_id is null
+                   and a.datas ?| array(select jsonb_array_elements_text(v_datas))) then
+        raise exception 'O instrutor % tem outro agendamento (fora de turma) nessas datas.', v_nome_novo;
+      end if;
+      for v_r in
+        select distinct x.tid from (
+          select t2.id as tid from turmas t2
+            where not (t2.id = any(v_alvos)) and t2.status <> 'Cancelada' and t2.data_inicio is not null
+              and p_novo in (t2.instrutor1_id, t2.instrutor2_id, t2.instrutor3_id, t2.instrutor4_id)
+              and exists (select 1 from jsonb_array_elements_text(v_datas) d where d::date between t2.data_inicio and coalesce(t2.data_fim, t2.data_inicio))
+          union
+          select a.turma_id from agendamentos a
+            where a.instrutor_id = p_novo and a.turma_id is not null and not (a.turma_id = any(v_alvos))
+              and a.datas ?| array(select jsonb_array_elements_text(v_datas))
+        ) x
+      loop
+        if not (v_r.tid = any(v_conf)) then v_conf := v_conf || v_r.tid; end if;
+      end loop;
+    end loop;
+
+    if coalesce(array_length(v_conf,1),0) > 0 then
+      select coalesce(array_agg(distinct t.id), '{}'::uuid[]) into v_conf_todos from turmas t
+        where t.id = any(v_conf)
+           or (t.grupo_id is not null and t.grupo_id in (select grupo_id from turmas where id = any(v_conf)) and p_novo in (t.instrutor1_id, t.instrutor2_id, t.instrutor3_id, t.instrutor4_id));
+      if not p_mover then
+        select string_agg('turma ' || coalesce(t.identificacao,'—') || ' (' || coalesce(e.nome,'—') || ', ' || to_char(t.data_inicio,'DD/MM/YYYY') || ')' || case when t.grupo_id is not null then ' [em grupo]' else '' end, '; ')
+          into v_msg from turmas t left join orcamentos o on o.id = t.orcamento_id left join empresas e on e.id = o.empresa_id where t.id = any(v_conf_todos);
+        raise exception 'CONFLITO: % já está agendado em %. Se continuar, ele sai dessa(s) turma(s) e o agendamento é cancelado.', v_nome_novo, v_msg;
+      end if;
+    end if;
+  end if;
+
+  if p_novo is not null then
+    foreach v_id in array coalesce(v_conf_todos,'{}'::uuid[]) loop
+      select * into v_c from turmas where id = v_id;
+      perform _troca_tirar_instrutor(v_id, p_novo, 'Movido para outra turma (' || coalesce((select identificacao from turmas where id = p_turma),'—') || ')' || case when v_motivo is not null then ' · ' || v_motivo else '' end, v_usuario);
+      perform _troca_limpar_vaga(v_id, p_novo);
+      v_movidos := v_movidos || jsonb_build_object('turma_id', v_id, 'identificacao', v_c.identificacao);
+    end loop;
+  end if;
+
+  foreach v_id in array v_alvos loop
+    select * into v_t from turmas where id = v_id;
+    v_antigo := case p_posicao when 1 then v_t.instrutor1_id when 2 then v_t.instrutor2_id when 3 then v_t.instrutor3_id else v_t.instrutor4_id end;
+    select nome into v_nome_antigo from instrutores where id = v_antigo;
+    v_agendada := exists (select 1 from agendamentos a where a.turma_id = v_id and jsonb_array_length(coalesce(a.datas,'[]'::jsonb)) > 0)
+      or coalesce(v_t.agenda_ct,'A agendar') in ('Aguardando confirmação','Agendado')
+      or 'Agendado' = any(array[v_t.agenda_instrutor1, v_t.agenda_instrutor2, v_t.agenda_instrutor3, v_t.agenda_instrutor4])
+      or 'Aguardando confirmação' = any(array[v_t.agenda_instrutor1, v_t.agenda_instrutor2, v_t.agenda_instrutor3, v_t.agenda_instrutor4]);
+    v_datas := _troca_datas(v_t, v_antigo);
+
+    if v_antigo is not null then
+      perform _troca_tirar_instrutor(v_id, v_antigo, coalesce(v_motivo, 'Troca de instrutor'), v_usuario);
+    end if;
+    if p_novo is null then
+      execute format('update turmas set instrutor%s_id = null, agenda_instrutor%s = %L where id = %L', p_posicao, p_posicao,
+        case when p_posicao = 1 then 'A agendar' else 'Não aplicável' end, v_id);
+      v_auto := false;
+    else
+      execute format('update turmas set instrutor%s_id = %L, agenda_instrutor%s = %L where id = %L', p_posicao, p_novo, p_posicao, 'A agendar', v_id);
+      v_auto := false;
+      if v_agendada and v_datas is not null and jsonb_array_length(v_datas) > 0 then
+        v_auto := _troca_incluir_instrutor(v_id, p_posicao, p_novo, v_datas, v_usuario, v_motivo);
+      end if;
+    end if;
+    v_res := v_res || jsonb_build_object('turma_id', v_id, 'identificacao', v_t.identificacao, 'antigo', v_nome_antigo, 'novo', v_nome_novo,
+      'agendado', v_agendada, 'confirmado_automatico', v_auto);
+  end loop;
+
+  return jsonb_build_object('trocas', v_res, 'movidos', v_movidos);
+end $f$;
+
+revoke all on function public.trocar_instrutor_turma(uuid,int,uuid,text,boolean,boolean) from public, anon;
+grant execute on function public.trocar_instrutor_turma(uuid,int,uuid,text,boolean,boolean) to authenticated;
+revoke all on function public._troca_tirar_instrutor(uuid,uuid,text,uuid) from public, anon, authenticated;
+revoke all on function public._troca_incluir_instrutor(uuid,int,uuid,jsonb,uuid,text) from public, anon, authenticated;
+revoke all on function public._troca_limpar_vaga(uuid,uuid) from public, anon, authenticated;
+revoke all on function public._troca_datas(turmas,uuid) from public, anon, authenticated;
+revoke all on function public._troca_pos_instrutor(turmas,uuid) from public, anon, authenticated;
+
+
+-- =====================================================================
+-- v1.100 — Tela "Grupos de Turmas": incluir turmas em um grupo já existente
+-- (a tela usa também agrupar_turmas, desagrupar_turmas e trocar_instrutor_turma)
+-- A turma incluída passa a usar os instrutores do grupo; o instrutor anterior que não
+-- faz parte do grupo é retirado (cancela agendamento, avisa e registra no log).
+-- =====================================================================
+CREATE OR REPLACE FUNCTION public.grupo_incluir_turmas(p_grupo uuid, p_turmas uuid[])
+ RETURNS integer
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'extensions', 'pg_temp'
+AS $function$
+declare
+  v_g turma_grupos; v_ids uuid[]; v_ref turmas; t turmas; v_usr uuid; v_pos int; v_novo uuid; v_atual uuid; v_ag text;
+  v_ins uuid[]; v_old uuid; n int := 0;
+begin
+  if not (is_admin_sistema(auth.uid()) or pode_acessar_tabela(auth.uid(), 'turmas', 'update')) then
+    raise exception 'Sem permissão para alterar grupos de turmas.';
+  end if;
+  select * into v_g from turma_grupos where id = p_grupo;
+  if v_g.id is null then raise exception 'Grupo não encontrado.'; end if;
+  select array_agg(distinct x) into v_ids from unnest(coalesce(p_turmas,'{}')) x;
+  if coalesce(cardinality(v_ids),0) = 0 then raise exception 'Nenhuma turma informada.'; end if;
+  if (select count(*) from turmas where id = any(v_ids)) <> cardinality(v_ids) then raise exception 'Alguma turma não foi encontrada.'; end if;
+  if exists (select 1 from turmas where id = any(v_ids) and (centro_treinamento_id is distinct from v_g.centro_treinamento_id or data_inicio is distinct from v_g.data)) then
+    raise exception 'Só entram no grupo turmas do mesmo Centro de Treinamento e do mesmo dia.';
+  end if;
+  if exists (select 1 from turmas where id = any(v_ids) and status in ('Cancelada','Concluída')) then
+    raise exception 'Turma cancelada ou concluída não entra em grupo.';
+  end if;
+  if exists (select 1 from turmas where id = any(v_ids) and grupo_id is not null) then
+    raise exception 'Alguma turma já está em um grupo. Tire-a do grupo dela antes.';
+  end if;
+  if exists (select 1 from turmas t2 join tipos_treinamento tp on tp.id = t2.tipo_treinamento_id where t2.id = any(v_ids) and tp.somente_locacao_espaco) then
+    raise exception 'Turma de locação de espaço não tem instrutor e não entra em grupo.';
+  end if;
+
+  -- instrutores do grupo = os de uma turma que já está no grupo
+  select * into v_ref from turmas where grupo_id = p_grupo order by (instrutor1_id is null), identificacao limit 1;
+  if v_ref.id is null then raise exception 'O grupo não tem turmas.'; end if;
+  v_ins := array[v_ref.instrutor1_id, v_ref.instrutor2_id, v_ref.instrutor3_id, v_ref.instrutor4_id];
+  select id into v_usr from usuarios_sistema where user_id = auth.uid();
+
+  for t in select * from turmas where id = any(v_ids) loop
+    -- instrutor da turma que não faz parte do grupo: sai (cancela agendamento, avisa e registra no log)
+    foreach v_old in array array[t.instrutor1_id, t.instrutor2_id, t.instrutor3_id, t.instrutor4_id] loop
+      continue when v_old is null;
+      if not (v_old = any(v_ins)) then
+        perform _troca_tirar_instrutor(t.id, v_old, 'Turma incluída em grupo com outros instrutores', v_usr);
+      end if;
+    end loop;
+    update turmas set grupo_id = p_grupo where id = t.id;
+    select * into t from turmas where id = t.id;
+    for v_pos in 1..4 loop
+      v_novo := v_ins[v_pos];
+      v_atual := case v_pos when 1 then t.instrutor1_id when 2 then t.instrutor2_id when 3 then t.instrutor3_id else t.instrutor4_id end;
+      v_ag := case v_pos when 1 then t.agenda_instrutor1 when 2 then t.agenda_instrutor2 when 3 then t.agenda_instrutor3 else t.agenda_instrutor4 end;
+      if v_novo is null then
+        v_ag := case when v_pos = 1 then 'A agendar' else 'Não aplicável' end;
+      elsif v_novo is distinct from v_atual or v_ag is null or v_ag = 'Não aplicável' or v_ag = 'A agendar' then
+        v_ag := 'A agendar';
+      end if;
+      execute format('update turmas set instrutor%s_id = %L, agenda_instrutor%s = %L where id = %L', v_pos, v_novo, v_pos, v_ag, t.id);
+    end loop;
+    n := n + 1;
+  end loop;
+  return n;
+end $function$;
+
+
+-- =====================================================================
+-- v2.01 — Turmas Abertas + comercialização do orçamento (Individual / Encaixe / Turma fechada)
+--   * orcamentos.comercializacao ('fechada' | 'encaixe' | 'individual') e orcamentos.turma_aberta_id
+--   * tipos_treinamento.valor_pessoa_fisica (valor de tabela da comercialização Individual;
+--     o valor_individual existente continua sendo o da comercialização Encaixe)
+--   * empresas.data_nascimento (cliente pessoa física; o CPF fica no mesmo campo cnpj/cnpj_digitos)
+--   * turma_alunos.orcamento_id (de qual orçamento de encaixe/individual veio o aluno)
+--   * RPCs ta_* (permissão do módulo "turmas_abertas") e gatilho que confere vagas e regras
+-- A turma aberta continua sendo um orçamento interno "TA-nnnn" (turma_aberta = true) com as turmas
+-- de agendamento geradas, como na v1.89.
+-- =====================================================================
+
+alter table public.orcamentos add column if not exists comercializacao text not null default 'fechada';
+alter table public.orcamentos add column if not exists turma_aberta_id uuid references public.orcamentos(id);
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'orcamentos_comercializacao_chk') then
+    alter table public.orcamentos add constraint orcamentos_comercializacao_chk check (comercializacao in ('fechada','encaixe','individual'));
+  end if;
+end $$;
+create index if not exists orcamentos_turma_aberta_idx on public.orcamentos (turma_aberta_id) where turma_aberta_id is not null;
+alter table public.tipos_treinamento add column if not exists valor_pessoa_fisica numeric(12,2);
+alter table public.orcamentos add column if not exists valor_pessoa numeric(12,2);   -- valor por pessoa (Individual/Encaixe)
+alter table public.empresas add column if not exists data_nascimento date;
+alter table public.turma_alunos add column if not exists orcamento_id uuid;
+create index if not exists turma_alunos_orcamento_idx on public.turma_alunos (orcamento_id) where orcamento_id is not null;
+
+-- ---- permissão do módulo "turmas_abertas" ----
+create or replace function public._ta_exigir(p_acao text) returns void
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if auth.uid() is null then raise exception 'Sessão expirada. Entre novamente.' using errcode = '42501'; end if;
+  if not (is_admin_sistema(auth.uid()) or tem_permissao(auth.uid(), 'turmas_abertas', p_acao)) then
+    raise exception 'Você não tem permissão para esta ação em Turmas Abertas.' using errcode = '42501';
+  end if;
+end $$;
+
+-- ---- vagas ocupadas por orçamentos vinculados (encaixe/individual, exceto recusados) ----
+create or replace function public._ta_ocupacao(p_ta uuid, p_ignorar uuid default null) returns integer
+language sql stable security definer set search_path = public as $$
+  select coalesce(sum(qtd_alunos), 0)::int from orcamentos
+  where turma_aberta_id = p_ta and comercializacao in ('encaixe','individual') and status <> 'Recusado'
+    and (p_ignorar is null or id <> p_ignorar)
+$$;
+
+-- ---- regras do orçamento de encaixe/individual (gatilho) ----
+create or replace function public.trg_orcamento_comercializacao() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare v_ta orcamentos; v_emp_dig text; v_livres int;
+begin
+  if new.turma_aberta then return new; end if;
+  if tg_op = 'UPDATE' and new.comercializacao is not distinct from old.comercializacao
+     and new.turma_aberta_id is not distinct from old.turma_aberta_id
+     and new.qtd_alunos is not distinct from old.qtd_alunos
+     and new.empresa_id is not distinct from old.empresa_id
+     and new.tipo_treinamento_id is not distinct from old.tipo_treinamento_id
+     and new.status is not distinct from old.status then
+    return new;
+  end if;
+  if tg_op = 'UPDATE' and old.turma_aberta_id is not null
+     and (new.turma_aberta_id is distinct from old.turma_aberta_id or new.empresa_id is distinct from old.empresa_id)
+     and exists (select 1 from turma_alunos where orcamento_id = new.id) then
+    raise exception 'Este orçamento já tem alunos numa turma aberta: retire os alunos antes de trocar a turma aberta ou o cliente.';
+  end if;
+  if new.comercializacao = 'fechada' then
+    if new.turma_aberta_id is not null then raise exception 'Orçamento de turma fechada não pode estar ligado a uma turma aberta.'; end if;
+    return new;
+  end if;
+  if new.turma_aberta_id is null then raise exception 'Comercialização %: escolha a turma aberta.', case when new.comercializacao = 'individual' then 'Individual' else 'Encaixe' end; end if;
+  if new.comercializacao = 'individual' then
+    if coalesce(new.qtd_alunos, 0) <> 1 then raise exception 'Comercialização Individual: a quantidade de pessoas é 1 (o próprio cliente).'; end if;
+    select cnpj_digitos into v_emp_dig from empresas where id = new.empresa_id;
+    if length(coalesce(v_emp_dig, '')) <> 11 then raise exception 'Comercialização Individual: o cliente precisa ser pessoa física (CPF).'; end if;
+  end if;
+  select * into v_ta from orcamentos where id = new.turma_aberta_id and turma_aberta;
+  if v_ta.id is null then raise exception 'Turma aberta não encontrada.'; end if;
+  if v_ta.status = 'Recusado' and new.status <> 'Recusado' then raise exception 'A turma aberta % está cancelada.', v_ta.numero; end if;
+  if v_ta.tipo_treinamento_id is distinct from new.tipo_treinamento_id then raise exception 'A turma aberta % é de outro treinamento.', v_ta.numero; end if;
+  if new.status <> 'Recusado' then
+    v_livres := coalesce(v_ta.qtd_alunos_por_turma, 0) - public._ta_ocupacao(v_ta.id, new.id);
+    if coalesce(new.qtd_alunos, 0) > v_livres then
+      raise exception 'A turma aberta % tem % vaga(s) livre(s); o orçamento pede %.', v_ta.numero, greatest(v_livres, 0), coalesce(new.qtd_alunos, 0);
+    end if;
+  end if;
+  new.centro_treinamento_id := v_ta.centro_treinamento_id;
+  return new;
+end $$;
+create or replace trigger orcamento_comercializacao before insert or update on public.orcamentos
+  for each row execute function public.trg_orcamento_comercializacao();
+
+-- ---- criar turma aberta (orçamento interno TA-nnnn + turmas de agendamento) ----
+create or replace function public.ta_criar(p jsonb) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  v_tipo tipos_treinamento; v_emp uuid; v_orc uuid; v_num text; v_vagas int; v_ct uuid; v_h_t time; v_h_p time;
+  v_dois boolean; v_locacao boolean; v_seq text[] := '{}'; v_n int; i int; d date; v_prev date; v_datas date[] := '{}'; v_dt date;
+begin
+  perform public._ta_exigir('incluir');
+  select * into v_tipo from tipos_treinamento where id = nullif(p->>'tipo_treinamento_id', '')::uuid;
+  if not found or v_tipo.status <> 'Ativo' or not coalesce(v_tipo.vendido_por_pessoa, false) then
+    raise exception 'Escolha um treinamento ativo marcado para turma aberta (vendido por pessoa).';
+  end if;
+  v_vagas := coalesce(nullif(p->>'vagas', '')::int, 0);
+  if v_vagas < 1 then raise exception 'Informe o número de vagas da turma.'; end if;
+  v_ct := nullif(p->>'centro_treinamento_id', '')::uuid;
+  if v_ct is null or not exists (select 1 from centros_treinamento where id = v_ct and status = 'Ativo') then
+    raise exception 'Escolha o centro de treinamento.';
+  end if;
+  v_h_t := coalesce(nullif(p->>'horario_teoria', '')::time, time '07:30');
+  v_h_p := coalesce(nullif(p->>'horario_pratica', '')::time, v_h_t);
+  select id into v_emp from empresas where origem = 'sistema' and nome = 'TURMA ABERTA (venda por pessoa)' limit 1;
+  if v_emp is null then raise exception 'Empresa interna de turma aberta não encontrada.'; end if;
+  v_locacao := coalesce(v_tipo.somente_locacao_espaco, false);
+  v_dois := (not v_locacao) and v_tipo.alunos_por_instrutor is not null and v_tipo.alunos_por_instrutor > 0 and v_vagas > v_tipo.alunos_por_instrutor;
+
+  v_seq := array_cat(array_cat(
+      array_fill('Teoria'::text, array[greatest(coalesce(v_tipo.dias_teoria, 0), 0)]),
+      array_fill('Prática'::text, array[greatest(coalesce(v_tipo.dias_pratica, 0), 0)])),
+      array_fill('Teoria com Prática'::text, array[greatest(coalesce(v_tipo.dias_teoria_pratica, 0), 0)]));
+  v_n := coalesce(array_length(v_seq, 1), 0);
+  if v_n = 0 then v_seq := array[null]::text[]; v_n := 1; end if;
+
+  -- datas: uma por etapa (p.datas) ou data de início + dias úteis seguintes
+  if jsonb_typeof(p->'datas') = 'array' then
+    for i in 0..jsonb_array_length(p->'datas') - 1 loop
+      v_dt := nullif(p->'datas'->>i, '')::date;
+      if v_dt is not null then v_datas := v_datas || v_dt; end if;
+    end loop;
+  end if;
+  if coalesce(array_length(v_datas, 1), 0) = 0 and nullif(p->>'data_inicio', '') is not null then
+    v_datas := array[(p->>'data_inicio')::date];
+  end if;
+  if coalesce(array_length(v_datas, 1), 0) = 0 then raise exception 'Informe a data do treinamento.'; end if;
+  if coalesce(array_length(v_datas, 1), 0) < v_n then
+    v_prev := v_datas[array_length(v_datas, 1)];
+    for i in array_length(v_datas, 1) + 1..v_n loop
+      d := v_prev + 1;
+      while extract(dow from d) in (0, 6) loop d := d + 1; end loop;
+      v_datas := v_datas || d; v_prev := d;
+    end loop;
+  end if;
+  if v_datas[1] < current_date then raise exception 'A data de início não pode estar no passado.'; end if;
+
+  v_num := 'TA-' || lpad(nextval('turmas_abertas_numero_seq')::text, 4, '0');
+  insert into orcamentos (numero, empresa_id, status, observacoes, centro_treinamento_id, tipo_treinamento_id,
+      qtd_turmas, qtd_alunos, qtd_alunos_por_turma, formato_teoria, formato_pratica, necessita_dois_instrutores,
+      horario_inicio_teoria, horario_inicio_pratica, faturar_por_aluno, turma_aberta)
+  values (v_num, v_emp, 'Aprovado', nullif(p->>'observacoes', ''), v_ct, v_tipo.id,
+      1, v_vagas, v_vagas, 'CT', 'CT', v_dois, v_h_t, v_h_p, true, true)
+  returning id into v_orc;
+
+  for i in 1..v_n loop
+    insert into turmas (orcamento_id, identificacao, tipo_dia, tipo_treinamento_id, centro_treinamento_id,
+        formato_teoria, formato_pratica, horario, vagas, dias_totais, status, data_inicio, data_fim,
+        agenda_ct, agenda_movel, agenda_instrutor1, agenda_instrutor2, agenda_transporte)
+    values (v_orc, 'A' || i, v_seq[i], v_tipo.id, v_ct, 'CT', 'CT',
+        to_char(case when v_seq[i] = 'Prática' then v_h_p else v_h_t end, 'HH24:MI'),
+        v_vagas, case when v_n > 0 and v_seq[1] is not null then v_n else null end, 'Planejada', v_datas[i], v_datas[i],
+        'A agendar', 'Não aplicável',
+        case when v_locacao then 'Não aplicável' else 'A agendar' end,
+        case when v_dois then 'A agendar' else 'Não aplicável' end,
+        'Não aplicável');
+  end loop;
+  return jsonb_build_object('id', v_orc, 'numero', v_num);
+end $$;
+
+-- ---- cancelar turma aberta (sem orçamentos ativos vinculados) ----
+create or replace function public.ta_cancelar(p_ta uuid) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  perform public._ta_exigir('alterar');
+  perform 1 from orcamentos where id = p_ta and turma_aberta for update;
+  if not found then raise exception 'Turma aberta não encontrada.'; end if;
+  if exists (select 1 from orcamentos where turma_aberta_id = p_ta and status <> 'Recusado') then
+    raise exception 'Há orçamentos vinculados a esta turma: retire o vínculo ou recuse os orçamentos antes.';
+  end if;
+  update turmas set status = 'Cancelada' where orcamento_id = p_ta;
+  update orcamentos set status = 'Recusado' where id = p_ta;
+end $$;
+
+-- ---- listagem ----
+create or replace function public.ta_listar(p_incluir_encerradas boolean default false) returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+begin
+  perform public._ta_exigir('consultar');
+  return coalesce((select jsonb_agg(x order by (x->>'data_inicio') nulls last, x->>'numero') from (
+    select jsonb_build_object(
+      'id', o.id, 'numero', o.numero, 'cancelada', o.status = 'Recusado',
+      'tipo_treinamento_id', o.tipo_treinamento_id, 'treinamento', t.nome,
+      'centro_id', o.centro_treinamento_id, 'centro', c.nome,
+      'data_inicio', tm.ini, 'data_fim', tm.fim, 'etapas', tm.n,
+      'vagas', o.qtd_alunos_por_turma, 'ocupadas', public._ta_ocupacao(o.id),
+      'livres', greatest(coalesce(o.qtd_alunos_por_turma, 0) - public._ta_ocupacao(o.id), 0),
+      'minimo_pessoas', t.minimo_pessoas_turma,
+      'qtd_orcamentos', (select count(*) from orcamentos v where v.turma_aberta_id = o.id and v.status <> 'Recusado'),
+      'qtd_encaixe', (select count(*) from orcamentos v where v.turma_aberta_id = o.id and v.status <> 'Recusado' and v.comercializacao = 'encaixe'),
+      'qtd_individual', (select count(*) from orcamentos v where v.turma_aberta_id = o.id and v.status <> 'Recusado' and v.comercializacao = 'individual'),
+      'agenda', tm.agenda) as x
+    from orcamentos o
+    join tipos_treinamento t on t.id = o.tipo_treinamento_id
+    left join centros_treinamento c on c.id = o.centro_treinamento_id
+    left join lateral (select min(data_inicio) ini, max(data_fim) fim, count(*) n, min(status_agendamento) agenda
+                       from turmas where orcamento_id = o.id and status <> 'Cancelada') tm on true
+    where o.turma_aberta and (p_incluir_encerradas or (o.status <> 'Recusado' and (tm.fim is null or tm.fim >= current_date)))
+  ) s), '[]'::jsonb);
+end $$;
+
+-- ---- detalhe: turmas de agendamento + orçamentos vinculados ----
+create or replace function public.ta_detalhe(p_ta uuid) returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare v jsonb;
+begin
+  perform public._ta_exigir('consultar');
+  select jsonb_build_object(
+    'turmas', coalesce((select jsonb_agg(jsonb_build_object('id', t.id, 'identificacao', t.identificacao, 'tipo_dia', t.tipo_dia,
+        'data_inicio', t.data_inicio, 'horario', t.horario, 'status_agendamento', t.status_agendamento, 'cancelada', t.status = 'Cancelada')
+        order by t.data_inicio, t.identificacao) from turmas t where t.orcamento_id = p_ta), '[]'::jsonb),
+    'orcamentos', coalesce((select jsonb_agg(jsonb_build_object('id', v.id, 'numero', v.numero, 'status', v.status,
+        'comercializacao', v.comercializacao, 'empresa_id', v.empresa_id, 'empresa', e.nome, 'doc', public._vp_fmt_doc(e.cnpj),
+        'pessoa', case when length(coalesce(e.cnpj_digitos, '')) = 11 then 'fisica' else 'juridica' end,
+        'pessoas', v.qtd_alunos, 'indicados', (select count(*) from turma_alunos a where a.orcamento_id = v.id),
+        'valor_final', v.valor_final) order by v.numero) from orcamentos v join empresas e on e.id = v.empresa_id
+        where v.turma_aberta_id = p_ta and v.status <> 'Recusado'), '[]'::jsonb)) into v;
+  return v;
+end $$;
+
+-- ---- orçamentos que podem ser vinculados a uma turma aberta ----
+create or replace function public.ta_orcamentos_vinculaveis(p_ta uuid) returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare v_ta orcamentos;
+begin
+  perform public._ta_exigir('consultar');
+  select * into v_ta from orcamentos where id = p_ta and turma_aberta;
+  if v_ta.id is null then raise exception 'Turma aberta não encontrada.'; end if;
+  return coalesce((select jsonb_agg(jsonb_build_object('id', o.id, 'numero', o.numero, 'status', o.status, 'comercializacao', o.comercializacao,
+      'empresa', e.nome, 'doc', public._vp_fmt_doc(e.cnpj),
+      'pessoa', case when length(coalesce(e.cnpj_digitos, '')) = 11 then 'fisica' else 'juridica' end,
+      'pessoas', o.qtd_alunos, 'valor_final', o.valor_final) order by o.numero desc)
+    from (select * from orcamentos where not turma_aberta and turma_aberta_id is null and tipo_treinamento_id = v_ta.tipo_treinamento_id
+            and status not in ('Recusado', 'Concluído')
+            and (comercializacao <> 'fechada' or not exists (select 1 from turmas t where t.orcamento_id = orcamentos.id))
+          order by numero desc limit 200) o
+    join empresas e on e.id = o.empresa_id), '[]'::jsonb);
+end $$;
+
+-- ---- vincular orçamento existente ----
+create or replace function public.ta_vincular(p_ta uuid, p_orc uuid) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare o orcamentos; v_ta orcamentos; v_com text;
+begin
+  perform public._ta_exigir('alterar');
+  select * into v_ta from orcamentos where id = p_ta and turma_aberta for update;
+  if v_ta.id is null then raise exception 'Turma aberta não encontrada.'; end if;
+  select * into o from orcamentos where id = p_orc and not turma_aberta for update;
+  if o.id is null then raise exception 'Orçamento não encontrado.'; end if;
+  if o.turma_aberta_id is not null then raise exception 'O orçamento % já está ligado a uma turma aberta.', o.numero; end if;
+  if o.comercializacao = 'fechada' and exists (select 1 from turmas t where t.orcamento_id = o.id) then
+    raise exception 'O orçamento % já tem turmas geradas: não pode entrar numa turma aberta.', o.numero;
+  end if;
+  v_com := case when o.comercializacao = 'fechada' then 'encaixe' else o.comercializacao end;
+  update orcamentos set comercializacao = v_com, turma_aberta_id = p_ta where id = p_orc;
+  if v_com = 'individual' then perform public.ta_sincronizar_individual(p_orc); end if;
+  return jsonb_build_object('ok', true, 'comercializacao', v_com);
+end $$;
+
+-- ---- retirar o vínculo (só se ainda não há alunos indicados) ----
+create or replace function public.ta_desvincular(p_orc uuid) returns void
+language plpgsql security definer set search_path = public as $$
+declare o orcamentos;
+begin
+  perform public._ta_exigir('alterar');
+  select * into o from orcamentos where id = p_orc for update;
+  if o.id is null or o.turma_aberta_id is null then raise exception 'Orçamento não está ligado a uma turma aberta.'; end if;
+  if exists (select 1 from turma_alunos where orcamento_id = p_orc) then
+    raise exception 'O orçamento % já tem alunos na turma aberta: retire os alunos antes de desfazer o vínculo.', o.numero;
+  end if;
+  update orcamentos set turma_aberta_id = null where id = p_orc;
+end $$;
+
+-- ---- dados do cliente para o aluno (encaixe/individual entra na última turma da turma aberta) ----
+create or replace function public._ta_dados_cliente(p_orc uuid, out v_turma uuid, out v_doc_cli text, out v_atest text)
+language plpgsql stable security definer set search_path = public as $$
+declare o orcamentos; e empresas;
+begin
+  select * into o from orcamentos where id = p_orc;
+  if o.id is null or o.turma_aberta_id is null or o.comercializacao = 'fechada' then
+    raise exception 'O orçamento precisa ser de encaixe/individual e estar ligado a uma turma aberta.';
+  end if;
+  v_turma := public._vp_turma_ultimo_dia(o.turma_aberta_id);
+  if v_turma is null then raise exception 'A turma aberta não tem turmas de agendamento.'; end if;
+  select * into e from empresas where id = o.empresa_id;
+  v_doc_cli := public._vp_fmt_doc(e.cnpj);
+  v_atest := case when length(public._vp_digitos(e.cnpj)) = 14 then v_doc_cli else null end;
+end $$;
+
+create or replace function public.ta_incluir_aluno(p_orc uuid, p_nome text, p_tipo_doc text, p_doc text, p_nasc date) returns uuid
+language plpgsql security definer set search_path = public as $$
+declare v_turma uuid; v_doc_cli text; v_atest text; o orcamentos; v_id uuid; v_tipo text := coalesce(nullif(p_tipo_doc, ''), 'CPF');
+begin
+  if auth.uid() is null then raise exception 'Sessão expirada. Entre novamente.' using errcode = '42501'; end if;
+  if not (is_admin_sistema(auth.uid()) or tem_permissao(auth.uid(), 'orcamentos', 'alterar') or tem_permissao(auth.uid(), 'turmas_abertas', 'alterar')) then
+    raise exception 'Você não tem permissão para indicar alunos.' using errcode = '42501';
+  end if;
+  select * into v_turma, v_doc_cli, v_atest from public._ta_dados_cliente(p_orc);
+  select * into o from orcamentos where id = p_orc;
+  if o.comercializacao = 'individual' then raise exception 'Orçamento Individual: o aluno é o próprio cliente (preenchido automaticamente).'; end if;
+  if nullif(btrim(p_nome), '') is null then raise exception 'Informe o nome do aluno.'; end if;
+  if v_tipo not in ('CPF', 'RG') then raise exception 'Tipo de documento inválido.'; end if;
+  if v_tipo = 'CPF' and not public._vp_cpf_valido(p_doc) then raise exception 'CPF inválido. Confira os dígitos informados.'; end if;
+  if nullif(btrim(p_doc), '') is null then raise exception 'Informe o documento do aluno.'; end if;
+  if (select count(*) from turma_alunos where orcamento_id = p_orc) >= coalesce(o.qtd_alunos, 0) then
+    raise exception 'O orçamento % tem % pessoa(s): todas já foram indicadas.', o.numero, coalesce(o.qtd_alunos, 0);
+  end if;
+  insert into turma_alunos (turma_id, nome, cpf, tipo_documento, data_nascimento, cnpj_atestado, cnpj_faturamento, orcamento_id)
+  values (v_turma, btrim(p_nome), case when v_tipo = 'CPF' then public._vp_fmt_doc(p_doc) else btrim(p_doc) end, v_tipo, p_nasc, v_atest, v_doc_cli, p_orc)
+  returning id into v_id;
+  return v_id;
+end $$;
+
+-- ---- individual: o aluno é o cliente ----
+create or replace function public.ta_sincronizar_individual(p_orc uuid) returns integer
+language plpgsql security definer set search_path = public as $$
+declare v_turma uuid; v_doc_cli text; v_atest text; o orcamentos; e empresas; v_exist uuid;
+begin
+  if auth.uid() is null then raise exception 'Sessão expirada. Entre novamente.' using errcode = '42501'; end if;
+  select * into v_turma, v_doc_cli, v_atest from public._ta_dados_cliente(p_orc);
+  select * into o from orcamentos where id = p_orc;
+  if o.comercializacao <> 'individual' then return 0; end if;
+  select * into e from empresas where id = o.empresa_id;
+  if not public._vp_cpf_valido(e.cnpj) then raise exception 'O cliente do orçamento Individual precisa ter um CPF válido no cadastro.'; end if;
+  select id into v_exist from turma_alunos where orcamento_id = p_orc limit 1;
+  if v_exist is null then
+    insert into turma_alunos (turma_id, nome, cpf, tipo_documento, data_nascimento, cnpj_atestado, cnpj_faturamento, orcamento_id)
+    values (v_turma, e.nome, v_doc_cli, 'CPF', e.data_nascimento, null, v_doc_cli, p_orc);
+    return 1;
+  end if;
+  update turma_alunos set turma_id = v_turma, nome = e.nome, cpf = v_doc_cli, tipo_documento = 'CPF', data_nascimento = e.data_nascimento,
+         cnpj_faturamento = v_doc_cli
+   where id = v_exist and not coalesce(certificado_emitido, false);
+  return 0;
+end $$;
+
+-- ---- gerar_turmas_orcamento: só para turma fechada ----
+create or replace function public.gerar_turmas_orcamento(p_orc uuid)
+ returns integer
+ language plpgsql
+ security definer
+ set search_path to 'public'
+as $function$
+declare
+  o orcamentos%rowtype;
+  tt tipos_treinamento%rowtype;
+  v_nd int;
+  v_total int;
+  v_ins int := 0;
+begin
+  if auth.uid() is null then
+    raise exception 'Sessão expirada. Entre novamente.' using errcode = '42501';
+  end if;
+  if not (is_admin_sistema(auth.uid()) or tem_permissao(auth.uid(), 'orcamentos', 'incluir') or tem_permissao(auth.uid(), 'orcamentos', 'alterar')) then
+    raise exception 'Você não tem permissão para gerar turmas do orçamento.' using errcode = '42501';
+  end if;
+
+  select * into o from orcamentos where id = p_orc for update;
+  if not found then
+    raise exception 'Orçamento não encontrado.' using errcode = '22023';
+  end if;
+  if coalesce(o.comercializacao, 'fechada') <> 'fechada' then
+    return 0; -- encaixe/individual: os alunos entram na turma aberta, o orçamento não gera turmas
+  end if;
+  if exists (select 1 from turmas t where t.orcamento_id = o.id) then
+    return 0; -- já tem turmas: nada a fazer
+  end if;
+  if o.tipo_treinamento_id is null or o.centro_treinamento_id is null or coalesce(o.qtd_turmas, 0) < 1 then
+    raise exception 'Preencha o treinamento, o Centro de Treinamento e a quantidade de turmas antes de gerar as turmas.' using errcode = '22023';
+  end if;
+  select * into tt from tipos_treinamento where id = o.tipo_treinamento_id;
+
+  v_nd := coalesce(tt.dias_teoria, 0) + coalesce(tt.dias_pratica, 0) + coalesce(tt.dias_teoria_pratica, 0);
+  v_total := o.qtd_turmas * greatest(v_nd, 1);
+  if v_total > 1500 then
+    raise exception 'A quantidade de turmas (%) gera % linhas, acima do limite de 1500. Confira a quantidade no orçamento.', o.qtd_turmas, v_total using errcode = '22023';
+  end if;
+
+  with linhas as (
+    select i.i as turma_i, d.d as dia_i
+    from generate_series(0, o.qtd_turmas - 1) as i(i)
+    cross join generate_series(1, greatest(v_nd, 1)) as d(d)
+  ), calc as (
+    select l.*,
+      case when v_nd = 0 then null
+           when l.dia_i <= coalesce(tt.dias_teoria, 0) then 'Teoria'
+           when l.dia_i <= coalesce(tt.dias_teoria, 0) + coalesce(tt.dias_pratica, 0) then 'Prática'
+           else 'Teoria com Prática' end as tipo_dia,
+      case when l.turma_i < 26 then chr(65 + l.turma_i)
+           else chr(65 + (l.turma_i / 26 - 1)) || chr(65 + l.turma_i % 26) end as letra
+    from linhas l
+  ), ins as (
+    insert into turmas (orcamento_id, identificacao, tipo_dia, tipo_treinamento_id, centro_treinamento_id,
+                        formato_teoria, formato_pratica, horario, vagas, dias_totais, status,
+                        agenda_ct, agenda_movel, agenda_instrutor1, agenda_instrutor2, agenda_transporte)
+    select o.id, c.letra || c.dia_i, c.tipo_dia, o.tipo_treinamento_id, o.centro_treinamento_id,
+           o.formato_teoria, o.formato_pratica,
+           case when c.tipo_dia = 'Prática' then left(o.horario_inicio_pratica::text, 5) else left(o.horario_inicio_teoria::text, 5) end,
+           o.qtd_alunos_por_turma,
+           nullif(v_nd, 0),
+           'Planejada',
+           case when o.formato_teoria = 'CT' or o.formato_pratica = 'CT' or coalesce(tt.somente_locacao_espaco, false) then 'A agendar' else 'Não aplicável' end,
+           case when o.formato_teoria = 'Móvel' or o.formato_pratica = 'Móvel' then 'A agendar' else 'Não aplicável' end,
+           case when coalesce(tt.somente_locacao_espaco, false) then 'Não aplicável' else 'A agendar' end,
+           case when not coalesce(tt.somente_locacao_espaco, false) and o.necessita_dois_instrutores then 'A agendar' else 'Não aplicável' end,
+           case
+             when c.tipo_dia = 'Teoria' then case when coalesce(o.formato_teoria in ('InCompany','EAD','EAD Síncrono'), false) then 'Não aplicável' else 'A agendar' end
+             when c.tipo_dia = 'Prática' then case when coalesce(o.formato_pratica in ('InCompany','Móvel'), false) then 'Não aplicável' else 'A agendar' end
+             when c.tipo_dia = 'Teoria com Prática' then case when (not coalesce(o.formato_teoria in ('InCompany','EAD','EAD Síncrono'), false)) or (not coalesce(o.formato_pratica in ('InCompany','Móvel'), false)) then 'A agendar' else 'Não aplicável' end
+             else 'A agendar'
+           end
+    from calc c
+    returning id
+  ), locs as (
+    insert into turma_localidades (turma_id, nome, cnpj_atestado, cnpj_faturamento)
+    select i.id, 'Principal', e.cnpj, e.cnpj
+    from ins i
+    join empresas e on e.id = o.empresa_id
+    where nullif(btrim(e.cnpj), '') is not null
+    returning id
+  )
+  select count(*) into v_ins from ins;
+
+  return v_ins;
+end $function$;
+
+-- ---- permissões de execução (somente usuários logados) ----
+revoke all on function public.ta_criar(jsonb), public.ta_cancelar(uuid), public.ta_listar(boolean), public.ta_detalhe(uuid),
+  public.ta_orcamentos_vinculaveis(uuid), public.ta_vincular(uuid, uuid), public.ta_desvincular(uuid),
+  public.ta_incluir_aluno(uuid, text, text, text, date), public.ta_sincronizar_individual(uuid) from anon, public;
+grant execute on function public.ta_criar(jsonb), public.ta_cancelar(uuid), public.ta_listar(boolean), public.ta_detalhe(uuid),
+  public.ta_orcamentos_vinculaveis(uuid), public.ta_vincular(uuid, uuid), public.ta_desvincular(uuid),
+  public.ta_incluir_aluno(uuid, text, text, text, date), public.ta_sincronizar_individual(uuid) to authenticated;
+revoke all on function public._ta_exigir(text), public._ta_ocupacao(uuid, uuid), public._ta_dados_cliente(uuid) from anon, public, authenticated;
+
+-- ---- turmas abertas visíveis para quem monta orçamento (permissão do orçamento ou da turma aberta) ----
+create or replace function public.ta_para_orcamento(p_tipo uuid default null) returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if auth.uid() is null then raise exception 'Sessão expirada. Entre novamente.' using errcode = '42501'; end if;
+  if not (is_admin_sistema(auth.uid()) or tem_permissao(auth.uid(), 'orcamentos', 'consultar') or tem_permissao(auth.uid(), 'turmas_abertas', 'consultar')) then
+    raise exception 'Você não tem permissão para consultar turmas abertas.' using errcode = '42501';
+  end if;
+  return coalesce((select jsonb_agg(jsonb_build_object(
+      'id', o.id, 'numero', o.numero, 'tipo_treinamento_id', o.tipo_treinamento_id, 'treinamento', t.nome,
+      'centro_id', o.centro_treinamento_id, 'centro', c.nome, 'data_inicio', tm.ini, 'data_fim', tm.fim,
+      'vagas', o.qtd_alunos_por_turma, 'ocupadas', public._ta_ocupacao(o.id),
+      'livres', greatest(coalesce(o.qtd_alunos_por_turma, 0) - public._ta_ocupacao(o.id), 0),
+      'horario_teoria', o.horario_inicio_teoria, 'horario_pratica', o.horario_inicio_pratica) order by tm.ini nulls last, o.numero)
+    from orcamentos o
+    join tipos_treinamento t on t.id = o.tipo_treinamento_id
+    left join centros_treinamento c on c.id = o.centro_treinamento_id
+    left join lateral (select min(data_inicio) ini, max(data_fim) fim from turmas where orcamento_id = o.id and status <> 'Cancelada') tm on true
+    where o.turma_aberta and o.status <> 'Recusado' and (p_tipo is null or o.tipo_treinamento_id = p_tipo)
+      and (tm.fim is null or tm.fim >= current_date)), '[]'::jsonb);
+end $$;
+revoke all on function public.ta_para_orcamento(uuid) from anon, public;
+grant execute on function public.ta_para_orcamento(uuid) to authenticated;
+
+-- Parte B (SQL Editor): ver turmas-abertas-v201-parteB.sql (excluir_orcamento recusa exclusão com alunos em turma aberta)
