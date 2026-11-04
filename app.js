@@ -36,7 +36,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 2.03 · 04/11/2026";
+const APP_VERSAO = "Prod 2.04 · 04/11/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -459,6 +459,7 @@ const MODULOS = [
   // Comercial
   { id: "empresas", label: "Clientes", icone: "🏢", grupo: "Comercial" },
   { id: "orcamentos", label: "Orçamentos", icone: "💰", grupo: "Comercial" },
+  { id: "importar_orcamento_3s", label: "Importar do 3S", icone: "📥", grupo: "Comercial" },
   // Compras
   { id: "materiais", label: "Materiais", icone: "📦", grupo: "Compras" },
   // Logística
@@ -631,6 +632,24 @@ function podeFazer(modulo, acao) {
 function podeExportarAgenda() {
   if (usuarioSistemaAtual && usuarioSistemaAtual.role === "admin") return true;
   return !!(permissoesAtual.consulta_agenda && permissoesAtual.consulta_agenda.pode_exportar_agenda);
+}
+
+// Senha das planilhas de agenda: fica no segredo PLANILHA_AGENDA_SENHA do Supabase e só é entregue a quem pode exportar.
+async function senhaPlanilhaAgenda(tipo) {
+  const resp = await fetch(`${SUPABASE_URL}/functions/v1/senha-planilha-agenda`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${await tokenAtualFuncoes()}` },
+    body: JSON.stringify({ tipo }),
+  });
+  const r = await resp.json().catch(() => ({}));
+  if (!resp.ok || !r.ok || !r.senha) throw new Error(r.error || `não foi possível obter a senha da planilha (erro ${resp.status})`);
+  return r.senha;
+}
+
+// Exportar a agenda mensal (calendário da Agenda por Centro de Treinamento): controle "Exportar agenda mensal"
+function podeExportarAgendaMensal() {
+  if (usuarioSistemaAtual && usuarioSistemaAtual.role === "admin") return true;
+  return !!(permissoesAtual.agenda_centros && permissoesAtual.agenda_centros.pode_exportar_agenda_mensal);
 }
 
 // Controles extras do módulo Atividades (colunas próprias de permissoes)
@@ -1416,6 +1435,10 @@ function irParaModulo(id) {
     $("admin-descricao-pagina").textContent = "Crie turmas abertas (treinamento, centro, vagas e datas) e acompanhe os orçamentos de comercialização Individual e Encaixe vinculados a elas.";
     $("secao-turmas-abertas").classList.remove("hidden");
     carregarTurmasAbertasInit();
+  } else if (id === "importar_orcamento_3s") {
+    $("admin-descricao-pagina").textContent = "Traga para a plataforma um orçamento do Sistema 3S pelo número: cliente, turmas, participantes e a proposta do 3S como proposta vigente.";
+    $("secao-importar-3s").classList.remove("hidden");
+    i3Iniciar();
   } else if (id === "grupos_turmas") {
     $("secao-grupos-turmas").classList.remove("hidden");
     carregarGruposTurmasInit();
@@ -3562,6 +3585,13 @@ async function carregarPermissoesParaForm(usuarioId) {
       </label>
     </div>
     <div class="px-3 py-3 bg-slate-50 space-y-1.5">
+      <p class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Agenda por Centro de Treinamento — controle adicional</p>
+      <label class="flex items-center gap-2 text-slate-700">
+        <input type="checkbox" data-permx="pode_exportar_agenda_mensal" ${(existentes["agenda_centros"] || {}).pode_exportar_agenda_mensal ? "checked" : ""} />
+        <span>Exportar agenda mensal (botão Exportar Excel do calendário)</span>
+      </label>
+    </div>
+    <div class="px-3 py-3 bg-slate-50 space-y-1.5">
       <p class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Requisições de Compra — controle adicional</p>
       <label class="flex items-center gap-2 text-slate-700">
         <input type="checkbox" data-permx="pode_aprovar_requisicao" ${(existentes["requisicoes_compra"] || {}).pode_aprovar_requisicao ? "checked" : ""} />
@@ -4860,6 +4890,7 @@ async function salvarPermissoesForm(usuarioId) {
     pode_concluir_cancelar: m.id === "atividades" && permx("pode_concluir_cancelar"),
     pode_aprovar_requisicao: m.id === "requisicoes_compra" && permx("pode_aprovar_requisicao"),
     pode_exportar_agenda: m.id === "consulta_agenda" && permx("pode_exportar_agenda"),
+    pode_exportar_agenda_mensal: m.id === "agenda_centros" && permx("pode_exportar_agenda_mensal"),
   }));
   const { error } = await supabase.from("permissoes").upsert(linhas, { onConflict: "usuario_id,modulo" });
   if (error) {
@@ -13470,8 +13501,58 @@ async function carregarAgendaCentrosInit() {
   sel.value = listaCentrosAtivos.some((c) => c.id === anterior) ? anterior : "TODOS";
   accMes = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
   accDiaSelecionado = null;
+  $("acc-exportar").classList.toggle("hidden", !podeExportarAgendaMensal());
   await carregarAgendaCentros();
 }
+
+// Exporta para Excel a agenda do mês exibido (e do centro escolhido), com as colunas do controle gerencial.
+async function accExportar() {
+  if (!podeExportarAgendaMensal()) return;
+  if (typeof XlsxPopulate === "undefined") { alert("Não foi possível carregar o gerador de planilhas. Verifique a conexão e tente novamente."); return; }
+  const btn = $("acc-exportar");
+  const rotulo = btn.textContent;
+  btn.disabled = true; btn.textContent = "Gerando…";
+  try {
+    const [ini, fim] = limitesDoMes(accMes);
+    const centroId = $("acc-centro-select").value || "TODOS";
+    const { data, error } = await supabase.rpc("agenda_mensal_exportar", { p_de: ini, p_ate: fim, p_ct: centroId === "TODOS" ? null : centroId });
+    if (error) throw error;
+    const linhas = Array.isArray(data) ? data : [];
+    if (!linhas.length) { alert("Não há turmas neste mês para exportar."); return; }
+    const COLS = [
+      ["CT", (l) => l.ct, 10], ["DATA", (l) => { const [a, m, d] = String(l.data).split("-"); return new Date(Date.UTC(+a, +m - 1, +d)); }, 12],
+      ["DIA SEMANA", (l) => l.dia, 15], ["NOME DA EMPRESA", (l) => l.empresa, 42],
+      ["PESSOAS PREVISTAS", (l) => (l.previstas == null ? "" : Number(l.previstas)), 12], ["PESSOAS EFETIVAS", (l) => (l.efetivas == null ? "" : Number(l.efetivas)), 12],
+      ["CT/IN COMPANY", (l) => l.tipo, 14], ["TRANSPORTE", (l) => l.transp, 12],
+      ["INSTRUTOR1", (l) => l.i1, 24], ["INSTRUTOR2", (l) => l.i2, 24], ["INSTRUTOR3", (l) => l.i3, 24], ["INSTRUTOR4", (l) => l.i4, 24],
+      ["NÚMERO DO ORÇAMENTO", (l) => l.orc, 16], ["VENDEDORA", (l) => l.vend, 22],
+      ["VALOR TRANSPORTE", (l) => (l.v_transp == null ? "" : Number(l.v_transp)), 16], ["VALOR ALUNO", (l) => (l.v_aluno == null ? "" : Number(l.v_aluno)), 14], ["VALOR ORÇAMENTO", (l) => (l.v_orc == null ? "" : Number(l.v_orc)), 16],
+    ];
+    const senha = await senhaPlanilhaAgenda("mensal");
+    const wb = await XlsxPopulate.fromBlankAsync();
+    const sh = wb.sheet(0).name("Agenda");
+    sh.cell("A1").value([COLS.map((c) => c[0])]);
+    sh.row(1).style("bold", true);
+    sh.cell("A2").value(linhas.map((l) => COLS.map((c) => c[1](l))));
+    COLS.forEach((c, i) => sh.column(i + 1).width(c[2]));
+    const n = linhas.length + 1;
+    sh.range(`B2:B${n}`).style("numberFormat", "dd/mm/yyyy");
+    sh.range(`O2:Q${n}`).style("numberFormat", "#,##0.00");
+    try { sh.freezePanes(0, 1); } catch (e) { /* só conforto */ }
+    const blob = await wb.outputAsync({ type: "blob", password: senha });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    const ctNome = centroId === "TODOS" ? "todos" : (listaCentrosAtivos.find((c) => c.id === centroId)?.nome || "ct").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9]+/g, "-").toLowerCase();
+    a.download = `agenda-mensal_${ini.slice(0, 7)}_${ctNome}.xlsx`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  } catch (e) {
+    alert("Não foi possível exportar a agenda: " + (e?.message || "erro desconhecido"));
+  } finally {
+    btn.disabled = false; btn.textContent = rotulo;
+  }
+}
+$("acc-exportar").addEventListener("click", () => accExportar());
 
 function limitesDoMes(mes) {
   const primeiro = new Date(mes.getFullYear(), mes.getMonth(), 1);
@@ -18614,15 +18695,33 @@ const CA_COLS = [
   { k: "tipo", label: "CT / In Company", w: "104px", sel: true },
   { k: "modulo", label: "Módulo de treinamento", w: "270px" },
   { k: "transp", label: "Transporte", w: "96px", sel: true },
-  { k: "instrutor", label: "Instrutor", w: "160px" },
-  { k: "aux", label: "Instrutor auxiliar", w: "160px" },
+  { k: "i1", label: "Instrutor 1", w: "160px" },
+  { k: "i2", label: "Instrutor 2", w: "150px" },
+  { k: "i3", label: "Instrutor 3", w: "150px" },
+  { k: "i4", label: "Instrutor 4", w: "150px" },
   { k: "orc", label: "Nº orçamento", w: "108px" },
   { k: "vend", label: "Vendedora", w: "160px" },
   { k: "obs", label: "Observação", w: "220px" },
   { k: "alunos", label: "Alunos por turma", w: "100px", num: true },
 ];
-const CA_GRID = CA_COLS.map((c) => c.w).join(" ");
-const CA_LARGURA_MIN = CA_COLS.reduce((t, c) => t + parseInt(c.w, 10) + 8, 32);
+// Valores (transporte, turma, aluno): só aparecem para quem tem o controle "Exportar Agenda"
+const CA_COLS_VALORES = [
+  { k: "vtransp", raw: "vtranspN", label: "Valor transporte", w: "112px", num: true, moeda: true },
+  { k: "vturma", raw: "vturmaN", label: "Valor turma", w: "112px", num: true, moeda: true },
+  { k: "valuno", raw: "valunoN", label: "Valor aluno", w: "104px", num: true, moeda: true },
+];
+const CA_COLS_BASE = CA_COLS.slice();
+let CA_GRID = "";
+let CA_LARGURA_MIN = 0;
+function caAplicarColunas() {
+  CA_COLS.length = 0;
+  CA_COLS_BASE.forEach((c) => CA_COLS.push(c));
+  if (podeExportarAgenda()) CA_COLS_VALORES.forEach((c) => CA_COLS.push(c));
+  CA_GRID = CA_COLS.map((c) => c.w).join(" ");
+  CA_LARGURA_MIN = CA_COLS.reduce((t, c) => t + parseInt(c.w, 10) + 8, 32);
+}
+caAplicarColunas();
+const caBrl = (v) => (v === "" || v == null ? "—" : Number(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }));
 
 let caDados = [];      // linhas já normalizadas (texto de cada coluna)
 let caFiltros = {};    // { coluna: texto/valor }
@@ -18647,12 +18746,18 @@ function caNormalizar(l) {
     tipo: l.tipo || "",
     modulo: l.modulo || "",
     transp: l.transp || "",
-    instrutor: l.instrutor || "",
-    aux: l.aux || "",
+    i1: l.i1 || "",
+    i2: l.i2 || "",
+    i3: l.i3 || "",
+    i4: l.i4 || "",
     orc: l.orc || "",
     vend: l.vend || "",
     obs: l.obs || "",
     alunos: l.alunos == null ? "" : String(l.alunos),
+    vtranspN: l.v_transp == null ? "" : Number(l.v_transp),
+    vturmaN: l.v_turma == null ? "" : Number(l.v_turma),
+    valunoN: l.v_aluno == null ? "" : Number(l.v_aluno),
+    vtransp: caBrl(l.v_transp), vturma: caBrl(l.v_turma), valuno: caBrl(l.v_aluno),
   };
 }
 
@@ -18711,12 +18816,15 @@ function caRenderizarLinhas() {
         <span>${caBadgeTipo(l.tipo)}</span>
         <span class="break-words">${escH(l.modulo)}</span>
         <span class="text-center">${escH(l.transp)}</span>
-        <span>${escH(l.instrutor)}</span>
-        <span class="text-slate-500">${escH(l.aux)}</span>
+        <span>${escH(l.i1)}</span>
+        <span>${escH(l.i2 || "—")}</span>
+        <span>${escH(l.i3 || "—")}</span>
+        <span>${escH(l.i4 || "—")}</span>
         <span class="font-mono text-sky-700">${escH(l.orc)}</span>
         <span>${escH(l.vend)}</span>
         <span class="text-slate-500 break-words">${escH(l.obs || "—")}</span>
         <span class="text-right pr-3 tabular-nums">${escH(l.alunos || "—")}</span>
+        ${CA_COLS.some((c) => c.moeda) ? `<span class="text-right pr-3 tabular-nums">${escH(l.vtransp)}</span><span class="text-right pr-3 tabular-nums">${escH(l.vturma)}</span><span class="text-right pr-3 tabular-nums">${escH(l.valuno)}</span>` : ""}
       </div>`).join("")}</div>`;
   }
   const pessoas = linhas.reduce((t, l) => t + (Number(l.pessoas) || 0), 0);
@@ -18784,6 +18892,7 @@ async function carregarConsultaAgendaInit() {
   sel.innerHTML = `<option value="">Todos os centros</option>` + (centros || []).map((c) => `<option value="${c.id}">${escH(c.nome)}</option>`).join("");
   sel.value = (centros || []).some((c) => c.id === anterior) ? anterior : "";
   $("ca-exportar").classList.toggle("hidden", !podeExportarAgenda());
+  caAplicarColunas();
   if (!caIniciado || !$("ca-de").value) {
     const [i, f] = limitesDoMes(new Date());
     $("ca-de").value = i;
@@ -18798,14 +18907,17 @@ async function caExportar() {
   if (typeof XlsxPopulate === "undefined") { alert("Não foi possível carregar o gerador de planilhas. Verifique a conexão e tente novamente."); return; }
   const linhas = caLinhasFiltradas();
   if (linhas.length === 0) { alert("Não há linhas para exportar com os filtros atuais."); return; }
+  let senha;
+  try { senha = await senhaPlanilhaAgenda("consulta"); } catch (e) { alert("Planilha não gerada: " + (e?.message || "erro ao obter a senha")); return; }
   const wb = await XlsxPopulate.fromBlankAsync();
   const sh = wb.sheet(0).name("Agenda");
   sh.cell("A1").value([CA_COLS.map((c) => c.label)]);
   sh.row(1).style("bold", true);
-  sh.cell("A2").value(linhas.map((l) => CA_COLS.map((c) => (c.num ? (l[c.k] === "" ? "" : Number(l[c.k])) : l[c.k]))));
+  sh.cell("A2").value(linhas.map((l) => CA_COLS.map((c) => { const v = l[c.raw || c.k]; return c.num ? (v === "" ? "" : Number(v)) : v; })));
+  CA_COLS.forEach((c, i) => { if (c.moeda && linhas.length) sh.range(sh.cell(2, i + 1).address() + ":" + sh.cell(linhas.length + 1, i + 1).address()).style("numberFormat", "#,##0.00"); });
   CA_COLS.forEach((c, i) => sh.column(i + 1).width(Math.max(10, Math.round(parseInt(c.w, 10) / 7))));
   try { sh.freezePanes(0, 1); } catch (e) { /* congelar o cabeçalho é só conforto */ }
-  const blob = await wb.outputAsync("blob");
+  const blob = await wb.outputAsync({ type: "blob", password: senha });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
   a.download = `agenda_${$("ca-de").value}_a_${$("ca-ate").value}.xlsx`;
@@ -19155,5 +19267,140 @@ $("ta-raiz").addEventListener("change", async (e) => {
     for (let k = i + 1; k < inputs.length && prev; k++) { if (!inputs[k].value || inputs[k].value < prev) inputs[k].value = taProxDiaUtil(prev); prev = inputs[k].value; }
   }
 });
+
+// ===========================================================
+// Importar orçamento do Sistema 3S (v2.04)
+// A leitura do 3S roda na nuvem (função importar-orcamento-3s); aqui só se informa o número,
+// confere o resumo e confirma a importação.
+// ===========================================================
+let i3Estado = { fase: "form", numero: "", resumo: null, resultado: null, erro: null, carregando: false };
+function i3PodeImportar() { return podeFazer("importar_orcamento_3s", "incluir"); }
+function i3Iniciar() {
+  i3Estado = { fase: "form", numero: "", resumo: null, resultado: null, erro: null, carregando: false };
+  i3Render();
+}
+async function i3Chamar(acao, numero) {
+  try {
+    const resp = await fetch(`${SUPABASE_URL}/functions/v1/importar-orcamento-3s`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${await tokenAtualFuncoes()}` },
+      body: JSON.stringify({ numero, acao }),
+    });
+    const r = await resp.json().catch(() => ({}));
+    if (r.ok === undefined) return { ok: false, error: r.error || r.message || `Erro ${resp.status} ao chamar a importação.` };
+    return r;
+  } catch (e) { return { ok: false, error: e?.message || "Falha de conexão." }; }
+}
+const i3Brl = (v) => (Number(v) || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+const i3Data = (d) => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(d || ""); return m ? `${m[3]}/${m[2]}/${m[1]}` : (d || "—"); };
+function i3Render() {
+  const raiz = $("i3-raiz");
+  if (!raiz) return;
+  const e = i3Estado;
+  const bloqueado = e.carregando ? "disabled" : "";
+  let html = `<div class="bg-white border border-slate-200 rounded-xl p-4 flex flex-wrap items-end gap-3">
+    <div>
+      <label class="text-xs font-medium text-slate-500 uppercase tracking-wide">Número do orçamento no Sistema 3S</label>
+      <input id="i3-numero" type="text" inputmode="numeric" maxlength="10" value="${escH(e.numero)}" ${e.fase === "form" || e.fase === "erro" ? "" : "disabled"} ${bloqueado}
+        placeholder="Ex.: 26541" class="mt-1 block w-48 rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
+    </div>
+    <button id="i3-btn-consultar" type="button" ${bloqueado} class="rounded-md bg-slate-800 hover:bg-slate-900 disabled:opacity-50 text-white text-sm font-semibold px-4 py-2">Consultar no 3S</button>
+    ${e.fase !== "form" && e.fase !== "erro" ? `<button id="i3-btn-novo" type="button" ${bloqueado} class="rounded-md border border-slate-300 text-slate-700 hover:bg-slate-50 text-sm px-4 py-2">Importar outro</button>` : ""}
+  </div>`;
+  if (!i3PodeImportar()) {
+    html += `<p class="mt-3 text-sm rounded-md px-3 py-2 bg-amber-50 text-amber-800 border border-amber-200">Você pode consultar o resumo, mas não tem permissão para importar (falta a permissão "incluir" neste módulo).</p>`;
+  }
+  if (e.carregando) {
+    html += `<div class="mt-4 bg-white border border-slate-200 rounded-xl p-6 text-sm text-slate-600">
+      <p class="font-medium text-slate-800">${escH(e.carregando)}</p>
+      <p class="mt-1 text-slate-500">A leitura é feita na nuvem e pode levar cerca de 1 minuto. Não feche esta tela.</p></div>`;
+  }
+  if (e.erro && !e.carregando) {
+    const jaExiste = e.erro.codigo === "ja_existe";
+    html += `<div class="mt-4 rounded-xl border ${jaExiste ? "border-amber-300 bg-amber-50 text-amber-900" : "border-rose-300 bg-rose-50 text-rose-800"} p-4 text-sm">
+      <p class="font-semibold">${jaExiste ? "Importação impossível" : "Não foi possível concluir"}</p>
+      <p class="mt-1">${escH(jaExiste ? `O orçamento ${e.numero} já existe na plataforma. Não é possível importar.` : e.erro.error)}</p>
+      ${e.erro.logout_3s ? `<p class="mt-2 text-xs opacity-70">Sessão no 3S: ${escH(e.erro.logout_3s)}.</p>` : ""}
+    </div>`;
+  }
+  if (e.resumo && !e.carregando) html += i3RenderResumo(e.resumo, e.fase === "resumo");
+  if (e.resultado && !e.carregando) html += i3RenderResultado(e.resultado);
+  raiz.innerHTML = html;
+}
+function i3RenderResumo(r, comBotao) {
+  const turmas = (r.turmas || []).map((t) => `<tr class="border-t border-slate-100">
+      <td class="px-3 py-1.5 font-medium">${escH(t.letra)}</td>
+      <td class="px-3 py-1.5">${escH(t.unidade || "—")}</td>
+      <td class="px-3 py-1.5">${(t.datas || []).length ? (t.datas || []).map(i3Data).join(", ") : '<span class="text-amber-700">sem data</span>'}</td>
+      <td class="px-3 py-1.5 text-right">${Number(t.vagas) || 0}</td>
+      <td class="px-3 py-1.5 text-right">${Number(t.alunos) || 0}</td></tr>`).join("");
+  const avisos = (r.avisos || []).map((a) => `<li>${escH(a)}</li>`).join("");
+  const c = r.cliente || {}; const ct = r.contato || {};
+  return `<div class="mt-4 bg-white border border-slate-200 rounded-xl p-4 space-y-4">
+    <div class="flex flex-wrap items-baseline gap-x-6 gap-y-1">
+      <h3 class="text-base font-semibold text-slate-800">Orçamento ${escH(r.numero)}</h3>
+      <span class="text-xs rounded-full bg-slate-100 text-slate-600 px-2 py-0.5">Status no 3S: ${escH(r.status_3s || "—")}</span>
+    </div>
+    <dl class="grid sm:grid-cols-2 gap-x-6 gap-y-2 text-sm">
+      <div><dt class="text-xs uppercase tracking-wide text-slate-400">Cliente</dt><dd>${escH(c.nome || "—")}<br><span class="text-xs text-slate-500">${escH(c.documento || "")} · ${c.existe_na_plataforma ? "já cadastrado na plataforma" : "será cadastrado"}</span></dd></div>
+      <div><dt class="text-xs uppercase tracking-wide text-slate-400">Treinamento</dt><dd>${escH(r.treinamento || "—")}</dd></div>
+      <div><dt class="text-xs uppercase tracking-wide text-slate-400">Valor final</dt><dd>${i3Brl(r.valor_final)}</dd></div>
+      <div><dt class="text-xs uppercase tracking-wide text-slate-400">Data da proposta · Prazo</dt><dd>${i3Data(r.data_proposta)} · ${escH(r.prazo_pagamento || "—")}</dd></div>
+      <div><dt class="text-xs uppercase tracking-wide text-slate-400">Contato</dt><dd>${escH(ct.nome || "—")}<br><span class="text-xs text-slate-500">${escH([ct.telefone, ct.email].filter(Boolean).join(" · "))}</span></dd></div>
+      <div><dt class="text-xs uppercase tracking-wide text-slate-400">Participantes · Proposta (PDF)</dt><dd>${Number(r.total_alunos) || 0} · ${r.pdf_bytes ? "encontrada (" + Math.round(r.pdf_bytes / 1024) + " KB)" : '<span class="text-amber-700">não encontrada</span>'}</dd></div>
+    </dl>
+    <div class="overflow-x-auto"><table class="w-full text-sm text-left">
+      <thead class="text-xs uppercase tracking-wide text-slate-500"><tr><th class="px-3 py-1.5">Turma</th><th class="px-3 py-1.5">Unidade</th><th class="px-3 py-1.5">Datas</th><th class="px-3 py-1.5 text-right">Vagas</th><th class="px-3 py-1.5 text-right">Participantes</th></tr></thead>
+      <tbody>${turmas || '<tr><td colspan="5" class="px-3 py-2 text-slate-500">Nenhuma turma.</td></tr>'}</tbody></table></div>
+    ${r.observacoes ? `<div><p class="text-xs uppercase tracking-wide text-slate-400">Observações do 3S</p><pre class="mt-1 whitespace-pre-wrap text-sm text-slate-700 font-sans">${escH(r.observacoes)}</pre></div>` : ""}
+    ${avisos ? `<ul class="list-disc pl-5 text-sm text-amber-800 space-y-0.5">${avisos}</ul>` : ""}
+    ${comBotao ? `<div class="pt-1">${i3PodeImportar()
+      ? `<button id="i3-btn-importar" type="button" class="rounded-md bg-amber-500 hover:bg-amber-600 text-slate-900 text-sm font-semibold px-5 py-2">Importar este orçamento</button>
+         <p class="mt-2 text-xs text-slate-500">Cria o cliente (se faltar), o orçamento, as turmas e os participantes, e grava a proposta do 3S como proposta vigente. O vendedor fica em branco para preencher depois.</p>`
+      : ""}</div>` : ""}
+  </div>`;
+}
+function i3RenderResultado(r) {
+  const a = r.aplicado || {};
+  const avisos = (r.avisos || []).map((x) => `<li>${escH(x)}</li>`).join("");
+  return `<div class="mt-4 rounded-xl border border-emerald-300 bg-emerald-50 p-4 text-sm text-emerald-900 space-y-1">
+    <p class="font-semibold">Orçamento ${escH(r.resumo?.numero)} importado com sucesso.</p>
+    <p>Turmas criadas: ${Number(a.turmas_criadas) || 0} · Participantes inseridos: ${Number(a.alunos_inseridos) || 0} · Clientes criados: ${Number(a.empresas_criadas) || 0} · Status: ${escH(a.status || "—")}</p>
+    <p>Proposta do 3S como vigente: ${r.proposta_anexada ? "sim" : '<span class="text-amber-800 font-medium">não anexada</span>'}${r.logout_3s ? " · Sessão no 3S: " + escH(r.logout_3s) : ""}</p>
+    ${avisos ? `<ul class="list-disc pl-5 text-amber-800">${avisos}</ul>` : ""}
+    <p class="text-xs opacity-80">Abra o orçamento em Comercial › Orçamentos para informar o vendedor e conferir os dados.</p>
+  </div>`;
+}
+async function i3Consultar() {
+  const numero = ($("i3-numero")?.value || "").replace(/\D/g, "");
+  if (!numero) { i3Estado = { ...i3Estado, erro: { error: "Informe o número do orçamento do 3S." }, fase: "erro" }; return i3Render(); }
+  i3Estado = { fase: "form", numero, resumo: null, resultado: null, erro: null, carregando: "Consultando o orçamento no Sistema 3S…" };
+  i3Render();
+  const r = await i3Chamar("simular", Number(numero));
+  i3Estado.carregando = false;
+  if (!r.ok) { i3Estado.erro = r; i3Estado.fase = "erro"; }
+  else { i3Estado.resumo = r.resumo; i3Estado.fase = "resumo"; }
+  i3Render();
+}
+async function i3Importar() {
+  if (!i3PodeImportar() || i3Estado.carregando) return;
+  const numero = Number(i3Estado.numero);
+  if (!confirm(`Importar o orçamento ${numero} do Sistema 3S para a plataforma?`)) return;
+  i3Estado.carregando = "Importando o orçamento, as turmas e a proposta…";
+  i3Estado.erro = null;
+  i3Render();
+  const r = await i3Chamar("importar", numero);
+  i3Estado.carregando = false;
+  if (!r.ok) { i3Estado.erro = r; i3Estado.fase = "erro"; i3Estado.resumo = null; }
+  else { i3Estado.resultado = r; i3Estado.fase = "feito"; i3Estado.resumo = null; }
+  i3Render();
+}
+$("i3-raiz").addEventListener("click", (ev) => {
+  const b = ev.target.closest("button"); if (!b) return;
+  if (b.id === "i3-btn-consultar") i3Consultar();
+  else if (b.id === "i3-btn-importar") i3Importar();
+  else if (b.id === "i3-btn-novo") i3Iniciar();
+});
+$("i3-raiz").addEventListener("keydown", (ev) => { if (ev.key === "Enter" && ev.target.id === "i3-numero") { ev.preventDefault(); i3Consultar(); } });
 
 })();
