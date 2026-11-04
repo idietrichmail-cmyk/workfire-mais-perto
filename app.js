@@ -8950,7 +8950,11 @@ function montarDadosProposta(linha, calc, agora, numero, versao) {
       margem_minima_perc: calc.minPerc, margem_minima_valor: r2(calc.minValor),
     },
     itens,
-    itens_impressao: itensParaImpressaoProposta(itens, orcTemTransporte(itens) ? enderecoTransporteDoOrcamento(linha, emp) : ""),
+    // Orçamento por pessoa (Individual / Encaixe): não há itens de custo; o escopo é uma linha com o treinamento e o valor por pessoa.
+    pessoa: !!calc.pessoa, valor_pessoa: calc.pessoa ? r2(calc.valorPessoa) : null,
+    itens_impressao: calc.pessoa
+      ? [`${tipo.nome || "Treinamento"} — ${calc.q.alunos} participante${calc.q.alunos === 1 ? "" : "s"}, valor por pessoa de ${fmtBRL(calc.valorPessoa)}.`]
+      : itensParaImpressaoProposta(itens, orcTemTransporte(itens) ? enderecoTransporteDoOrcamento(linha, emp) : ""),
     prazo_pagamento: prazo ? prazo.descricao : "",
     parcelas: parcelasDaProposta(prazo, r2(calc.final)),
     validade_dias: dias, validade_ate: formatarData(ate),
@@ -9020,8 +9024,13 @@ async function gerarPropostaOrcamento() {
   const dias = Math.floor(Number($("orc-validade-dias").value) || 0);
   if (!(dias >= 1)) return orcFalha(1, "Informe a validade da proposta em dias.");
   const previa = calcularOrcamento();
-  if (!previa.itens.length) return orcFalha(2, "Não há itens de custo no cálculo para gerar a proposta.");
-  if (itensParaImpressaoProposta(previa.itens.map((i) => i.l)).length === 0) return orcFalha(2, "Marque ao menos um item do cálculo para imprimir (coluna “Imprime”), com descrição para impressão.");
+  if (previa.pessoa) {
+    if (!(previa.q.alunos >= 1)) return orcFalha(2, "Informe a quantidade de participantes para gerar a proposta.");
+    if (!(previa.valorPessoa > 0)) return orcFalha(2, "Informe o valor por pessoa para gerar a proposta.");
+  } else {
+    if (!previa.itens.length) return orcFalha(2, "Não há itens de custo no cálculo para gerar a proposta.");
+    if (itensParaImpressaoProposta(previa.itens.map((i) => i.l)).length === 0) return orcFalha(2, "Marque ao menos um item do cálculo para imprimir (coluna “Imprime”), com descrição para impressão.");
+  }
   orcGerandoProposta = true;
   const btn = $("btn-orc-gerar-proposta");
   btn.disabled = true; btn.textContent = "Gerando…";
@@ -9612,8 +9621,13 @@ async function gerarPreviaProposta() {
   const dias = Math.floor(Number($("orc-validade-dias").value) || 0);
   if (!(dias >= 1)) return orcFalha(1, "Informe a validade da proposta em dias.");
   const calc = calcularOrcamento();
-  if (!calc.itens.length || !calc.valido) return orcFalha(2, "Não há cálculo válido para gerar a prévia.");
-  if (itensParaImpressaoProposta(calc.itens.map((i) => i.l)).length === 0) return orcFalha(2, "Marque ao menos um item do cálculo para imprimir (coluna “Imprime”), com descrição para impressão.");
+  if (calc.pessoa) {
+    if (!(calc.q.alunos >= 1)) return orcFalha(2, "Informe a quantidade de participantes para gerar a prévia.");
+    if (!(calc.valorPessoa > 0)) return orcFalha(2, "Informe o valor por pessoa para gerar a prévia.");
+  } else {
+    if (!calc.itens.length || !calc.valido) return orcFalha(2, "Não há cálculo válido para gerar a prévia.");
+    if (itensParaImpressaoProposta(calc.itens.map((i) => i.l)).length === 0) return orcFalha(2, "Marque ao menos um item do cálculo para imprimir (coluna “Imprime”), com descrição para impressão.");
+  }
   orcGerandoProposta = true;
   const btn = $("btn-orc-previa");
   btn.disabled = true; btn.textContent = "Gerando…";
@@ -10005,7 +10019,7 @@ function construirPdfProposta(JsPDF, d, opts, ct, infoE, infoD, e) {
     cor(c); doc.text(rot, W - M - 4 - wV - wR, ym, { charSpace: 0.4 });
   };
   let ym = caixaVal();
-  rotuloEValorEsq("VALOR POR GRUPO", fmtBRL(vGrupo), M + 4, ym, 10.5);
+  rotuloEValorEsq(d.pessoa ? "VALOR POR PESSOA" : "VALOR POR GRUPO", fmtBRL(d.pessoa ? Number(d.valor_pessoa) || 0 : vGrupo), M + 4, ym, 10.5);
   rotuloEValorDir("TOTAL", fmtBRL(vTotal), ym, PRETO, 12.5, 8.5);
   y += hVal + (temDesc ? 2 : 3.5);
   if (temDesc) {
@@ -10024,9 +10038,15 @@ function construirPdfProposta(JsPDF, d, opts, ct, infoE, infoD, e) {
     const lw = doc.getTextWidth(rot) + rot.length * 0.5 + 2.5;
     linhaAjustada(v, x + 3 + lw, y + 5.4, larg - 6 - lw, tamV || 9, true, 7);
   };
-  const wc = (CW - 4) / 3;
-  [["QUANTIDADE DE GRUPOS", String(d.quantidades.turmas)], ["PARTICIPANTES POR GRUPO", String(d.quantidades.alunos_por_turma)], ["TOTAL DE PARTICIPANTES", String(d.quantidades.alunos)]]
-    .forEach(([rot, v], k) => celulaLinha(rot, v, M + k * (wc + 2), wc, 9.5));
+  if (d.pessoa) {
+    const wp = (CW - 2) / 2;
+    [["TOTAL DE PARTICIPANTES", String(d.quantidades.alunos)]]
+      .forEach(([rot, v], k) => celulaLinha(rot, v, M + k * (wp + 2), wp, 9.5));
+  } else {
+    const wc = (CW - 4) / 3;
+    [["QUANTIDADE DE GRUPOS", String(d.quantidades.turmas)], ["PARTICIPANTES POR GRUPO", String(d.quantidades.alunos_por_turma)], ["TOTAL DE PARTICIPANTES", String(d.quantidades.alunos)]]
+      .forEach(([rot, v], k) => celulaLinha(rot, v, M + k * (wc + 2), wc, 9.5));
+  }
   y += hCel + 2.5;
   const wm = (CW - 2) / 2;
   [["PRAZO DE PAGAMENTO", d.prazo_pagamento || "—"], ["VALIDADE DA PROPOSTA", `${d.validade_dias} dias${d.validade_ate ? " (até " + dataBrDeIso(d.validade_ate) + ")" : ""}`]]
