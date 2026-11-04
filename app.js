@@ -36,7 +36,7 @@ async function buscarTodos(montarConsulta) {
 // Versão do aplicativo — atualizar (número + data) a cada entrega feita ao
 // usuário, junto com o commit. Mostrada no cabeçalho de todas as páginas e no
 // rodapé do menu lateral. Também atualizar o "?v=" do app.js no index.html.
-const APP_VERSAO = "Prod 2.01 · 03/11/2026";
+const APP_VERSAO = "Prod 2.03 · 04/11/2026";
 if ($("app-header-versao")) $("app-header-versao").textContent = `Versão: ${APP_VERSAO}`;
 
 // ---------------------------------------------------------
@@ -1926,11 +1926,16 @@ const CRUD_CONFIG = {
     validarForm: () => {
       const d = ($("crud-campo-cnpj")?.value || "").replace(/\D/g, "");
       if (d.length === 11 && !cpfValido(d)) return "CPF inválido. Confira os dígitos informados.";
+      // pessoa física: o contato principal é o próprio cliente e o telefone é obrigatório
+      if (d.length === 11 && (($("crud-campo-contato_telefone")?.value || "").replace(/\D/g, "")).length < 10) return "Informe o telefone do cliente (com DDD): é obrigatório para pessoa física.";
       return null;
+    },
+    ajustarPayload: async (payload) => {
+      if (String(payload.cnpj || "").replace(/\D/g, "").length === 11) payload.contato_nome = payload.nome;
     },
     painelTelaCheia: true,
     camposExtraHtml: () => htmlSecaoContatosEmpresa(),
-    aoMontarForm: (item) => iniciarSecaoContatosEmpresa(item),
+    aoMontarForm: (item) => { empIniciarSincPf(); return iniciarSecaoContatosEmpresa(item); },
     aoSalvar: aoSalvarEmpresaCrud,
     buscaPlaceholder: "Buscar por nome, nome fantasia, CNPJ ou CPF",
     ordenarPor: "nome",
@@ -1954,12 +1959,12 @@ const CRUD_CONFIG = {
         },
       },
       { id: "data_nascimento", label: "Data de nascimento (pessoa física — vai para o certificado do aluno)", tipo: "date" },
-      { id: "contato_nome", label: "Contato principal — nome" },
+      { id: "contato_nome", label: "Contato principal — nome (pessoa física: o próprio cliente)" },
       { id: "contato_cargo", label: "Contato principal — cargo" },
       { id: "contato_depto", label: "Contato principal — departamento" },
       { id: "contato_email", label: "Contato principal — e-mail", tipo: "email" },
-      { id: "contato_telefone", label: "Contato principal — telefone" },
-      { id: "endereco", label: "Endereço" },
+      { id: "contato_telefone", label: "Contato principal — telefone (obrigatório para pessoa física)" },
+      { id: "endereco", label: "Endereço (obrigatório)", obrigatorio: true },
       { id: "emite_ordem_compra", label: "Emite ordem de compra / pedido de compra", tipo: "checkbox" },
       { id: "status", label: "Status", tipo: "select", opcoes: ["Ativo", "Inativo"], padrao: "Ativo" },
     ],
@@ -5546,6 +5551,17 @@ async function empImportarBitrix() {
   } finally { btn.disabled = false; }
 }
 
+// Pessoa física (CPF): o contato principal é o próprio cliente — o nome acompanha o nome do cliente.
+function empIniciarSincPf() {
+  const doc = $("crud-campo-cnpj"), nome = $("crud-campo-nome"), cont = $("crud-campo-contato_nome");
+  if (!doc || !nome || !cont) return;
+  const sinc = () => {
+    if (doc.value.replace(/\D/g, "").length !== 11) return;
+    if (cont.value !== nome.value.trim()) { cont.value = nome.value.trim(); cont.dispatchEvent(new Event("input", { bubbles: true })); }
+  };
+  doc.addEventListener("input", sinc); nome.addEventListener("input", sinc);
+  sinc();
+}
 async function iniciarSecaoContatosEmpresa(item) {
   empContatos = [];
   empContatosEmpresaId = item ? item.id : null;
@@ -7209,7 +7225,37 @@ function orcPessoaValidar() {
 }
 let orcPessoaQtdSalva = null;   // { ta, qtd } do orçamento aberto (para somar de volta as vagas dele próprio)
 
+async function orcPagamentoRender(orcId) {
+  const box = $("orc-pag-bloco");
+  if (!box) return;
+  if (orcCom() !== "individual") { box.classList.add("hidden"); box.innerHTML = ""; return; }
+  box.classList.remove("hidden");
+  if (!orcId) { box.innerHTML = `<p class="text-xs text-slate-500">Pagamento antecipado: salve o orçamento para registrar o pagamento do cliente.</p>`; return; }
+  try {
+    const [rO, rP] = await Promise.all([
+      supabase.from("orcamentos").select("numero, valor_final").eq("id", orcId).single(),
+      supabase.from("orcamento_pagamentos").select("id, forma, data_pagamento, valor, comprovante, registrado_por").eq("orcamento_id", orcId).eq("status", "Ativo").order("data_pagamento"),
+    ]);
+    if (rO.error) throw rO.error; if (rP.error) throw rP.error;
+    const pags = rP.data || [], final = Number(rO.data.valor_final) || 0;
+    const pago = pags.reduce((s, x) => s + Number(x.valor), 0);
+    const st = pago <= 0 ? ["Pagamento não registrado", FAT_COR.ambar] : pago + 0.009 >= final ? ["Quitado", FAT_COR.verde] : [`Pago parcialmente · saldo ${fmtBRL(final - pago)}`, FAT_COR.ambar];
+    const podeI = podeFazer("faturamento", "incluir");
+    box.innerHTML = `<div class="flex flex-wrap items-center justify-between gap-2">
+        <p class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Pagamento antecipado ${fatChip(st[0], st[1])}</p>
+        ${podeI ? `<button type="button" data-orc-pag-novo="1" class="text-xs font-medium text-amber-700 hover:underline">Registrar pagamento</button>` : ""}
+      </div>
+      ${pags.length ? `<ul class="mt-1 text-xs text-slate-700 space-y-0.5">${pags.map((x) => `<li>${escH(x.forma)} · ${escH(orcDataBR(x.data_pagamento))} · ${escH(fmtBRL(x.valor))}${x.comprovante ? " · " + escH(x.comprovante) : ""}${x.registrado_por ? ` <span class="text-slate-400">(${escH(x.registrado_por)})</span>` : ""}</li>`).join("")}</ul>` : `<p class="mt-1 text-xs text-slate-500">Nenhum pagamento registrado. O faturamento do Individual só é liberado depois do pagamento e da realização da turma.</p>`}`;
+    box.dataset.orc = orcId; box.dataset.numero = rO.data.numero || ""; box.dataset.final = String(final); box.dataset.pago = String(pago);
+  } catch (e) { box.innerHTML = `<p class="text-xs text-rose-600">Não foi possível carregar o pagamento: ${escH(e && e.message ? e.message : "erro")}</p>`; }
+}
+$("orc-pag-bloco").addEventListener("click", (e) => {
+  if (!e.target.closest("[data-orc-pag-novo]")) return;
+  const b = $("orc-pag-bloco");
+  pagAbrir({ orcId: b.dataset.orc, numero: b.dataset.numero, valorFinal: Number(b.dataset.final), pago: Number(b.dataset.pago), aoSalvar: () => orcPagamentoRender(b.dataset.orc) });
+});
 async function orcPessoaRenderPainel(orcId) {
+  orcPagamentoRender(orcId);
   const box = $("orc-pessoa-painel");
   if (!box) return;
   if (!orcModoPessoa()) { box.innerHTML = ""; return; }
@@ -8810,6 +8856,14 @@ function observacoesDosItensNaoImpressos(itens) {
   return out;
 }
 
+// Teoria em EAD (somente "EAD", não "EAD Síncrono") + prática no CT ou In Company: avisa na observação da proposta.
+const TEXTO_OBS_TEORIA_EAD = "Teoria em EAD, os alunos só poderão participar da parte prática após a teoria ser realizada";
+function observacaoTeoriaEad(linha) {
+  const ft = String((linha && linha.formato_teoria) || "").trim();
+  const fp = String((linha && linha.formato_pratica) || "").trim();
+  return ft === "EAD" && (fp === "CT" || fp === "InCompany") ? TEXTO_OBS_TEORIA_EAD : "";
+}
+
 function numeroDaProposta(numeroOrc, agora, comSegundos) {
   const p = pad2;
   return `${numeroOrc}-${agora.getFullYear()}${p(agora.getMonth() + 1)}${p(agora.getDate())}-${p(agora.getHours())}${p(agora.getMinutes())}${comSegundos ? p(agora.getSeconds()) : ""}`;
@@ -8852,7 +8906,7 @@ function montarDadosProposta(linha, calc, agora, numero, versao) {
     contato: { nome: linha.contato_nome || "", telefone: linha.contato_telefone || "", email: linha.contato_email || "" },
     vendedor: { id: linha.vendedor_id || null, nome: ((listaVendedoresOrc.find((v) => v.id === linha.vendedor_id) || {}).nome) || "" },
     observacoes: String(linha.observacoes || "").trim(),
-    observacoes_itens: observacoesDosItensNaoImpressos(itens),
+    observacoes_itens: [observacaoTeoriaEad(linha), ...observacoesDosItensNaoImpressos(itens)].filter(Boolean),
     endereco_transporte: orcTemTransporte(itens) ? enderecoTransporteDoOrcamento(linha, emp) : "",
     centro: { id: ct.id || null, nome: ct.nome || "", cidade: ct.cidade || "", endereco: ct.endereco || "", rodape_pagina: ct.texto_rodape_pagina || "", logotipo_esquerdo: ct.logotipo_esquerdo || null, logotipo_direito: ct.logotipo_direito || null },
     treinamento: { id: tipo.id || null, nome: tipo.nome || "", descricao_impressao: tipo.descricao_impressao || "", rodape: tipo.rodape || "" },
@@ -9541,6 +9595,7 @@ async function gerarPreviaProposta() {
       prazo_pagamento_id: $("orc-prazo").value, validade_dias: dias,
       observacoes: $("orc-observacoes").value.trim(), vendedor_id: $("orc-vendedor").value || null,
       endereco_transporte: $("orc-endereco-transporte").value.trim() || null,
+      formato_teoria: $("orc-formato-teoria").value || null, formato_pratica: $("orc-formato-pratica").value || null,
     };
     const versao = orcPropostas.reduce((m, p) => Math.max(m, p.versao || 0), 0) + 1;
     const dados = montarDadosProposta(linha, calc, agora, `${numeroOrc}-PREVIA`, versao);
@@ -15671,7 +15726,7 @@ const fatNumero = (n) => "FAT-" + String(n).padStart(4, "0");
 const fatLotes = (arr, n) => { const out = []; for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n)); return out; };
 const fatErroMsg = (e) => (e && e.message ? e.message : "erro desconhecido");
 const fatChip = (txt, cor) => `<span class="inline-block text-xs font-semibold px-2 py-0.5 rounded-full ${cor}">${escH(txt)}</span>`;
-const FAT_COR = { cinza: "bg-slate-100 text-slate-700", verde: "bg-teal-100 text-teal-800", ambar: "bg-amber-100 text-amber-800", azul: "bg-indigo-100 text-indigo-800", rosa: "bg-rose-100 text-rose-700" };
+const FAT_COR = { sky: "bg-sky-100 text-sky-800", roxo: "bg-violet-100 text-violet-800", cinza: "bg-slate-100 text-slate-700", verde: "bg-teal-100 text-teal-800", ambar: "bg-amber-100 text-amber-800", azul: "bg-indigo-100 text-indigo-800", rosa: "bg-rose-100 text-rose-700" };
 
 // ---------- Alunos certificados ----------
 let caTurmas = [];
@@ -16001,6 +16056,14 @@ let fatPrev = null;         // retorno de faturamento_calcular para a seleção 
 let fatPrevToken = 0;
 let fatEmitidos = [];
 let fatEmitidoAberto = null;
+let fatPagMap = {};   // pagamentos antecipados por orçamento (faturamentos emitidos)
+function fatChipPagamento(f) {
+  if (!f.orcamentos || f.orcamentos.comercializacao !== "individual") return "";
+  const l = fatPagMap[f.orcamento_id] || [];
+  if (!l.length) return fatChip("Sem pagamento registrado", FAT_COR.ambar);
+  const pago = l.reduce((s, x) => s + Number(x.valor), 0), u = l[l.length - 1];
+  return pago + 0.009 >= Number(f.valor_final) ? fatChip(`Quitado · ${u.forma} ${fatDM(u.data_pagamento)}`, FAT_COR.verde) : fatChip(`Pago parcialmente (${fmtBRL(pago)})`, FAT_COR.ambar);
+}
 
 function carregarFaturamentoInit() {
   $("btn-fat-faturar").classList.toggle("hidden", !podeFazer("faturamento", "incluir"));
@@ -16022,6 +16085,8 @@ function fatMostrarAba(aba) {
 }
 
 function fatMostrarListaOrcs() {
+  $("fat-view-pessoa").classList.add("hidden");
+  $("fat-ok").classList.add("hidden");
   $("fat-view-orc").classList.add("hidden");
   $("fat-view-orcs").classList.remove("hidden");
   fatOrc = null;
@@ -16029,6 +16094,7 @@ function fatMostrarListaOrcs() {
 }
 
 let fatListaOrcs = [];
+let fatListaPessoa = [];
 async function fatCarregarOrcamentos() {
   esconderErro("fat-erro");
   $("fat-orcs-tbody").innerHTML = `<tr><td colspan="6" class="px-3 py-4 text-slate-500">Carregando…</td></tr>`;
@@ -16049,6 +16115,10 @@ async function fatCarregarOrcamentos() {
       if (faturadas.has(t.id)) g.fat++; else g.disp++;
     });
     fatListaOrcs = Object.values(por).filter((g) => g.disp > 0).sort((a, b) => String(b.numero).localeCompare(String(a.numero), "pt-BR", { numeric: true }));
+    // v2.02 — Encaixe e Individual: faturados por orçamento (situação calculada no banco)
+    const { data: pes, error: eP } = await supabase.rpc("fat_pessoa_listar");
+    if (eP) throw eP;
+    fatListaPessoa = pes || [];
     fatRenderOrcs();
   } catch (e) {
     $("fat-orcs-tbody").innerHTML = "";
@@ -16056,17 +16126,52 @@ async function fatCarregarOrcamentos() {
   }
 }
 
+const FAT_COM_ROT = { fechada: "Turma fechada", encaixe: "Encaixe", individual: "Individual" };
+const FAT_COM_COR = { fechada: FAT_COR.cinza, encaixe: FAT_COR.sky, individual: FAT_COR.roxo };
+const fatDM = (iso) => { if (!iso) return "—"; const [, m, d] = String(iso).slice(0, 10).split("-"); return `${d}/${m}`; };
+function fatSituacaoPessoa(p) {
+  const pg = Number(p.valor_pago) > 0 ? `Pago (${p.pagamento_forma} ${fatDM(p.pagamento_data)})` : "";
+  const turma = p.turma_ultima_data ? `turma em ${fatDM(p.turma_ultima_data)}` : "turma sem data";
+  const cap = (t) => t.charAt(0).toUpperCase() + t.slice(1);
+  if (p.situacao === "pronto") return [p.comercializacao === "individual" ? `${pg} · turma realizada` : "Turma realizada · pronto", FAT_COR.verde];
+  if (p.situacao === "aguardando_pagamento") return ["Aguardando pagamento" + (p.turma_realizada ? " · turma realizada" : " · " + turma), FAT_COR.ambar];
+  if (p.situacao === "turma_futura" || p.situacao === "sem_data") return [pg ? `${pg} · ${turma}` : cap(turma), FAT_COR.cinza];
+  return [(p.bloqueios && p.bloqueios[0]) || "Pendente", FAT_COR.ambar];
+}
 function fatRenderOrcs() {
   const busca = $("fat-busca").value.trim().toLowerCase();
-  const lista = fatListaOrcs.filter((g) => !busca || `${g.numero || ""} ${g.empresa || ""}`.toLowerCase().includes(busca));
-  $("fat-orcs-tbody").innerHTML = lista.length ? lista.map((g) => `<tr>
+  const com = $("fat-com").value;
+  const casa = (num, emp) => !busca || `${num || ""} ${emp || ""}`.toLowerCase().includes(busca);
+  const linhas = [];
+  if (!com || com === "fechada") fatListaOrcs.filter((g) => casa(g.numero, g.empresa)).forEach((g) => linhas.push({ tipo: "fechada", numero: g.numero, g }));
+  fatListaPessoa.filter((p) => (!com || com === p.comercializacao) && casa(p.numero, p.empresa_nome)).forEach((p) => linhas.push({ tipo: p.comercializacao, numero: p.numero, p }));
+  linhas.sort((a, b) => String(b.numero).localeCompare(String(a.numero), "pt-BR", { numeric: true }));
+  const podePagar = podeFazer("faturamento", "incluir");
+  $("fat-orcs-tbody").innerHTML = linhas.length ? linhas.map((l) => {
+    if (l.tipo === "fechada") {
+      const g = l.g;
+      return `<tr>
       <td class="px-3 py-2 font-medium">${escH(g.numero || "—")}</td>
       <td class="px-3 py-2">${escH(g.empresa || "—")}</td>
-      <td class="px-3 py-2">${fatChip(g.porAluno ? "Por aluno" : "Por turma", g.porAluno ? FAT_COR.ambar : FAT_COR.cinza)}</td>
-      <td class="px-3 py-2 text-right font-semibold">${g.disp}</td>
-      <td class="px-3 py-2 text-right text-slate-500">${g.fat}</td>
+      <td class="px-3 py-2">${fatChip(FAT_COM_ROT.fechada, FAT_COM_COR.fechada)} <span class="text-[11px] text-slate-500">${g.porAluno ? "por aluno" : "por turma"}</span></td>
+      <td class="px-3 py-2">${g.disp} turma(s) disponível(is)<div class="text-[11px] text-slate-400">${g.fat} já faturada(s)</div></td>
+      <td class="px-3 py-2">${fatChip("Certificados registrados", FAT_COR.verde)}</td>
       <td class="px-3 py-2 text-right"><button type="button" data-fat-abrir="${escH(g.id)}" class="text-xs font-medium text-amber-700 hover:underline">Abrir</button></td>
-    </tr>`).join("") : `<tr><td colspan="6" class="px-3 py-4 text-slate-500">Nenhum orçamento com turmas disponíveis para faturar. Registre os certificados na tela Alunos certificados (menu Operações).</td></tr>`;
+    </tr>`;
+    }
+    const p = l.p;
+    const [sit, cor] = fatSituacaoPessoa(p);
+    const pct = Number(p.perc_desconto) > 0 ? ` · desc. ${Number(p.perc_desconto).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}%` : "";
+    const pagar = p.comercializacao === "individual" && podePagar && Number(p.saldo) > 0;
+    return `<tr>
+      <td class="px-3 py-2 font-medium">${escH(p.numero || "—")}</td>
+      <td class="px-3 py-2">${escH(p.empresa_nome || "—")}<div class="text-[11px] text-slate-400">${escH(p.cnpj || "")}</div></td>
+      <td class="px-3 py-2">${fatChip(FAT_COM_ROT[p.comercializacao], FAT_COM_COR[p.comercializacao])}</td>
+      <td class="px-3 py-2">${p.qtd_pessoas} pessoa(s) × ${escH(fmtBRL(p.valor_pessoa))}<div class="text-[11px] text-slate-500">${escH(fmtBRL(p.valor_final))}${escH(pct)}</div></td>
+      <td class="px-3 py-2">${fatChip(sit, cor)}</td>
+      <td class="px-3 py-2 text-right whitespace-nowrap">${pagar ? `<button type="button" data-fat-pagar="${escH(p.orcamento_id)}" class="text-xs font-medium text-slate-700 hover:underline mr-3">Registrar pagamento</button>` : ""}<button type="button" data-fat-abrir-pessoa="${escH(p.orcamento_id)}" class="text-xs font-medium text-amber-700 hover:underline">Abrir</button></td>
+    </tr>`;
+  }).join("") : `<tr><td colspan="6" class="px-3 py-4 text-slate-500">Nada a faturar com este filtro. Turma fechada: registre os certificados na tela Alunos certificados (menu Operações). Encaixe e Individual aparecem aqui depois que o orçamento é aprovado.</td></tr>`;
 }
 
 async function fatAbrirOrcamento(orcId) {
@@ -16193,12 +16298,14 @@ async function fatCalcularPreview() {
   btn.disabled = !podeFazer("faturamento", "incluir");
 }
 
-function fatAbrirConfirmacao() {
+let fatConfPessoa = false;
+function fatAbrirConfirmacao() { fatConfPessoa = false; fatMontarConfirmacao(); }
+function fatMontarConfirmacao() {
   if (!fatPrev || !fatPrev.faturamentos.length) return;
   esconderErro("fat-conf-erro");
   $("fat-conf-corpo").innerHTML = fatPrev.faturamentos.map((f) => `<div class="border border-slate-200 rounded-lg p-3" data-fat-bloco="${escH(f.cnpj_digitos)}">
       <div class="flex flex-wrap justify-between gap-2">
-        <div><p class="font-semibold text-sm">${escH(f.cnpj)}</p><p class="text-xs text-slate-500">${escH(f.razao_social || "Empresa não cadastrada")} · ${f.alunos} aluno(s) · ${f.itens.map((i) => escH(i.turma_identificacao || "—")).join(", ")}</p></div>
+        <div><p class="font-semibold text-sm">${escH(f.cnpj)}</p><p class="text-xs text-slate-500">${escH(f.razao_social || "Empresa não cadastrada")} · ${fatConfPessoa ? `${f.alunos} pessoa(s) × ${escH(fmtBRL(fatPes.info.valor_pessoa))} · turma aberta` : `${f.alunos} aluno(s) · ${f.itens.map((i) => escH(i.turma_identificacao || "—")).join(", ")}`}</p></div>
         <p class="text-sm">Subtotal ${escH(fmtBRL(f.valor_bruto))} · desconto − ${escH(fmtBRL(f.valor_desconto))} · <strong>${escH(fmtBRL(f.valor_final))}</strong></p>
       </div>
       <div class="grid sm:grid-cols-3 gap-2 mt-2">
@@ -16221,10 +16328,27 @@ async function fatGerar() {
   const btn = $("btn-fat-conf-ok");
   btn.disabled = true;
   try {
-    const { data, error } = await supabase.rpc("gerar_faturamentos", { p_orcamento: fatOrc.orc.id, p_turmas: [...fatSel], p_dados: dados });
+    const { data, error } = fatConfPessoa
+      ? await supabase.rpc("gerar_faturamento_pessoa", { p_orcamento: fatPes.info.orcamento_id, p_dados: dados[0] || {} })
+      : await supabase.rpc("gerar_faturamentos", { p_orcamento: fatOrc.orc.id, p_turmas: [...fatSel], p_dados: dados });
     if (error) throw error;
     $("fat-modal-confirmar").classList.add("hidden");
     const nums = (data.faturamentos || []).map((f) => fatNumero(f.numero)).join(", ");
+    if (fatConfPessoa) {
+      fatMostrarListaOrcs();
+      const okp = $("fat-ok");
+      okp.textContent = `Faturamento gerado: ${nums}. Enviando ao Omie…`;
+      okp.className = "bg-emerald-50 text-emerald-700 text-sm rounded-md px-3 py-2 mb-3";
+      const msgsP = []; let falhouP = false;
+      for (const f of data.faturamentos || []) {
+        const r = await omieEnviarFaturamento(f.id);
+        if (!r.ok) falhouP = true;
+        msgsP.push(`${fatNumero(f.numero)}: ${omieResumoEnvio(r)}`);
+      }
+      okp.textContent = `Faturamento gerado: ${nums}. Omie — ${msgsP.join(" · ")}${falhouP ? " — corrija e reenvie em Faturamentos emitidos > Abrir." : ""}`;
+      okp.className = `${falhouP ? "bg-amber-50 text-amber-800" : "bg-emerald-50 text-emerald-700"} text-sm rounded-md px-3 py-2 mb-3`;
+      return;
+    }
     const orcId = fatOrc.orc.id;
     await fatAbrirOrcamento(orcId);
     const ok = $("fat-orc-ok");
@@ -16246,6 +16370,164 @@ async function fatGerar() {
     btn.disabled = false;
   }
 }
+
+// ---------- v2.02 Faturamento de Encaixe e Individual (por orçamento) + pagamento antecipado ----------
+let fatPes = null;   // { info, alunos, pags, taNumero }
+async function fatAbrirPessoa(orcId) {
+  esconderErro("fat-pes-erro");
+  $("fat-view-orcs").classList.add("hidden");
+  $("fat-view-orc").classList.add("hidden");
+  $("fat-view-pessoa").classList.remove("hidden");
+  $("fat-pes-cab").innerHTML = `<p class="text-sm text-slate-500">Carregando…</p>`;
+  ["fat-pes-cards", "fat-pes-alertas", "fat-pes-pag", "fat-pes-alunos", "fat-pes-prev"].forEach((id) => { $(id).innerHTML = ""; });
+  $("btn-fat-pes-faturar").disabled = true;
+  try {
+    const [rI, rA, rP] = await Promise.all([
+      supabase.rpc("fat_pessoa_calcular", { p_orcamento: orcId }),
+      supabase.from("turma_alunos").select("id, nome, cpf, tipo_documento").eq("orcamento_id", orcId).order("nome"),
+      supabase.from("orcamento_pagamentos").select("id, forma, data_pagamento, valor, comprovante, observacoes, status, registrado_por, cancelado_motivo").eq("orcamento_id", orcId).order("data_pagamento"),
+    ]);
+    if (rI.error) throw rI.error; if (rA.error) throw rA.error; if (rP.error) throw rP.error;
+    let taNumero = "";
+    if (rI.data.turma_aberta_id) {
+      const { data: ta } = await supabase.from("orcamentos").select("numero").eq("id", rI.data.turma_aberta_id).maybeSingle();
+      taNumero = (ta && ta.numero) || "";
+    }
+    fatPes = { info: rI.data, alunos: rA.data || [], pags: rP.data || [], taNumero };
+    fatRenderPessoa();
+  } catch (e) {
+    mostrarErro("fat-pes-erro", "Não foi possível carregar o orçamento: " + fatErroMsg(e));
+  }
+}
+
+function fatPagStatus(info) {
+  const pago = Number(info.valor_pago) || 0, final = Number(info.valor_final) || 0;
+  if (pago <= 0) return ["Pagamento não registrado", FAT_COR.ambar];
+  if (pago + 0.009 >= final) return [`Quitado · ${info.pagamento_forma} ${fatDM(info.pagamento_data)}`, FAT_COR.verde];
+  return [`Pago parcialmente · saldo ${fmtBRL(info.saldo)}`, FAT_COR.ambar];
+}
+
+function fatRenderPessoa() {
+  const { info, alunos, pags, taNumero } = fatPes;
+  const ind = info.comercializacao === "individual";
+  const [sit, cor] = fatSituacaoPessoa(info);
+  const pct = Number(info.perc_desconto) || 0;
+  $("fat-pes-cab").innerHTML = `
+    <div class="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+      <h3 class="text-lg font-semibold">Orçamento ${escH(info.numero || "—")}</h3>
+      <span class="text-sm text-slate-600">${escH(info.empresa_nome || "—")} · ${escH(info.cnpj || "—")}</span>
+      ${fatChip(FAT_COM_ROT[info.comercializacao], FAT_COM_COR[info.comercializacao])}
+      ${fatChip(sit, cor)}
+    </div>
+    <p class="text-sm text-slate-600 mt-2">Fatura as <strong>pessoas vendidas × valor por pessoa</strong> (${escH(fmtBRL(info.valor_pessoa))}), independentemente de certificados ou de alunos já indicados. Desconto do orçamento: <strong>${escH(pct.toLocaleString("pt-BR", { maximumFractionDigits: 2 }))}%</strong>. Um faturamento para o ${ind ? "CPF" : "CNPJ"} do cliente. ${ind ? "A OS é gerada no Omie depois da aula, com o pagamento antecipado já registrado." : ""}</p>
+    <p class="text-xs text-slate-500 mt-1">Turma aberta ${escH(taNumero || "—")}${info.turma_primeira_data ? ` · ${escH(fatData(info.turma_primeira_data))}${info.turma_ultima_data && info.turma_ultima_data !== info.turma_primeira_data ? " a " + escH(fatData(info.turma_ultima_data)) : ""}` : ""}</p>`;
+  const card = (rot, val, nota) => `<div class="rounded-md border border-slate-200 bg-white px-3 py-2"><p class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">${escH(rot)}</p><p class="text-base font-semibold">${escH(val)}</p>${nota ? `<p class="text-[11px] text-slate-400">${escH(nota)}</p>` : ""}</div>`;
+  $("fat-pes-cards").innerHTML =
+    card("Pessoas vendidas", String(info.qtd_pessoas), `${info.alunos_indicados} aluno(s) indicado(s)`) +
+    card("Valor por pessoa", fmtBRL(info.valor_pessoa), pct > 0 ? `desconto ${pct.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}%` : "sem desconto") +
+    card("Valor a faturar", fmtBRL(info.valor_final), `bruto ${fmtBRL(info.valor_bruto)}`) +
+    (ind ? card("Pago antecipadamente", fmtBRL(info.valor_pago), Number(info.saldo) > 0 ? `saldo ${fmtBRL(info.saldo)}` : "quitado")
+         : card("Turma aberta", info.turma_realizada ? "Realizada" : "Não realizada", info.turma_ultima_data ? `última etapa ${fatData(info.turma_ultima_data)}` : "sem datas"));
+  const alertas = [];
+  if ((info.bloqueios || []).length) alertas.push(`<div class="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"><p class="font-semibold text-xs uppercase tracking-wide mb-1">Para poder faturar</p><ul class="list-disc pl-5">${info.bloqueios.map((b) => `<li>${escH(b)}</li>`).join("")}</ul></div>`);
+  (info.avisos || []).forEach((a) => alertas.push(`<div class="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900">${escH(a)}</div>`));
+  $("fat-pes-alertas").innerHTML = alertas.join("");
+  // pagamento antecipado (somente Individual)
+  const boxPag = $("fat-pes-pag");
+  boxPag.classList.toggle("hidden", !ind);
+  if (ind) {
+    const [ps, pc] = fatPagStatus(info);
+    const podeI = podeFazer("faturamento", "incluir"), podeE = podeFazer("faturamento", "excluir");
+    boxPag.innerHTML = `
+      <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+        <h4 class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Pagamento antecipado ${fatChip(ps, pc)}</h4>
+        ${podeI ? `<button type="button" data-pag-novo="1" class="text-xs font-medium text-amber-700 hover:underline">Registrar pagamento</button>` : ""}
+      </div>
+      ${pags.length ? `<table class="w-full text-sm"><thead class="text-left text-[11px] uppercase tracking-wide text-slate-500"><tr><th class="px-2 py-1">Forma</th><th class="px-2 py-1">Data</th><th class="px-2 py-1 text-right">Valor</th><th class="px-2 py-1">Comprovante</th><th class="px-2 py-1">Registrado por</th><th class="px-2 py-1"></th></tr></thead>
+        <tbody class="divide-y divide-slate-100">${pags.map((g) => `<tr class="${g.status === "Cancelado" ? "text-slate-400 line-through" : ""}"><td class="px-2 py-1">${escH(g.forma)}</td><td class="px-2 py-1">${escH(fatData(g.data_pagamento))}</td><td class="px-2 py-1 text-right">${escH(fmtBRL(g.valor))}</td><td class="px-2 py-1">${escH(g.comprovante || "—")}</td><td class="px-2 py-1">${escH(g.registrado_por || "—")}</td>
+          <td class="px-2 py-1 text-right no-underline">${g.status === "Cancelado" ? `<span class="text-[11px]" title="${escH(g.cancelado_motivo || "")}">cancelado</span>` : podeE ? `<button type="button" data-pag-cancelar="${escH(g.id)}" class="text-xs text-rose-600 hover:underline">Cancelar</button>` : ""}</td></tr>`).join("")}</tbody></table>`
+        : `<p class="text-sm text-slate-500">Nenhum pagamento registrado. No Individual o pagamento é antecipado: registre-o para liberar o faturamento.</p>`}`;
+  }
+  // alunos
+  $("fat-pes-alunos").innerHTML = alunos.length
+    ? `<table class="w-full text-sm"><thead class="text-left text-[11px] uppercase tracking-wide text-slate-500"><tr><th class="px-2 py-1">Aluno</th><th class="px-2 py-1">Documento</th></tr></thead><tbody class="divide-y divide-slate-100">${alunos.map((a) => `<tr><td class="px-2 py-1">${escH(a.nome)}</td><td class="px-2 py-1">${escH(a.tipo_documento || "CPF")} ${escH(a.cpf || "")}</td></tr>`).join("")}</tbody></table>`
+    : `<p class="text-sm text-slate-500">Nenhum aluno indicado ainda (${info.qtd_pessoas} pessoa(s) vendida(s)). Isso não impede o faturamento.</p>`;
+  // prévia
+  const f = (info.faturamentos || [])[0];
+  $("fat-pes-prev").innerHTML = f ? `<table class="w-full text-sm"><thead class="text-left text-[11px] uppercase tracking-wide text-slate-500"><tr><th class="px-2 py-1">${ind ? "CPF" : "CNPJ"} / cliente</th><th class="px-2 py-1">Pessoas × valor</th><th class="px-2 py-1 text-right">Subtotal</th><th class="px-2 py-1 text-right">Desconto</th><th class="px-2 py-1 text-right">Total</th></tr></thead>
+    <tbody><tr><td class="px-2 py-2"><div class="font-medium">${escH(f.cnpj || "—")}</div><div class="text-xs text-slate-500">${escH(f.razao_social || "—")}</div></td>
+    <td class="px-2 py-2">${f.alunos} × ${escH(fmtBRL(info.valor_pessoa))}</td>
+    <td class="px-2 py-2 text-right whitespace-nowrap">${escH(fmtBRL(f.valor_bruto))}</td>
+    <td class="px-2 py-2 text-right whitespace-nowrap text-slate-500">− ${escH(fmtBRL(f.valor_desconto))}</td>
+    <td class="px-2 py-2 text-right whitespace-nowrap font-semibold">${escH(fmtBRL(f.valor_final))}</td></tr></tbody></table>` : "";
+  $("btn-fat-pes-faturar").disabled = !(info.pronto && podeFazer("faturamento", "incluir"));
+  $("btn-fat-pes-faturar").classList.toggle("hidden", !podeFazer("faturamento", "incluir"));
+}
+
+function fatAbrirConfirmacaoPessoa() {
+  if (!fatPes || !fatPes.info.pronto) return;
+  fatConfPessoa = true;
+  fatPrev = fatPes.info;
+  fatMontarConfirmacao();
+}
+
+// ----- registro do pagamento antecipado (usado no Faturamento e no orçamento)
+let pagCtx = null;
+function pagHojeISO() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; }
+function pagAbrir(ctx) {
+  pagCtx = ctx;
+  esconderErro("pag-erro");
+  const saldo = Math.max(0, Number(ctx.valorFinal || 0) - Number(ctx.pago || 0));
+  $("pag-titulo").textContent = `Registrar pagamento antecipado · orçamento ${ctx.numero || ""}`;
+  $("pag-resumo").textContent = `Valor do orçamento ${fmtBRL(ctx.valorFinal)} · já pago ${fmtBRL(ctx.pago || 0)} · saldo ${fmtBRL(saldo)}`;
+  $("pag-forma").value = "PIX";
+  $("pag-data").value = pagHojeISO();
+  $("pag-valor").value = saldo > 0 ? saldo.toFixed(2) : "";
+  $("pag-comp").value = ""; $("pag-obs").value = "";
+  $("pag-modal").classList.remove("hidden");
+}
+async function pagSalvar() {
+  esconderErro("pag-erro");
+  const c = pagCtx; if (!c) return;
+  const valor = Number($("pag-valor").value);
+  const data = $("pag-data").value;
+  if (!data) return mostrarErro("pag-erro", "Informe a data do pagamento.");
+  if (!(valor > 0)) return mostrarErro("pag-erro", "Informe o valor pago.");
+  const saldo = Math.max(0, Number(c.valorFinal || 0) - Number(c.pago || 0));
+  if (Math.abs(valor - saldo) > 0.009) {
+    const msg = valor < saldo
+      ? `O valor informado (${fmtBRL(valor)}) é menor que o saldo do orçamento (${fmtBRL(saldo)}). Ficará um saldo de ${fmtBRL(saldo - valor)} a receber.\n\nConfirma o registro?`
+      : `O valor informado (${fmtBRL(valor)}) é maior que o saldo do orçamento (${fmtBRL(saldo)}).\n\nConfirma o registro?`;
+    if (!window.confirm(msg)) return;
+  }
+  const btn = $("btn-pag-ok"); btn.disabled = true;
+  try {
+    const { error } = await supabase.rpc("orcamento_pagamento_registrar", { p_orcamento: c.orcId, p_forma: $("pag-forma").value, p_data: data, p_valor: valor, p_comprovante: $("pag-comp").value, p_obs: $("pag-obs").value });
+    if (error) throw error;
+    $("pag-modal").classList.add("hidden");
+    if (c.aoSalvar) await c.aoSalvar();
+  } catch (e) {
+    mostrarErro("pag-erro", "Não foi possível registrar o pagamento: " + fatErroMsg(e));
+  } finally { btn.disabled = false; }
+}
+async function pagCancelar(id, aoSalvar) {
+  const motivo = window.prompt("Motivo do cancelamento deste pagamento:");
+  if (motivo == null) return;
+  const { error } = await supabase.rpc("orcamento_pagamento_cancelar", { p_id: id, p_motivo: motivo });
+  if (error) return window.alert("Não foi possível cancelar o pagamento: " + fatErroMsg(error));
+  if (aoSalvar) await aoSalvar();
+}
+$("btn-pag-fechar").addEventListener("click", () => $("pag-modal").classList.add("hidden"));
+$("btn-pag-cancelar").addEventListener("click", () => $("pag-modal").classList.add("hidden"));
+$("btn-pag-ok").addEventListener("click", pagSalvar);
+$("btn-fat-pes-voltar").addEventListener("click", fatMostrarListaOrcs);
+$("btn-fat-pes-faturar").addEventListener("click", fatAbrirConfirmacaoPessoa);
+$("fat-pes-pag").addEventListener("click", (e) => {
+  const recarregar = () => fatAbrirPessoa(fatPes.info.orcamento_id);
+  if (e.target.closest("[data-pag-novo]")) return pagAbrir({ orcId: fatPes.info.orcamento_id, numero: fatPes.info.numero, valorFinal: fatPes.info.valor_final, pago: fatPes.info.valor_pago, aoSalvar: recarregar });
+  const c = e.target.closest("[data-pag-cancelar]");
+  if (c) pagCancelar(c.getAttribute("data-pag-cancelar"), recarregar);
+});
 
 // ---------- Integração Omie ----------
 // As chamadas ao Omie passam pela função "omie" no Supabase (as chaves nunca chegam ao navegador).
@@ -16427,12 +16709,19 @@ async function fatBuscarEmitidos() {
   const st = $("fat-em-status").value;
   const { data, error } = await buscarTodos(() => {
     let q = supabase.from("faturamentos")
-      .select("id, numero, orcamento_id, cnpj, cnpj_digitos, razao_social, modo, alunos, valor_bruto, perc_desconto, valor_desconto, valor_final, ordem_compra, vencimento, observacoes, nota_fiscal, status, criado_por, created_at, cancelado_em, cancelado_por, cancelado_motivo, orcamentos(numero, empresas(nome)), faturamento_itens(turma_identificacao, alunos, valor_base, valor_excedentes, valor), faturamento_omie_os(id, conta, cod_int, n_cod_os, c_num_os, valor, status, erro, nfse, enviado_em, enviado_por)");
+      .select("id, numero, orcamento_id, cnpj, cnpj_digitos, razao_social, modo, alunos, valor_bruto, perc_desconto, valor_desconto, valor_final, ordem_compra, vencimento, observacoes, nota_fiscal, status, criado_por, created_at, cancelado_em, cancelado_por, cancelado_motivo, orcamentos(numero, comercializacao, empresas(nome)), faturamento_itens(turma_identificacao, alunos, valor_base, valor_excedentes, valor), faturamento_omie_os(id, conta, cod_int, n_cod_os, c_num_os, valor, status, erro, nfse, enviado_em, enviado_por)");
     if (st) q = q.eq("status", st);
     return q.order("numero", { ascending: false });
   });
   if (error) { $("fat-em-tbody").innerHTML = ""; mostrarErro("fat-em-erro", "Não foi possível carregar os faturamentos: " + fatErroMsg(error)); return; }
   fatEmitidos = data || [];
+  // pagamentos antecipados dos orçamentos Individuais listados (chip "Quitado")
+  fatPagMap = {};
+  const idsInd = [...new Set(fatEmitidos.filter((f) => f.orcamentos && f.orcamentos.comercializacao === "individual").map((f) => f.orcamento_id))];
+  for (const lote of fatLotes(idsInd, 80)) {
+    const { data: pg } = await supabase.from("orcamento_pagamentos").select("orcamento_id, forma, data_pagamento, valor").in("orcamento_id", lote).eq("status", "Ativo").order("data_pagamento");
+    (pg || []).forEach((x) => { (fatPagMap[x.orcamento_id] = fatPagMap[x.orcamento_id] || []).push(x); });
+  }
   fatRenderEmitidos();
 }
 
@@ -16443,12 +16732,12 @@ function fatRenderEmitidos() {
   $("fat-em-resumo").textContent = `${lista.length} faturamento(s) · total emitido: ${fmtBRL(soma)}`;
   $("fat-em-tbody").innerHTML = lista.length ? lista.map((f) => `<tr>
       <td class="px-3 py-2 font-medium whitespace-nowrap">${escH(fatNumero(f.numero))}<div class="text-xs text-slate-400 font-normal">${escH(fatData(f.created_at))}</div></td>
-      <td class="px-3 py-2">${escH((f.orcamentos && f.orcamentos.numero) || "—")}</td>
+      <td class="px-3 py-2">${escH((f.orcamentos && f.orcamentos.numero) || "—")}${f.orcamentos && f.orcamentos.comercializacao && f.orcamentos.comercializacao !== "fechada" ? `<div class="mt-1">${fatChip(FAT_COM_ROT[f.orcamentos.comercializacao], FAT_COM_COR[f.orcamentos.comercializacao])}</div>` : ""}</td>
       <td class="px-3 py-2">${escH(f.cnpj)}<div class="text-xs text-slate-500">${escH(f.razao_social || "—")}</div></td>
       <td class="px-3 py-2 text-right">${f.alunos}</td>
       <td class="px-3 py-2 text-right font-semibold whitespace-nowrap">${escH(fmtBRL(f.valor_final))}</td>
       <td class="px-3 py-2 whitespace-nowrap">${escH(fatData(f.vencimento))}</td>
-      <td class="px-3 py-2">${fatChip(f.status, f.status === "Emitido" ? FAT_COR.verde : FAT_COR.rosa)}${f.status === "Emitido" ? `<div class="mt-1">${omieChipLista(f)}</div>` : ""}</td>
+      <td class="px-3 py-2">${fatChip(f.status, f.status === "Emitido" ? FAT_COR.verde : FAT_COR.rosa)}${f.status === "Emitido" ? `<div class="mt-1">${fatChipPagamento(f)}</div><div class="mt-1">${omieChipLista(f)}</div>` : ""}</td>
       <td class="px-3 py-2 text-right"><button type="button" data-fat-emitido="${escH(f.id)}" class="text-xs font-medium text-amber-700 hover:underline">Abrir</button></td>
     </tr>`).join("") : `<tr><td colspan="8" class="px-3 py-4 text-slate-500">Nenhum faturamento encontrado.</td></tr>`;
 }
@@ -16462,16 +16751,19 @@ function fatAbrirEmitido(id) {
   $("fat-emi-motivo").value = "";
   $("fat-emi-titulo").textContent = `${fatNumero(f.numero)} · orçamento ${(f.orcamentos && f.orcamentos.numero) || "—"}`;
   const emitido = f.status === "Emitido";
+  const comP = f.orcamentos && f.orcamentos.comercializacao && f.orcamentos.comercializacao !== "fechada" ? f.orcamentos.comercializacao : null;
+  $("fat-emi-cancel-nota").textContent = comP ? "O orçamento volta para a lista A faturar. O pagamento antecipado registrado continua valendo." : "As turmas deste faturamento voltam a ficar disponíveis para faturar.";
   $("fat-emi-corpo").innerHTML = `
     <p class="text-sm"><strong>${escH(f.cnpj)}</strong> · ${escH(f.razao_social || "Empresa não cadastrada")}</p>
-    <p class="text-xs text-slate-500 mb-2">${f.modo === "aluno" ? "Faturamento por aluno" : "Faturamento por turma"} · emitido em ${escH(formatarDataHoraBr(f.created_at))}${f.criado_por ? " por " + escH(f.criado_por) : ""}</p>
+    <p class="text-xs text-slate-500 mb-2">${comP ? `Faturamento por pessoa vendida · ${FAT_COM_ROT[comP]}` : f.modo === "aluno" ? "Faturamento por aluno" : "Faturamento por turma"} · emitido em ${escH(formatarDataHoraBr(f.created_at))}${f.criado_por ? " por " + escH(f.criado_por) : ""}</p>
     <div class="overflow-x-auto border border-slate-200 rounded-md"><table class="w-full text-sm">
-      <thead class="bg-slate-50 text-left text-[11px] uppercase tracking-wide text-slate-500"><tr><th class="px-3 py-1.5">Turma</th><th class="px-3 py-1.5 text-right">Alunos</th><th class="px-3 py-1.5 text-right">${f.modo === "aluno" ? "Alunos × valor" : "Valor da turma"}</th><th class="px-3 py-1.5 text-right">Adicional de excedentes</th><th class="px-3 py-1.5 text-right">Valor</th></tr></thead>
-      <tbody class="divide-y divide-slate-100">${(f.faturamento_itens || []).map((i) => `<tr><td class="px-3 py-1.5">${escH(i.turma_identificacao || "—")}</td><td class="px-3 py-1.5 text-right">${i.alunos}</td><td class="px-3 py-1.5 text-right">${escH(fmtBRL(i.valor_base))}</td><td class="px-3 py-1.5 text-right">${escH(fmtBRL(i.valor_excedentes))}</td><td class="px-3 py-1.5 text-right">${escH(fmtBRL(i.valor))}</td></tr>`).join("")}</tbody>
+      <thead class="bg-slate-50 text-left text-[11px] uppercase tracking-wide text-slate-500"><tr><th class="px-3 py-1.5">${comP ? "Turma aberta" : "Turma"}</th><th class="px-3 py-1.5 text-right">${comP ? "Pessoas" : "Alunos"}</th><th class="px-3 py-1.5 text-right">${comP ? "Valor por pessoa" : f.modo === "aluno" ? "Alunos × valor" : "Valor da turma"}</th><th class="px-3 py-1.5 text-right">Adicional de excedentes</th><th class="px-3 py-1.5 text-right">Valor</th></tr></thead>
+      <tbody class="divide-y divide-slate-100">${(f.faturamento_itens || []).map((i) => `<tr><td class="px-3 py-1.5">${escH(i.turma_identificacao || "—")}</td><td class="px-3 py-1.5 text-right">${i.alunos}</td><td class="px-3 py-1.5 text-right">${escH(fmtBRL(comP && i.alunos ? Number(i.valor_base) / i.alunos : i.valor_base))}</td><td class="px-3 py-1.5 text-right">${escH(fmtBRL(i.valor_excedentes))}</td><td class="px-3 py-1.5 text-right">${escH(fmtBRL(i.valor))}</td></tr>`).join("")}</tbody>
       <tfoot class="text-sm"><tr class="border-t border-slate-200"><td class="px-3 py-1.5" colspan="4">Subtotal</td><td class="px-3 py-1.5 text-right">${escH(fmtBRL(f.valor_bruto))}</td></tr>
         <tr><td class="px-3 py-1.5" colspan="4">Desconto do orçamento (${escH(Number(f.perc_desconto).toLocaleString("pt-BR", { maximumFractionDigits: 2 }))}%)</td><td class="px-3 py-1.5 text-right">− ${escH(fmtBRL(f.valor_desconto))}</td></tr>
         <tr class="font-semibold"><td class="px-3 py-1.5" colspan="4">Valor final</td><td class="px-3 py-1.5 text-right">${escH(fmtBRL(f.valor_final))}</td></tr></tfoot>
     </table></div>
+    ${emitido && comP === "individual" ? `<div class="mt-3">${fatChipPagamento(f)}</div>` : ""}
     ${emitido ? `<div id="fat-emi-omie" class="mt-3">${omieBlocoEmitido(f)}</div>` : ""}
     ${emitido ? "" : `<p class="mt-2 text-sm text-rose-700">Cancelado em ${escH(formatarDataHoraBr(f.cancelado_em))}${f.cancelado_por ? " por " + escH(f.cancelado_por) : ""}. Motivo: ${escH(f.cancelado_motivo || "—")}</p>`}`;
   $("fat-emi-oc").value = f.ordem_compra || "";
@@ -16530,7 +16822,16 @@ $("fat-emi-corpo").addEventListener("click", async (e) => {
 });
 $("btn-fat-buscar").addEventListener("click", fatCarregarOrcamentos);
 $("fat-busca").addEventListener("input", fatRenderOrcs);
-$("fat-orcs-tbody").addEventListener("click", (e) => { const b = e.target.closest("[data-fat-abrir]"); if (b) fatAbrirOrcamento(b.getAttribute("data-fat-abrir")); });
+$("fat-orcs-tbody").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-fat-abrir]"); if (b) return fatAbrirOrcamento(b.getAttribute("data-fat-abrir"));
+  const bp = e.target.closest("[data-fat-abrir-pessoa]"); if (bp) return fatAbrirPessoa(bp.getAttribute("data-fat-abrir-pessoa"));
+  const pg = e.target.closest("[data-fat-pagar]");
+  if (pg) {
+    const p = fatListaPessoa.find((x) => x.orcamento_id === pg.getAttribute("data-fat-pagar"));
+    if (p) pagAbrir({ orcId: p.orcamento_id, numero: p.numero, valorFinal: p.valor_final, pago: p.valor_pago, aoSalvar: fatCarregarOrcamentos });
+  }
+});
+$("fat-com").addEventListener("change", fatRenderOrcs);
 $("btn-fat-voltar").addEventListener("click", fatMostrarListaOrcs);
 $("fat-turmas-tbody").addEventListener("change", (e) => {
   const i = e.target.closest("[data-fat-turma]");
