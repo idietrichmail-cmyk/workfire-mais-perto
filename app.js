@@ -19077,10 +19077,23 @@ function taEtapas(t) {
   for (let i = 0; i < (t.dias_teoria_pratica || 0); i++) e.push("Teoria com Prática");
   return e.length ? e : ["Treinamento"];
 }
+// Próxima data para a pré-calculada das etapas: segunda a sexta sempre contam;
+// sábado e domingo só contam se as caixas "Considerar sábado/domingo" estiverem marcadas.
 function taProxDiaUtil(iso) {
+  const sab = !!$("ta-n-sab")?.checked, dom = !!$("ta-n-dom")?.checked;
   const d = new Date(iso + "T12:00:00"); d.setDate(d.getDate() + 1);
-  while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1);
+  while ((d.getDay() === 6 && !sab) || (d.getDay() === 0 && !dom)) d.setDate(d.getDate() + 1);
   return d.toISOString().slice(0, 10);
+}
+// Recalcula as datas pré-calculadas (as que o usuário não digitou) depois da primeira etapa.
+function taRecalcularDatas() {
+  const inputs = [...document.querySelectorAll("[data-ta-data]")];
+  if (!inputs.length || !inputs[0].value) return;
+  let prev = inputs[0].value;
+  for (let k = 1; k < inputs.length; k++) {
+    if (!inputs[k].value || inputs[k].dataset.auto === "1" || inputs[k].value < prev) { inputs[k].value = taProxDiaUtil(prev); inputs[k].dataset.auto = "1"; }
+    prev = inputs[k].value;
+  }
 }
 function taRenderForm() {
   const ref = taRefs;
@@ -19094,6 +19107,11 @@ function taRenderForm() {
         <div><label class="${taLabel}" for="ta-n-trein">Treinamento *</label><select id="ta-n-trein" class="${taInput}"><option value="">— Selecione —</option>${trs.map((t) => `<option value="${escH(t.id)}">${escH(t.nome)}</option>`).join("")}</select></div>
         <div><label class="${taLabel}" for="ta-n-centro">Centro de Treinamento *</label><select id="ta-n-centro" class="${taInput}"><option value="">— Selecione —</option>${ref.centros.map((c) => `<option value="${escH(c.id)}">${escH(c.nome)}</option>`).join("")}</select></div>
         <div><label class="${taLabel}" for="ta-n-vagas">Vagas *</label><input id="ta-n-vagas" type="number" min="1" step="1" class="${taInput}" /></div>
+      </div>
+      <div class="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1 text-sm text-slate-700">
+        <span class="${taLabel} !mb-0">Ao pré-calcular as datas, considerar:</span>
+        <label class="inline-flex items-center gap-1.5"><input type="checkbox" id="ta-n-sab" checked /> Sábado</label>
+        <label class="inline-flex items-center gap-1.5"><input type="checkbox" id="ta-n-dom" /> Domingo</label>
       </div>
       <div id="ta-n-etapas" class="mt-3"></div>
       <div class="grid gap-3 sm:grid-cols-3 mt-3">
@@ -19261,10 +19279,12 @@ $("ta-raiz").addEventListener("change", async (e) => {
   else if (id === "ta-f-centro") { taFiltro.centro = e.target.value; taRenderLista(); }
   else if (id === "ta-f-enc") { taFiltro.encerradas = e.target.checked; await taRecarregarLista().catch((er) => taAviso("erro", taMsgErro(er))); }
   else if (id === "ta-n-trein") { $("ta-n-vagas").value = ""; taAtualizarEtapas(); }
+  else if (id === "ta-n-sab" || id === "ta-n-dom") taRecalcularDatas();
   else if (e.target.matches && e.target.matches("[data-ta-data]")) {
     const inputs = [...document.querySelectorAll("[data-ta-data]")]; const i = inputs.indexOf(e.target);
+    e.target.dataset.auto = "0"; // o que o usuário digitou não é recalculado
     let prev = e.target.value;
-    for (let k = i + 1; k < inputs.length && prev; k++) { if (!inputs[k].value || inputs[k].value < prev) inputs[k].value = taProxDiaUtil(prev); prev = inputs[k].value; }
+    for (let k = i + 1; k < inputs.length && prev; k++) { if (!inputs[k].value || inputs[k].value < prev) { inputs[k].value = taProxDiaUtil(prev); inputs[k].dataset.auto = "1"; } prev = inputs[k].value; }
   }
 });
 
