@@ -19146,8 +19146,6 @@ async function taSalvarNova() {
   const datas = [...document.querySelectorAll("[data-ta-data]")].map((i) => i.value);
   const horas = [...document.querySelectorAll("[data-ta-hora]")].map((i) => i.value);
   if (datas.some((d) => !d)) return taAviso("erro", "Informe a data de todas as etapas.");
-  const hoje = new Date().toISOString().slice(0, 10);
-  if (datas[0] < hoje) return taAviso("erro", "A data de início não pode estar no passado.");
   for (let i = 1; i < datas.length; i++) if (datas[i] < datas[i - 1]) return taAviso("erro", `A data da etapa ${i + 1} não pode ser anterior à da etapa ${i}.`);
   const et = taEtapas(t);
   const iT = et.findIndex((r) => r !== "Prática"), iP = et.findIndex((r) => r === "Prática");
