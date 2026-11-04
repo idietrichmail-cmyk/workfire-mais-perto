@@ -7217,6 +7217,7 @@ async function orcMudouComercializacao() {
     orcPessoaPreencherPreco(true);
     orcAplicarModoCom();
     renderizarCalcOrcamento();
+    try { await orcCarregarItensPessoa(); } catch (e) { mostrarErro("orc-form-erro", "Não foi possível carregar os itens de custo do treinamento: " + (e?.message || "erro desconhecido")); }
   } else if (antes !== orcModoPessoa() || !orcLinhasCalc.length) {
     $("orc-turma-aberta").value = "";
     try { await aplicarCadastroNoCalculo(); } catch (e) { mostrarErro("orc-form-erro", "Não foi possível carregar os itens de custo do treinamento: " + (e?.message || "erro desconhecido")); }
@@ -7235,6 +7236,7 @@ $("orc-tipo").addEventListener("change", async () => {
   orcValorPessoaManual = false;
   orcPessoaPreencherPreco(true);
   orcAplicarModoCom();
+  try { await orcCarregarItensPessoa(); } catch (e) { mostrarErro("orc-form-erro", "Não foi possível carregar os itens de custo do treinamento: " + (e?.message || "erro desconhecido")); }
   recalcularOrcamentoTela();
 });
 
@@ -7338,6 +7340,28 @@ $("orc-pessoa-painel").addEventListener("click", async (e) => {
   }
 });
 
+// Orçamento por pessoa (Individual/Encaixe): traz do treinamento os itens de custo com valor ZERADO. O preço vem do valor por pessoa;
+// os itens servem só para a impressão da proposta (descrição, ordem, "Imprime") e para o registro do orçamento.
+async function itensZeradosDoCadastro(tipoId) {
+  const linhas = await linhasDoCadastroDoTreinamento(tipoId);
+  return linhas.map((l) => ({ ...l, valor_cadastro: 0, valor_unitario: 0 }));
+}
+async function orcCarregarItensPessoa() {
+  const token = ++orcCalcToken;
+  const tipoId = $("orc-tipo").value;
+  orcCalcPendentes++;
+  let linhas;
+  try { linhas = await itensZeradosDoCadastro(tipoId); }
+  catch (e) { if (token === orcCalcToken) orcCalcErro = "Os itens de custo do treinamento não foram carregados. Escolha o treinamento de novo ou feche e abra o orçamento."; throw e; }
+  finally { orcCalcPendentes--; }
+  if (token !== orcCalcToken) return;
+  orcCalcErro = null;
+  orcLinhasCalc = linhas;
+  ["apoio", "margem", "imposto"].forEach((k) => { $("orc-perc-" + k).value = 0; });
+  orcCalcOrigem = tipoId ? "cadastro" : "vazio";
+  orcCalcSalvoEm = null; orcMinSalvo = null;
+  renderizarCalcOrcamento();
+}
 function calcularOrcamentoPessoa() {
   const q = orcQuantidades();
   q.turmas = 1; q.localidades = 1; q.alunosPorTurma = q.alunos;
@@ -7352,8 +7376,9 @@ function calcularOrcamentoPessoa() {
     valorDesc = total * desconto / 100;
   }
   const final = total - valorDesc;
+  const itens = orcLinhasCalc.map((l) => ({ l, ...calcularLinhaOrcamento(l, q), total: 0 })); // itens só para impressão: valor zero
   return {
-    q, itens: [], custo: 0, apoio: 0, margem: 0, imposto: 0, desconto, pctCusto: 1, pctCustoEfetivo: 0, margemMinimaAplicada: false, valorTurmaPerc: valorTurma,
+    q, itens, custo: 0, apoio: 0, margem: 0, imposto: 0, desconto, pctCusto: 1, pctCustoEfetivo: 0, margemMinimaAplicada: false, valorTurmaPerc: valorTurma,
     valido: true, valorTurma, total, valorDesc, final, finalTurma: final, margemTurma: 0, margemPerc: 0, margemTotal: 0, minPerc: 0, minValor: 0,
     abaixoPerc: false, abaixoValor: false, precisaAprovacao: false, descontoInvalido: valorDesc > total + 0.005 || desconto > 100.0001,
     apoioV: 0, impostoV: 0, margemV: 0, margemEfetivaPerc: 0, porAluno: vp, finalAluno: q.alunos ? final / q.alunos : 0, pessoa: true, valorPessoa: vp,
@@ -7376,6 +7401,7 @@ function orcDistanciaDigitada() {
 }
 // Alguma linha do cálculo usa a distância (como quantidade do item ou como referência do divisor)?
 function orcUsaDistancia(linhas) {
+  if (orcModoPessoa()) return false; // itens zerados: não há cálculo por distância
   return (linhas || []).some((l) => l.base_calculo === "distancia" || (Number(l.divisor) > 0 && l.base_divisor === "distancia"));
 }
 // O campo Distância só aparece quando o treinamento tem algum item com unidade de medida de distância.
@@ -7530,6 +7556,7 @@ async function aplicarCadastroNoCalculo() {
     orcCalcToken++; orcLinhasCalc = []; orcCalcErro = null; orcCalcOrigem = "vazio"; orcCalcSalvoEm = null; orcMinSalvo = null;
     orcPessoaPreencherPreco(true);
     renderizarCalcOrcamento();
+    await orcCarregarItensPessoa();
     return;
   }
   const token = ++orcCalcToken;
@@ -7575,13 +7602,14 @@ function limparCalculoOrcamento(carregando = false) {
 
 // Edição: usa o cálculo gravado; se ainda não houver (orçamento antigo/importado), parte do cadastro.
 async function carregarCalculoDoOrcamento(o) {
-  if (o.comercializacao && o.comercializacao !== "fechada") {
+  const ehPessoa = !!(o.comercializacao && o.comercializacao !== "fechada");
+  if (ehPessoa) {
+    // por pessoa: usa os itens gravados (valor zero); se o orçamento ainda não os tem, traz do treinamento com valor zerado
     orcCalcToken++; orcLinhasCalc = []; orcCalcErro = null; orcCalcOrigem = "vazio"; orcMinSalvo = null;
     orcDescontoModo = o.desconto_modo === "valor" ? "valor" : "percentual";
     $("orc-perc-desconto").value = Number(o.perc_desconto) || 0;
     $("orc-valor-desconto").value = Number(o.valor_desconto) || 0;
     renderizarCalcOrcamento();
-    return;
   }
   const token = ++orcCalcToken;
   orcCalcPendentes++;
@@ -7634,7 +7662,7 @@ async function carregarCalculoDoOrcamento(o) {
     return;
   }
   try {
-    await aplicarCadastroNoCalculo();
+    if (ehPessoa) await orcCarregarItensPessoa(); else await aplicarCadastroNoCalculo();
     $("orc-perc-desconto").value = Number(o.perc_desconto) || 0;
     recalcularOrcamentoTela();
   } catch (e) {
@@ -7680,7 +7708,7 @@ function renderizarCalcOrcamento() {
       const trava = orcPropostaTravada ? " disabled" : "";
       return `<tr data-orc-linha="${l.chave}">
         <td class="px-2 py-1 font-semibold text-slate-800 whitespace-nowrap" title="${escH((l.descricao_impressao || ""))}">${escH(l.item)}${l.opcional ? ` <span class="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800">opcional</span>${orcPropostaTravada ? "" : ` <button type="button" data-orc-remover="${l.chave}" class="text-rose-500 hover:text-rose-700 text-xs" title="Tirar este item opcional do cálculo">✕</button>`}` : ""}</td>
-        <td class="px-2 py-1 text-right whitespace-nowrap bg-amber-50"><input data-orc-campo="valor_unitario" type="number" min="0" step="0.01" value="${l.valor_unitario}" class="${campo}"${trava} /><span data-c="chg" class="text-amber-600 text-[10px] ml-1"></span></td>
+        <td class="px-2 py-1 text-right whitespace-nowrap bg-amber-50"><input data-orc-campo="valor_unitario" type="number" min="0" step="0.01" value="${l.valor_unitario}" class="${campo}"${trava}${orcModoPessoa() ? " disabled" : ""} /><span data-c="chg" class="text-amber-600 text-[10px] ml-1"></span></td>
         <td class="px-2 py-1 whitespace-nowrap"><span class="text-[11px] px-2 py-0.5 rounded-full ${manual ? "bg-amber-50 text-amber-800" : "bg-slate-100 text-slate-600"}">${escH(l.unidade_sigla || "—")}</span></td>
         <td class="px-2 py-1 text-right whitespace-nowrap ${manual ? "bg-amber-50" : ""}">${manual
           ? `<input data-orc-campo="qtd_manual" type="number" min="0" step="any" value="${l.qtd_manual}" class="w-20 rounded border border-slate-300 bg-white px-1.5 py-0.5 text-right text-xs"${trava} /><span data-c="qtd-extra" class="text-slate-400 text-[10px] ml-1"></span>`
@@ -7695,7 +7723,7 @@ function renderizarCalcOrcamento() {
         <td class="orc-det bg-slate-100 px-2 py-1 text-right" data-c="N"></td><td class="orc-det bg-slate-100 px-2 py-1 text-right" data-c="O"></td>
         <td class="orc-det bg-slate-100 px-2 py-1 text-right" data-c="P"></td></tr>`;
     }).join("");
-    $("orc-calc-tfoot").innerHTML = `<tr class="bg-slate-50 font-semibold"><td colspan="4" class="px-2 py-1.5 text-right">Custo da turma</td><td id="orc-calc-custo" class="px-2 py-1.5 text-right"></td><td colspan="9"></td></tr>`;
+    $("orc-calc-tfoot").innerHTML = `<tr class="bg-slate-50 font-semibold"><td colspan="4" class="px-2 py-1.5 text-right">${orcModoPessoa() ? "Itens com valor zerado (não compõem o preço)" : "Custo da turma"}</td><td id="orc-calc-custo" class="px-2 py-1.5 text-right"></td><td colspan="9"></td></tr>`;
   }
   recalcularOrcamentoTela();
 }
@@ -8952,9 +8980,13 @@ function montarDadosProposta(linha, calc, agora, numero, versao) {
     itens,
     // Orçamento por pessoa (Individual / Encaixe): não há itens de custo; o escopo é uma linha com o treinamento e o valor por pessoa.
     pessoa: !!calc.pessoa, valor_pessoa: calc.pessoa ? r2(calc.valorPessoa) : null,
-    itens_impressao: calc.pessoa
-      ? [`${tipo.nome || "Treinamento"} — ${calc.q.alunos} participante${calc.q.alunos === 1 ? "" : "s"}, valor por pessoa de ${fmtBRL(calc.valorPessoa)}.`]
-      : itensParaImpressaoProposta(itens, orcTemTransporte(itens) ? enderecoTransporteDoOrcamento(linha, emp) : ""),
+    itens_impressao: (() => {
+      const lista = itensParaImpressaoProposta(itens, orcTemTransporte(itens) ? enderecoTransporteDoOrcamento(linha, emp) : "");
+      // por pessoa sem itens para imprimir: uma linha de escopo com o treinamento e o valor por pessoa
+      return calc.pessoa && !lista.length
+        ? [`${tipo.nome || "Treinamento"} — ${calc.q.alunos} participante${calc.q.alunos === 1 ? "" : "s"}, valor por pessoa de ${fmtBRL(calc.valorPessoa)}.`]
+        : lista;
+    })(),
     prazo_pagamento: prazo ? prazo.descricao : "",
     parcelas: parcelasDaProposta(prazo, r2(calc.final)),
     validade_dias: dias, validade_ate: formatarData(ate),
